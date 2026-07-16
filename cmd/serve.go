@@ -96,7 +96,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	appLog.Info("cameras loaded", "count", len(cfg.Cameras))
 
 	for name, cam := range cfg.Cameras {
-		appLog.Info("camera", "name", name, "type", cam.Type, "ip", cam.IP)
+		appLog.Info("camera", "name", name, "type", cam.Type, "ip", cam.IP, "enabled", cam.Enabled)
 	}
 
 	srv := api.New(cfg, reg, store, ttsClient, database)

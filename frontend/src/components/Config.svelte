@@ -33,6 +33,7 @@
   let camPass = $state('')
   let camChannel = $state(1)
   let camStream = $state('')
+  let camEnabled = $state(false)
   let camStatus = $state('')
 
   // Rule form
@@ -135,7 +136,7 @@
         body: JSON.stringify({
           name: camName, type: camType, ip: camIP,
           user: camUser, pass: camPass, channel: parseInt(camChannel) || 1,
-          stream: camStream,
+          stream: camStream, enabled: camEnabled,
         }),
       })
       if (!res.ok) throw new Error(await res.text())
@@ -239,6 +240,20 @@
     camIP = cam.ip
     camChannel = cam.channel || 1
     camStream = cam.stream || ''
+    camEnabled = cam.enabled ?? false
+  }
+
+  async function toggleCamera(cam) {
+    try {
+      const res = await fetch(`/api/config/cameras/${encodeURIComponent(cam.name)}/toggle`, {
+        method: 'PATCH',
+      })
+      if (!res.ok) throw new Error(await res.text())
+      loadConfig()
+      onRefresh?.()
+    } catch (e) {
+      console.error('toggle error:', e)
+    }
   }
 
   function editTTS(p) {
@@ -349,16 +364,24 @@
         <h3 class="mb-3 text-base font-semibold text-primary">Cameras</h3>
         <div class="mb-4 flex flex-col gap-1.5">
           {#each cameras as cam}
-            <div class="flex items-center justify-between rounded-lg border bg-background px-3 py-2">
+            <div class="flex items-center justify-between rounded-lg border bg-background px-3 py-2 {!cam.enabled ? 'opacity-50' : ''}">
               <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={cam.enabled}
+                  onchange={() => toggleCamera(cam)}
+                  class="h-4 w-4 cursor-pointer rounded border-input accent-primary"
+                  title={cam.enabled ? 'Disable' : 'Enable'}
+                />
                 <span class="font-semibold">{cam.name}</span>
                 <span class="text-sm text-muted-foreground">{cam.type}</span>
                 <span class="text-sm text-muted-foreground">{cam.ip}</span>
                 <span class="text-sm text-muted-foreground">ch{cam.channel}</span>
+                {#if !cam.enabled}<span class="text-xs text-muted-foreground italic">disabled</span>{/if}
               </div>
               <div class="flex shrink-0 items-center gap-1">
                 {#if testStatus[cam.name]}<span class="mr-1 text-sm text-primary">{testStatus[cam.name]}</span>{/if}
-                <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => testCamera(cam.name)} title="Test beep">🔔</Button>
+                <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => testCamera(cam.name)} title="Test beep" disabled={!cam.enabled}>🔔</Button>
                 <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => editCamera(cam)} title="Edit">✎</Button>
                 <Button variant="outline" size="sm" class="h-7 px-2 hover:border-destructive hover:text-destructive" onclick={() => deleteCamera(cam.name)} title="Delete">✕</Button>
               </div>
@@ -408,6 +431,10 @@
             </label>
             {/if}
           </div>
+          <label class="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+            <input type="checkbox" bind:checked={camEnabled} class="h-4 w-4 cursor-pointer rounded border-input accent-primary" />
+            Enabled (camera will receive speak/broadcast)
+          </label>
           <Button onclick={saveCamera} disabled={!camName || !camIP} class="mt-3">
             Save Camera
           </Button>

@@ -44,6 +44,9 @@ type Registry struct {
 }
 
 // NewRegistry builds a Registry from config.
+// Only cameras with Enabled=true are registered; disabled cameras are
+// loaded into configs but skipped (they won't appear in Names() or receive
+// speak/broadcast).
 func NewRegistry(cfg *config.Config, ttsClient *tts.Client) (*Registry, error) {
 	r := &Registry{
 		cameras: make(map[string]Speaker),
@@ -52,6 +55,9 @@ func NewRegistry(cfg *config.Config, ttsClient *tts.Client) (*Registry, error) {
 	}
 
 	for name, cam := range cfg.Cameras {
+		if !cam.Enabled {
+			continue
+		}
 		switch cam.Type {
 		case "hikvision":
 			r.cameras[name] = NewHikvisionClient(cam.IP, cam.User, cam.Pass, cam.Channel)

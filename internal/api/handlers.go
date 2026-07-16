@@ -210,12 +210,15 @@ func (h *Handlers) Broadcast(c echo.Context) error {
 	})
 }
 
-// Cameras handles GET /api/cameras.
+// Cameras handles GET /api/cameras — returns only enabled cameras.
 func (h *Handlers) Cameras(c echo.Context) error {
 	status := h.reg.Status()
 
 	out := make([]map[string]any, 0)
 	for name, cfg := range h.cfg.Cameras {
+		if !cfg.Enabled {
+			continue
+		}
 		out = append(out, map[string]any{
 			"name":   name,
 			"type":   cfg.Type,

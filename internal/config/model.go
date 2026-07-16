@@ -30,6 +30,7 @@ type CameraConfig struct {
 	Pass    string `json:"pass"`
 	Channel int    `json:"channel"` // Hikvision audio channel, default 1
 	Stream  string `json:"stream"`  // go2rtc stream name (e.g. "garage_2way") or RTSP path for onvif
+	Enabled bool   `json:"enabled"` // if false, camera is loaded but skipped for speak/broadcast
 }
 
 // MQTTConfig holds connection details for the MQTT broker.
@@ -242,7 +243,7 @@ func seedDefaultPresets(db *sql.DB) {
 // loadCameras loads camera configurations from SQLite.
 func loadCameras(db *sql.DB, cfg *Config) {
 	rows, err := db.Query(
-		`SELECT name, type, ip, user, pass, channel, stream FROM cameras`,
+		`SELECT name, type, ip, user, pass, channel, stream, enabled FROM cameras`,
 	)
 	if err != nil {
 		return
@@ -252,9 +253,11 @@ func loadCameras(db *sql.DB, cfg *Config) {
 	for rows.Next() {
 		var cam CameraConfig
 		var name string
-		if err := rows.Scan(&name, &cam.Type, &cam.IP, &cam.User, &cam.Pass, &cam.Channel, &cam.Stream); err != nil {
+		var enabled int
+		if err := rows.Scan(&name, &cam.Type, &cam.IP, &cam.User, &cam.Pass, &cam.Channel, &cam.Stream, &enabled); err != nil {
 			continue
 		}
+		cam.Enabled = enabled == 1
 		cfg.Cameras[name] = cam
 	}
 }
@@ -361,13 +364,18 @@ func SetPreference(db *sql.DB, key, value string) error {
 
 // SaveCamera inserts or updates a camera in SQLite.
 func SaveCamera(db *sql.DB, name string, cam CameraConfig) error {
+	enabled := 0
+	if cam.Enabled {
+		enabled = 1
+	}
 	_, err := db.Exec(
-		`INSERT INTO cameras (name, type, ip, user, pass, channel, stream)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO cameras (name, type, ip, user, pass, channel, stream, enabled)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(name) DO UPDATE SET
 		   type = excluded.type, ip = excluded.ip, user = excluded.user,
-		   pass = excluded.pass, channel = excluded.channel, stream = excluded.stream`,
-		name, cam.Type, cam.IP, cam.User, cam.Pass, cam.Channel, cam.Stream,
+		   pass = excluded.pass, channel = excluded.channel, stream = excluded.stream,
+		   enabled = excluded.enabled`,
+		name, cam.Type, cam.IP, cam.User, cam.Pass, cam.Channel, cam.Stream, enabled,
 	)
 	if err != nil {
 		return fmt.Errorf("saving camera %s: %w", name, err)

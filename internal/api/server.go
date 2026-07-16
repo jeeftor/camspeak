@@ -100,6 +100,7 @@ func New(
 			http.MethodGet,
 			http.MethodPost,
 			http.MethodPut,
+			http.MethodPatch,
 			http.MethodDelete,
 			http.MethodOptions,
 		},
@@ -131,6 +132,7 @@ func New(
 	api.POST("/config/tts/:name/activate", h.ActivateTTSPreset)
 	api.GET("/config/cameras", h.ListCamerasConfig)
 	api.POST("/config/cameras", h.CreateCamera)
+	api.PATCH("/config/cameras/:name/toggle", h.ToggleCamera)
 	api.DELETE("/config/cameras/:name", h.DeleteCameraConfig)
 	api.GET("/config/rules", h.ListRules)
 	api.POST("/config/rules", h.CreateRule)

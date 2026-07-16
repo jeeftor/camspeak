@@ -100,6 +100,7 @@ func (h *Handlers) ListCamerasConfig(c echo.Context) error {
 			"ip":      cam.IP,
 			"channel": cam.Channel,
 			"stream":  cam.Stream,
+			"enabled": cam.Enabled,
 		})
 	}
 	return c.JSON(http.StatusOK, cameras)
@@ -115,6 +116,7 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 		Pass    string `json:"pass"`
 		Channel int    `json:"channel"`
 		Stream  string `json:"stream"`
+		Enabled *bool  `json:"enabled"` // pointer so we can distinguish unset from false
 	}
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid JSON body")
@@ -128,6 +130,13 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 	if req.Channel == 0 {
 		req.Channel = 1
 	}
+	// If editing an existing camera and enabled isn't specified, preserve current value
+	enabled := false
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	} else if existing, ok := h.cfg.Cameras[req.Name]; ok {
+		enabled = existing.Enabled
+	}
 	cam := config.CameraConfig{
 		Type:    req.Type,
 		IP:      req.IP,
@@ -135,18 +144,21 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 		Pass:    req.Pass,
 		Channel: req.Channel,
 		Stream:  req.Stream,
+		Enabled: enabled,
 	}
 	if err := config.SaveCamera(h.db, req.Name, cam); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	// Update running config
 	h.cfg.Cameras[req.Name] = cam
+	h.log.Info("camera saved", "name", req.Name, "type", req.Type, "enabled", enabled)
 	return c.JSON(http.StatusCreated, map[string]interface{}{
 		"name":    req.Name,
 		"type":    req.Type,
 		"ip":      req.IP,
 		"channel": req.Channel,
 		"stream":  req.Stream,
+		"enabled": enabled,
 	})
 }
 
@@ -158,6 +170,25 @@ func (h *Handlers) DeleteCameraConfig(c echo.Context) error {
 	}
 	delete(h.cfg.Cameras, name)
 	return c.JSON(http.StatusOK, map[string]string{"deleted": name})
+}
+
+// ToggleCamera handles PATCH /api/config/cameras/:name/toggle — enables/disables a camera.
+func (h *Handlers) ToggleCamera(c echo.Context) error {
+	name := c.Param("name")
+	cam, ok := h.cfg.Cameras[name]
+	if !ok {
+		return echo.NewHTTPError(http.StatusNotFound, "camera not found")
+	}
+	cam.Enabled = !cam.Enabled
+	if err := config.SaveCamera(h.db, name, cam); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	h.cfg.Cameras[name] = cam
+	h.log.Info("camera toggled", "name", name, "enabled", cam.Enabled)
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"name":    name,
+		"enabled": cam.Enabled,
+	})
 }
 
 // ListRules handles GET /api/config/rules — returns all MQTT rules.
