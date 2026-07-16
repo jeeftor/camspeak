@@ -4,6 +4,7 @@
   import Library from './components/Library.svelte'
   import EventLog from './components/EventLog.svelte'
   import BroadcastBar from './components/BroadcastBar.svelte'
+  import Config from './components/Config.svelte'
 
   let tab = $state('cameras')
   let cameras = $state([])
@@ -31,6 +32,7 @@
       <button class:active={tab === 'cameras'} onclick={() => tab = 'cameras'}>Cameras</button>
       <button class:active={tab === 'library'} onclick={() => tab = 'library'}>Library</button>
       <button class:active={tab === 'events'} onclick={() => tab = 'events'}>Events</button>
+      <button class:active={tab === 'config'} onclick={() => tab = 'config'}>Config</button>
     </nav>
   </header>
 
@@ -41,6 +43,8 @@
       <CameraGrid {cameras} {voices} {presets} onRefresh={loadAll} />
     {:else if tab === 'library'}
       <Library {presets} {voices} onRefresh={loadAll} />
+    {:else if tab === 'config'}
+      <Config onRefresh={loadAll} />
     {:else}
       <EventLog />
     {/if}
