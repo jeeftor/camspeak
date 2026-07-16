@@ -20,12 +20,14 @@
   let uploadBusy = $state(false)
   let uploadStatus = $state('')
 
-  // Group presets by category
+  // Group presets by category, excluding transient _tmp presets
   let grouped = $derived(
-    presets.reduce((acc, p) => {
-      ;(acc[p.category] ??= []).push(p)
-      return acc
-    }, {})
+    presets
+      .filter(p => p.category !== '_tmp')
+      .reduce((acc, p) => {
+        ;(acc[p.category] ??= []).push(p)
+        return acc
+      }, {})
   )
 
   async function generate() {
@@ -76,11 +78,34 @@
     onRefresh()
   }
 
+  let currentAudio = $state(null)
+  let playingKey = $state('')
+
   function preview(category, name) {
-    const a = document.createElement('a')
-    a.href = `/api/library/${category}/${name}/preview`
-    a.target = '_blank'
-    a.click()
+    const key = `${category}/${name}`
+    // If already playing this, stop it
+    if (playingKey === key && currentAudio) {
+      currentAudio.pause()
+      currentAudio = null
+      playingKey = ''
+      return
+    }
+    // Stop any existing audio
+    if (currentAudio) {
+      currentAudio.pause()
+    }
+    // Play in-browser via HTML5 audio
+    currentAudio = new Audio(`/api/library/${category}/${name}/preview`)
+    currentAudio.onended = () => {
+      playingKey = ''
+      currentAudio = null
+    }
+    currentAudio.onerror = () => {
+      playingKey = ''
+      currentAudio = null
+    }
+    currentAudio.play()
+    playingKey = key
   }
 
   const libTabs = [
@@ -119,7 +144,9 @@
                   {#if p.text}<span class="truncate text-sm italic text-muted-foreground">"{p.text}"</span>{/if}
                 </div>
                 <div class="flex shrink-0 gap-1">
-                  <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => preview(p.category, p.name)} title="Preview">▶</Button>
+                  <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => preview(p.category, p.name)} title="Preview">
+                    {playingKey === `${p.category}/${p.name}` ? '⏸' : '▶'}
+                  </Button>
                   <Button variant="outline" size="sm" class="h-7 px-2 hover:border-destructive hover:text-destructive" onclick={() => deletePreset(p.category, p.name)} title="Delete">✕</Button>
                 </div>
               </div>
