@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	clog "github.com/charmbracelet/log"
 	"github.com/labstack/echo/v4"
@@ -58,6 +59,13 @@ func New(
 	ttsClient *tts.Client,
 	database *sql.DB,
 ) *Server {
+	// Create tmp dir under the data dir so temp files survive container
+	// restarts and live on the same persistent volume as the library.
+	tmpDir := filepath.Join(cfg.Library, "..", "tmp")
+	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+		tmpDir = "" // fall back to os temp
+	}
+
 	h := &Handlers{
 		cfg:    cfg,
 		reg:    reg,
@@ -65,6 +73,7 @@ func New(
 		tts:    ttsClient,
 		events: newEventBus(store.DB()),
 		db:     database,
+		tmpDir: tmpDir,
 		log:    clog.NewWithOptions(os.Stderr, clog.Options{Prefix: "api", Level: apiLogLevel}),
 	}
 

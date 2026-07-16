@@ -51,7 +51,7 @@ var listCmd = &cobra.Command{
 			if libDir == "/config/library" {
 				libDir = filepath.Join(dir, "library")
 			}
-			store, err := library.NewStore(libDir)
+			store, err := library.NewStore(libDir, "")
 			if err != nil {
 				return err
 			}

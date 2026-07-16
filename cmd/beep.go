@@ -39,7 +39,7 @@ var beepCmd = &cobra.Command{
 			return err
 		}
 
-		raw, err := api.GenerateBeep()
+		raw, err := api.GenerateBeep("")
 		if err != nil {
 			return err
 		}

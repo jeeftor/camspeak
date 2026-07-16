@@ -198,7 +198,7 @@ func buildMCPServer(h *Handlers) *server.MCPServer {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
 
-			raw, err := GenerateBeep()
+			raw, err := GenerateBeep(h.tmpDir)
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}

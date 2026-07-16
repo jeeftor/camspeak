@@ -28,8 +28,8 @@ func sanitizeFilename(name string) string {
 }
 
 // GenerateBeep creates a temporary 800Hz 2s G.711ulaw raw file via ffmpeg.
-func GenerateBeep() (string, error) {
-	wav, err := os.CreateTemp("", "camspeak_beep_*.wav")
+func GenerateBeep(tmpDir string) (string, error) {
+	wav, err := os.CreateTemp(tmpDir, "camspeak_beep_*.wav")
 	if err != nil {
 		return "", fmt.Errorf("creating temp file: %w", err)
 	}
@@ -39,7 +39,7 @@ func GenerateBeep() (string, error) {
 
 	defer os.Remove(wavName)
 
-	raw, err := os.CreateTemp("", "camspeak_beep_*.raw")
+	raw, err := os.CreateTemp(tmpDir, "camspeak_beep_*.raw")
 	if err != nil {
 		return "", err
 	}
@@ -72,8 +72,8 @@ func GenerateBeep() (string, error) {
 }
 
 // rawToWAV converts a G.711ulaw raw file back to WAV for browser preview.
-func rawToWAV(rawFile string) (string, error) {
-	wav, err := os.CreateTemp("", "camspeak_preview_*.wav")
+func rawToWAV(rawFile, tmpDir string) (string, error) {
+	wav, err := os.CreateTemp(tmpDir, "camspeak_preview_*.wav")
 	if err != nil {
 		return "", err
 	}

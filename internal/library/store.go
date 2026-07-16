@@ -34,15 +34,23 @@ type Preset struct {
 
 // Store manages the preset library on disk + SQLite metadata.
 type Store struct {
-	dir string
-	db  *sql.DB
+	dir    string
+	tmpDir string
+	db     *sql.DB
 }
 
 // NewStore creates a Store rooted at dir (created if missing).
 // A SQLite database is opened at dir/camspeak.db.
-func NewStore(dir string) (*Store, error) {
+// Temp files are written to tmpDir (created if missing).
+func NewStore(dir, tmpDir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("creating library dir: %w", err)
+	}
+
+	if tmpDir != "" {
+		if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+			tmpDir = "" // fall back to os temp
+		}
 	}
 
 	dbPath := filepath.Join(dir, "camspeak.db")
@@ -52,7 +60,7 @@ func NewStore(dir string) (*Store, error) {
 		return nil, fmt.Errorf("opening preset database: %w", err)
 	}
 
-	return &Store{dir: dir, db: database}, nil
+	return &Store{dir: dir, tmpDir: tmpDir, db: database}, nil
 }
 
 // Close closes the underlying database connection.
@@ -78,7 +86,7 @@ func (s *Store) Save(category, name, text, voice string, wavData []byte) (*Prese
 	}
 
 	// Write WAV to temp file
-	tmp, err := os.CreateTemp("", "camspeak_*.wav")
+	tmp, err := os.CreateTemp(s.tmpDir, "camspeak_*.wav")
 	if err != nil {
 		return nil, fmt.Errorf("creating temp file: %w", err)
 	}

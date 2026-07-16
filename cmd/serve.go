@@ -83,7 +83,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	ttsClient := tts.NewClient(cfg.TTS.URL, cfg.TTS.Model)
 
-	store, err := library.NewStore(cfg.Library)
+	tmpDir := filepath.Join(dir, "tmp")
+	store, err := library.NewStore(cfg.Library, tmpDir)
 	if err != nil {
 		return fmt.Errorf("library: %w", err)
 	}

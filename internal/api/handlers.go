@@ -28,6 +28,7 @@ type Handlers struct {
 	tts    *tts.Client
 	events *eventBus
 	db     *sql.DB
+	tmpDir string
 	log    *clog.Logger
 }
 
@@ -118,7 +119,7 @@ func (h *Handlers) Beep(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
 
-	raw, err := GenerateBeep()
+	raw, err := GenerateBeep(h.tmpDir)
 	if err != nil {
 		h.log.Error("beep: generating tone failed", "camera", req.Camera, "err", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -310,7 +311,7 @@ func (h *Handlers) UploadPreset(c echo.Context) error {
 	// Sanitize filename for temp file pattern (strip path separators, wildcards)
 	safeName := sanitizeFilename(file.Filename)
 
-	tmp, err := os.CreateTemp("", "camspeak_upload_*_"+safeName)
+	tmp, err := os.CreateTemp(h.tmpDir, "camspeak_upload_*_"+safeName)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
@@ -349,7 +350,7 @@ func (h *Handlers) PreviewPreset(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
 	// Convert raw → WAV on the fly for browser preview
-	wav, err := rawToWAV(preset.RawPath)
+	wav, err := rawToWAV(preset.RawPath, h.tmpDir)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}

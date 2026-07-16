@@ -43,7 +43,7 @@ var speakCmd = &cobra.Command{
 		if libDir == "/config/library" {
 			libDir = filepath.Join(dir, "library")
 		}
-		store, err := library.NewStore(libDir)
+		store, err := library.NewStore(libDir, filepath.Join(dir, "tmp"))
 		if err != nil {
 			return err
 		}
