@@ -31,16 +31,18 @@ func (c *ReolinkClient) SendRaw(rawFile string) error {
 }
 
 // Ping checks if the Reolink camera HTTP API is reachable on port 80.
+// Falls back to a raw TCP connect if the HTTP request fails.
 func (c *ReolinkClient) Ping() bool {
-	client := &http.Client{Timeout: 3 * time.Second}
+	client := &http.Client{Timeout: 5 * time.Second}
 	url := fmt.Sprintf("http://%s/cgi-bin/api.cgi?cmd=GetDevInfo", c.ip)
 
 	resp, err := client.Get(url)
-	if err != nil {
-		return false
+	if err == nil {
+		resp.Body.Close()
+		// Any HTTP response means the camera is reachable
+		return resp.StatusCode < 500
 	}
 
-	resp.Body.Close()
-
-	return resp.StatusCode == http.StatusOK
+	// Fallback: raw TCP connect
+	return tcpPing(c.ip, 80, 3*time.Second)
 }

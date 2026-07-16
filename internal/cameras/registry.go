@@ -2,7 +2,9 @@ package cameras
 
 import (
 	"fmt"
+	"net"
 	"os/exec"
+	"time"
 
 	"github.com/jeeftor/camspeak/internal/config"
 	"github.com/jeeftor/camspeak/internal/tts"
@@ -78,4 +80,16 @@ func FFmpegAvailable() bool {
 	_, err := exec.LookPath("ffmpeg")
 
 	return err == nil
+}
+
+// tcpPing checks if a TCP port is reachable within the given timeout.
+// Used as a fallback when HTTP pings fail (e.g. wrong credentials but
+// camera is still on the network).
+func tcpPing(ip string, port int, timeout time.Duration) bool {
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", ip, port), timeout)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
 }

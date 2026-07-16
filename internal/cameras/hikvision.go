@@ -155,7 +155,11 @@ func (c *HikvisionClient) SendRaw(rawFile string) error {
 }
 
 // Ping checks if the camera ISAPI is reachable.
+// Uses digest auth to hit /ISAPI/System/deviceInfo with a 5s timeout.
+// Falls back to a raw TCP connect check if the HTTP request fails
+// (e.g. wrong credentials but camera is still on the network).
 func (c *HikvisionClient) Ping() bool {
+	// Try authenticated ISAPI request first
 	req, err := http.NewRequest(http.MethodGet,
 		fmt.Sprintf("http://%s/ISAPI/System/deviceInfo", c.ip), nil)
 	if err != nil {
@@ -164,17 +168,19 @@ func (c *HikvisionClient) Ping() bool {
 
 	client := &http.Client{
 		Transport: &digest.Transport{Username: c.user, Password: c.pass},
-		Timeout:   3 * time.Second,
+		Timeout:   5 * time.Second,
 	}
 
 	resp, err := client.Do(req)
-	if err != nil {
-		return false
+	if err == nil {
+		resp.Body.Close()
+		// 200 = fully online with valid creds
+		// 401 = camera is reachable but creds are wrong — still "online"
+		return resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusUnauthorized
 	}
 
-	resp.Body.Close()
-
-	return resp.StatusCode == http.StatusOK
+	// Fallback: raw TCP connect to port 80
+	return tcpPing(c.ip, 80, 3*time.Second)
 }
 
 // throttledReader wraps an io.Reader and rate-limits reads to bytesPerSec bytes/sec.
