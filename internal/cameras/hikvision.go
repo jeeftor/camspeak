@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	clog "github.com/charmbracelet/log"
@@ -23,6 +24,7 @@ type HikvisionClient struct {
 	pass    string
 	channel int
 	client  *http.Client
+	mu      sync.Mutex // serializes audio sends — camera supports one session at a time
 	log     *clog.Logger
 }
 
@@ -112,6 +114,9 @@ func (c *HikvisionClient) closeChannel(sessionID string) {
 // bytes/sec before reading the response — matching curl's behavior
 // with --limit-rate.
 func (c *HikvisionClient) SendRaw(rawFile string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	data, err := os.ReadFile(rawFile)
 	if err != nil {
 		return fmt.Errorf("reading audio file: %w", err)
