@@ -11,16 +11,20 @@
   let cameras = $state([])
   let voices = $state([])
   let presets = $state([])
+  let version = $state('')
 
   async function loadAll() {
-    const [camRes, voiceRes, presetRes] = await Promise.all([
+    const [camRes, voiceRes, presetRes, healthRes] = await Promise.all([
       fetch('/api/cameras'),
       fetch('/api/voices'),
       fetch('/api/library'),
+      fetch('/api/health'),
     ])
     cameras = await camRes.json() ?? []
     voices = await voiceRes.json() ?? []
     presets = await presetRes.json() ?? []
+    const health = await healthRes.json() ?? {}
+    version = health.version ?? ''
   }
 
   onMount(loadAll)
@@ -47,6 +51,9 @@
         </Button>
       {/each}
     </nav>
+    {#if version}
+      <span class="ml-auto text-xs text-muted-foreground font-mono">v{version}</span>
+    {/if}
   </header>
 
   <BroadcastBar {voices} {presets} />
