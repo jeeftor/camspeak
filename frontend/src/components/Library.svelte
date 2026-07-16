@@ -35,6 +35,7 @@
     genBusy = true; genStatus = ''
     // Clear previous audio
     if (genAudio) { URL.revokeObjectURL(genAudio); genAudio = null }
+    genPlaying = false
     try {
       const res = await fetch('/api/tts/preview', {
         method: 'POST',
@@ -44,7 +45,12 @@
       if (!res.ok) throw new Error(await res.text())
       const blob = await res.blob()
       genAudio = URL.createObjectURL(blob)
-      genStatus = '✓ Generated — preview or save'
+      genStatus = '✓ Playing…'
+      // Autoplay immediately
+      genAudioEl = new Audio(genAudio)
+      genAudioEl.onended = () => { genPlaying = false }
+      genAudioEl.play()
+      genPlaying = true
     } catch (e) {
       genStatus = '✗ ' + e.message
     } finally {
@@ -53,19 +59,15 @@
     }
   }
 
-  let genAudioEl = $state(null)
-
-  function previewGen() {
-    if (!genAudio) return
+  function togglePreview() {
+    if (!genAudio || !genAudioEl) return
     if (genPlaying) {
-      genAudioEl?.pause()
+      genAudioEl.pause()
       genPlaying = false
-      return
+    } else {
+      genAudioEl.play()
+      genPlaying = true
     }
-    genAudioEl = new Audio(genAudio)
-    genAudioEl.onended = () => { genPlaying = false }
-    genAudioEl.play()
-    genPlaying = true
   }
 
   async function save() {
@@ -214,11 +216,13 @@
       </label>
       <div class="flex gap-2">
         <Button onclick={generate} disabled={genBusy || !genText}>
-          {genBusy ? 'Generating…' : '✨ Generate'}
+          {genBusy ? 'Generating…' : '✨ Generate & Preview'}
         </Button>
-        <Button variant="outline" onclick={previewGen} disabled={!genAudio}>
-          {genPlaying ? '⏸ Stop' : '▶ Preview'}
-        </Button>
+        {#if genAudio}
+          <Button variant="outline" onclick={togglePreview}>
+            {genPlaying ? '⏸' : '▶'}
+          </Button>
+        {/if}
       </div>
       {#if genAudio}
         <div class="rounded-lg border border-dashed border-primary/40 bg-primary/5 p-3">
