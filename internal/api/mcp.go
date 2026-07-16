@@ -37,7 +37,7 @@ func buildMCPServer(h *Handlers) *server.MCPServer {
 				return mcp.NewToolResultError("camera and text required"), nil
 			}
 
-			err := h.speakText(camera, text, voice)
+			err := h.speakText(camera, text, voice, 3.0)
 
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
