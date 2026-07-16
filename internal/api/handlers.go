@@ -510,15 +510,15 @@ func (h *Handlers) speakText(cameraName, text, voice string) error {
 	}
 	h.log.Debug("speak: TTS generated", "camera", cameraName, "voice", voice, "wav_bytes", len(wav), "elapsed", time.Since(ttsStart))
 
-	raw, err := h.store.Save("_tmp", fmt.Sprintf("tmp_%d", time.Now().UnixNano()), text, voice, wav)
+	rawPath, err := wavBytesToRaw(wav, h.tmpDir)
 	if err != nil {
 		return fmt.Errorf("transcoding: %w", err)
 	}
-	defer os.Remove(raw.RawPath)
+	defer os.Remove(rawPath)
 
-	h.log.Debug("speak: sending to camera", "camera", cameraName, "raw_bytes", raw.Size, "duration_ms", int(raw.Duration*1000))
+	h.log.Debug("speak: sending to camera", "camera", cameraName)
 	sendStart := time.Now()
-	if err := cam.SendRaw(raw.RawPath); err != nil {
+	if err := cam.SendRaw(rawPath); err != nil {
 		return fmt.Errorf("sending to camera: %w", err)
 	}
 	h.log.Debug("speak: camera send complete", "camera", cameraName, "elapsed", time.Since(sendStart))

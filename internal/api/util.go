@@ -71,6 +71,37 @@ func GenerateBeep(tmpDir string) (string, error) {
 	return rawName, nil
 }
 
+// wavBytesToRaw writes WAV bytes to a temp file, transcodes to G.711ulaw raw, returns the raw path.
+// Caller must os.Remove the returned path.
+func wavBytesToRaw(wavBytes []byte, tmpDir string) (string, error) {
+	wav, err := os.CreateTemp(tmpDir, "camspeak_tts_*.wav")
+	if err != nil {
+		return "", err
+	}
+	wavName := wav.Name()
+	defer os.Remove(wavName)
+
+	if _, err := wav.Write(wavBytes); err != nil {
+		wav.Close()
+		return "", err
+	}
+	wav.Close()
+
+	raw, err := os.CreateTemp(tmpDir, "camspeak_tts_*.raw")
+	if err != nil {
+		return "", err
+	}
+	rawName := raw.Name()
+	raw.Close()
+
+	if err := transcodeFileToRaw(wavName, rawName); err != nil {
+		os.Remove(rawName)
+		return "", err
+	}
+
+	return rawName, nil
+}
+
 // rawToWAV converts a G.711ulaw raw file back to WAV for browser preview.
 func rawToWAV(rawFile, tmpDir string) (string, error) {
 	wav, err := os.CreateTemp(tmpDir, "camspeak_preview_*.wav")
