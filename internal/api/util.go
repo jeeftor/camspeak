@@ -72,8 +72,8 @@ func GenerateBeep(tmpDir string) (string, error) {
 }
 
 // wavBytesToRaw writes WAV bytes to a temp file, transcodes to G.711ulaw raw, returns the raw path.
-// Caller must os.Remove the returned path.
-func wavBytesToRaw(wavBytes []byte, tmpDir string) (string, error) {
+// gain controls the volume multiplier (1.0 = no boost). Caller must os.Remove the returned path.
+func wavBytesToRaw(wavBytes []byte, tmpDir string, gain float64) (string, error) {
 	wav, err := os.CreateTemp(tmpDir, "camspeak_tts_*.wav")
 	if err != nil {
 		return "", err
@@ -94,7 +94,7 @@ func wavBytesToRaw(wavBytes []byte, tmpDir string) (string, error) {
 	rawName := raw.Name()
 	raw.Close()
 
-	if err := transcodeFileToRaw(wavName, rawName); err != nil {
+	if err := transcodeFileToRawGain(wavName, rawName, gain); err != nil {
 		os.Remove(rawName)
 		return "", err
 	}
@@ -126,11 +126,17 @@ func rawToWAV(rawFile, tmpDir string) (string, error) {
 }
 
 // transcodeFileToRaw converts any audio file to G.711ulaw 8kHz raw via ffmpeg.
-// Applies a 3x volume boost and loudnorm for consistent levels.
+// Uses a default 3x volume boost.
 func transcodeFileToRaw(src, dst string) error {
+	return transcodeFileToRawGain(src, dst, 3.0)
+}
+
+// transcodeFileToRawGain converts any audio file to G.711ulaw 8kHz raw with a given gain.
+func transcodeFileToRawGain(src, dst string, gain float64) error {
+	af := fmt.Sprintf("volume=%.1f", gain)
 	cmd := exec.Command("ffmpeg", "-y",
 		"-i", src,
-		"-af", "volume=3.0,loudnorm=I=-16:TP=-1.5:LRA=11",
+		"-af", af,
 		"-ar", "8000",
 		"-ac", "1",
 		"-c:a", "pcm_mulaw",
