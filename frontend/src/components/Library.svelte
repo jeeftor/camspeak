@@ -20,14 +20,12 @@
   let uploadBusy = $state(false)
   let uploadStatus = $state('')
 
-  // Group presets by category, excluding transient _tmp presets
+  // Group presets by category
   let grouped = $derived(
-    presets
-      .filter(p => p.category !== '_tmp')
-      .reduce((acc, p) => {
-        ;(acc[p.category] ??= []).push(p)
-        return acc
-      }, {})
+    presets.reduce((acc, p) => {
+      ;(acc[p.category] ??= []).push(p)
+      return acc
+    }, {})
   )
 
   async function generate() {

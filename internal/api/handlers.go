@@ -242,7 +242,16 @@ func (h *Handlers) ListLibrary(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	return c.JSON(http.StatusOK, presets)
+	// Filter out transient _tmp presets (created by ad-hoc speak, raw files
+	// are deleted immediately but DB rows linger).
+	filtered := presets[:0]
+	for _, p := range presets {
+		if p.Category != "_tmp" {
+			filtered = append(filtered, p)
+		}
+	}
+
+	return c.JSON(http.StatusOK, filtered)
 }
 
 // GeneratePreset handles POST /api/library — TTS → save preset.
