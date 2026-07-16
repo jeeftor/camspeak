@@ -64,7 +64,7 @@ func buildMCPServer(h *Handlers) *server.MCPServer {
 				return mcp.NewToolResultError("camera and preset required"), nil
 			}
 
-			err := h.playPreset(camera, category, preset)
+			err := h.playPreset(camera, category, preset, 3.0)
 
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
