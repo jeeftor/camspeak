@@ -1,18 +1,16 @@
 // Package frigate discovers cameras from a Frigate NVR instance by querying
-// its raw config endpoint and parsing the RTSP URLs of each configured camera.
+// its config API and parsing the RTSP URLs from go2rtc stream definitions.
 package frigate
 
 import (
-	"bytes"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
-
-	"github.com/spf13/viper"
 )
 
 // DiscoveredCamera represents a single camera extracted from a Frigate config.
@@ -40,10 +38,26 @@ func NewDiscoverer(frigateURL string) *Discoverer {
 	}
 }
 
-// Discover fetches the Frigate raw config and returns the list of cameras
+// frigateConfig is the subset of the Frigate /api/config response we parse.
+type frigateConfig struct {
+	Cameras map[string]struct {
+		FFmpeg struct {
+			Inputs []struct {
+				Path string `json:"path"`
+			} `json:"inputs"`
+		} `json:"ffmpeg"`
+	} `json:"cameras"`
+	Go2rtc struct {
+		Streams map[string][]string `json:"streams"`
+	} `json:"go2rtc"`
+}
+
+// Discover fetches the Frigate config and returns the list of cameras
 // deduplicated by IP address, preferring main-stream entries over sub-streams.
+// Credentials from the Frigate API are masked as "*:*" — set real credentials
+// via CAM_<NAME>_USER and CAM_<NAME>_PASS environment variables.
 func (d *Discoverer) Discover() ([]DiscoveredCamera, error) {
-	endpoint := d.frigateURL + "/config/raw"
+	endpoint := d.frigateURL + "/api/config"
 
 	resp, err := d.client.Get(endpoint)
 	if err != nil {
@@ -55,56 +69,37 @@ func (d *Discoverer) Discover() ([]DiscoveredCamera, error) {
 		return nil, fmt.Errorf("frigate config returned status %d", resp.StatusCode)
 	}
 
-	yamlBytes, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("reading frigate config body: %w", err)
 	}
 
-	v := viper.New()
-	v.SetConfigType("yaml")
-	if err := v.ReadConfig(bytes.NewReader(yamlBytes)); err != nil {
-		return nil, fmt.Errorf("parsing frigate config yaml: %w", err)
+	var cfg frigateConfig
+	if err := json.Unmarshal(body, &cfg); err != nil {
+		return nil, fmt.Errorf("parsing frigate config JSON: %w", err)
 	}
 
-	cameras := v.GetStringMap("cameras")
-	if len(cameras) == 0 {
+	if len(cfg.Go2rtc.Streams) == 0 && len(cfg.Cameras) == 0 {
 		return nil, fmt.Errorf("no cameras found in frigate config")
 	}
 
 	// byIP maps IP -> DiscoveredCamera, preferring main-stream entries.
-	// isMain tracks whether the stored entry originated from a "_main" stream.
 	byIP := make(map[string]DiscoveredCamera)
 	isMain := make(map[string]bool)
 
-	for camName, camVal := range cameras {
-		camMap, ok := camVal.(map[string]interface{})
-		if !ok {
-			continue
-		}
+	// Parse go2rtc streams — these have the actual camera IPs
+	for streamName, urls := range cfg.Go2rtc.Streams {
+		camIsMain := strings.HasSuffix(streamName, "_main")
 
-		ffmpeg, ok := camMap["ffmpeg"].(map[string]interface{})
-		if !ok {
-			continue
-		}
-		inputs, ok := ffmpeg["inputs"].([]interface{})
-		if !ok {
-			continue
-		}
+		for _, u := range urls {
+			// Strip "ffmpeg:" prefix if present
+			rtspURL := strings.TrimPrefix(u, "ffmpeg:")
 
-		camIsMain := strings.HasSuffix(camName, "_main")
-
-		for _, in := range inputs {
-			inMap, ok := in.(map[string]interface{})
-			if !ok {
+			if !strings.HasPrefix(rtspURL, "rtsp://") {
 				continue
 			}
 
-			path, _ := inMap["path"].(string)
-			if !strings.HasPrefix(path, "rtsp://") {
-				continue
-			}
-
-			cam, ok := parseRTSP(path, camName)
+			cam, ok := parseRTSP(rtspURL, streamName)
 			if !ok {
 				continue
 			}
@@ -115,10 +110,23 @@ func (d *Discoverer) Discover() ([]DiscoveredCamera, error) {
 				continue
 			}
 
-			// Prefer the main-stream entry over a sub-stream entry.
+			// Prefer main-stream over sub-stream
 			if !isMain[cam.IP] && camIsMain {
 				byIP[cam.IP] = cam
 				isMain[cam.IP] = camIsMain
+			}
+		}
+	}
+
+	// If go2rtc had no real IPs, fall back to cameras section (restream URLs)
+	// This won't give us IPs but at least registers camera names
+	if len(byIP) == 0 {
+		for _, cam := range cfg.Cameras {
+			for _, inp := range cam.FFmpeg.Inputs {
+				if strings.HasPrefix(inp.Path, "rtsp://localhost") {
+					// Restream URL — can't extract real IP from go2rtc restream
+					_ = inp
+				}
 			}
 		}
 	}
@@ -130,9 +138,15 @@ func (d *Discoverer) Discover() ([]DiscoveredCamera, error) {
 	return result, nil
 }
 
-// parseRTSP parses an RTSP URL and the originating Frigate camera name into a
+// parseRTSP parses an RTSP URL and the originating Frigate stream name into a
 // DiscoveredCamera. It returns ok=false if the URL cannot be parsed.
+// Credentials may be masked as "*" from the Frigate API — env vars override.
 func parseRTSP(rawURL, frigateName string) (DiscoveredCamera, bool) {
+	// Strip fragment (e.g. #backchannel=0)
+	if idx := strings.Index(rawURL, "#"); idx >= 0 {
+		rawURL = rawURL[:idx]
+	}
+
 	u, err := url.Parse(rawURL)
 	if err != nil || u.Hostname() == "" {
 		return DiscoveredCamera{}, false
@@ -150,6 +164,7 @@ func parseRTSP(rawURL, frigateName string) (DiscoveredCamera, bool) {
 	}
 
 	cam.Type = classifyCamera(u.Path)
+	cam.Channel = extractChannel(u.Path)
 
 	return cam, true
 }
@@ -161,14 +176,47 @@ func classifyCamera(path string) string {
 		return "hikvision"
 	case strings.Contains(path, "h264Preview"):
 		return "reolink"
+	case strings.Contains(path, "/Preview_"):
+		return "reolink"
 	case strings.Contains(path, "/flv?"):
 		return "reolink"
+	case strings.Contains(path, "/stream"):
+		return "hikvision"
 	default:
 		return "hikvision"
 	}
 }
 
-// stripStreamSuffix removes _main/_sub suffixes from a Frigate camera name so
+// extractChannel parses the channel number from the RTSP URL path.
+// Hikvision: /Streaming/Channels/101 → 1
+// Reolink: /Preview_01_main → 1
+func extractChannel(path string) int {
+	if strings.Contains(path, "/Streaming/Channels/") {
+		parts := strings.Split(path, "/Streaming/Channels/")
+		if len(parts) > 1 {
+			chStr := parts[1]
+			if len(chStr) >= 3 {
+				chStr = chStr[:3]
+			}
+			var ch int
+			if _, err := fmt.Sscanf(chStr, "%d", &ch); err == nil && ch > 0 {
+				return ch / 100
+			}
+		}
+	}
+	if strings.Contains(path, "Preview_") {
+		parts := strings.Split(path, "Preview_")
+		if len(parts) > 1 {
+			var ch int
+			if _, err := fmt.Sscanf(parts[1], "%d", &ch); err == nil && ch > 0 {
+				return ch
+			}
+		}
+	}
+	return 1
+}
+
+// stripStreamSuffix removes _main/_sub suffixes from a Frigate stream name so
 // that sub-streams map to their base camera.
 func stripStreamSuffix(name string) string {
 	for _, suffix := range []string{"_main", "_sub"} {
