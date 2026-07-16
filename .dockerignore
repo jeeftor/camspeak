@@ -1,0 +1,12 @@
+.git
+.github
+data/
+*.db
+*.db-wal
+*.db-shm
+*.raw
+.env
+.env.*
+!.env.example
+camspeak
+/tmp/

@@ -23,8 +23,11 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
+          cache: true
 
       - uses: oven-sh/setup-bun@v2
+        with:
+          cache: frontend
 
       - name: Build frontend
         run: cd frontend && bun install --frozen-lockfile && bun run build

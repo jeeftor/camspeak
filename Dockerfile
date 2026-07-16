@@ -12,10 +12,12 @@ RUN apk add --no-cache git
 WORKDIR /app
 ARG VERSION=dev
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
 COPY --from=frontend /app/frontend/dist ./frontend/dist
-RUN CGO_ENABLED=0 go build -ldflags="-s -w -X main.Version=${VERSION}" -o camspeak .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -ldflags="-s -w -X main.Version=${VERSION}" -o camspeak .
 
 ### Stage 3: runtime
 FROM alpine:3.20
