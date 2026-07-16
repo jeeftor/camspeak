@@ -1,0 +1,32 @@
+### Stage 1: build frontend
+FROM oven/bun:1 AS frontend
+WORKDIR /app/frontend
+COPY frontend/package.json frontend/bun.lock ./
+RUN bun install --frozen-lockfile
+COPY frontend/ ./
+RUN bun run build
+
+### Stage 2: build Go binary
+FROM golang:1.26-alpine AS builder
+RUN apk add --no-cache git
+WORKDIR /app
+ARG VERSION=dev
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+COPY --from=frontend /app/frontend/dist ./frontend/dist
+RUN CGO_ENABLED=0 go build -ldflags="-s -w -X main.Version=${VERSION}" -o camspeak .
+
+### Stage 3: runtime
+FROM alpine:3.20
+RUN apk add --no-cache ffmpeg ca-certificates
+WORKDIR /app
+COPY --from=builder /app/camspeak .
+
+ENV CAMSPEAK_DATA_DIR=/config
+
+EXPOSE 8585
+VOLUME ["/config"]
+
+ENTRYPOINT ["/app/camspeak"]
+CMD ["serve"]

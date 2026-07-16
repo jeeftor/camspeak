@@ -1,0 +1,433 @@
+package api
+
+import (
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"slices"
+	"sync"
+	"time"
+
+	"github.com/labstack/echo/v4"
+
+	"github.com/jeeftor/camspeak/internal/cameras"
+	"github.com/jeeftor/camspeak/internal/config"
+	"github.com/jeeftor/camspeak/internal/library"
+	"github.com/jeeftor/camspeak/internal/tts"
+)
+
+// Handlers holds all route handler dependencies.
+type Handlers struct {
+	cfg    *config.Config
+	reg    *cameras.Registry
+	store  *library.Store
+	tts    *tts.Client
+	events *eventBus
+	db     *sql.DB
+}
+
+// speakReq is the body for POST /api/speak.
+type speakReq struct {
+	Camera string `json:"camera"`
+	Text   string `json:"text"`
+	Voice  string `json:"voice"`
+}
+
+// playReq is the body for POST /api/play.
+type playReq struct {
+	Camera   string `json:"camera"`
+	Preset   string `json:"preset"`
+	Category string `json:"category"`
+}
+
+// broadcastReq is the body for POST /api/broadcast.
+type broadcastReq struct {
+	Text     string `json:"text"`
+	Preset   string `json:"preset"`
+	Category string `json:"category"`
+	Voice    string `json:"voice"`
+}
+
+// genPresetReq is the body for POST /api/library.
+type genPresetReq struct {
+	Name     string `json:"name"`
+	Category string `json:"category"`
+	Text     string `json:"text"`
+	Voice    string `json:"voice"`
+}
+
+// Speak handles POST /api/speak — TTS → camera.
+func (h *Handlers) Speak(c echo.Context) error {
+	var req speakReq
+	err := c.Bind(&req)
+	if err != nil || req.Camera == "" || req.Text == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "camera and text required")
+	}
+
+	err = h.speakText(req.Camera, req.Text, req.Voice)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// Play handles POST /api/play — preset → camera.
+func (h *Handlers) Play(c echo.Context) error {
+	var req playReq
+	err := c.Bind(&req)
+	if err != nil || req.Camera == "" || req.Preset == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "camera and preset required")
+	}
+
+	err = h.playPreset(req.Camera, req.Category, req.Preset)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// Beep handles POST /api/beep — 800Hz test tone → camera.
+func (h *Handlers) Beep(c echo.Context) error {
+	var req struct {
+		Camera string `json:"camera"`
+	}
+	if err := c.Bind(&req); err != nil || req.Camera == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "camera required")
+	}
+
+	cam, err := h.reg.Get(req.Camera)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, err.Error())
+	}
+
+	raw, err := GenerateBeep()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	defer os.Remove(raw)
+
+	if err := cam.SendRaw(raw); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	h.events.publish(event{Camera: req.Camera, Action: "beep", At: time.Now()})
+
+	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// Broadcast handles POST /api/broadcast — TTS or preset → all cameras in parallel.
+func (h *Handlers) Broadcast(c echo.Context) error {
+	var req broadcastReq
+	err := c.Bind(&req)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
+	}
+
+	if req.Text == "" && req.Preset == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "text or preset required")
+	}
+
+	names := h.reg.Names()
+
+	var (
+		wg sync.WaitGroup
+		mu sync.Mutex
+	)
+
+	errs := make([]string, 0)
+	succeeded := make([]string, 0)
+
+	for _, name := range names {
+		wg.Add(1)
+		go func(cam string) {
+			defer wg.Done()
+
+			var err error
+			if req.Preset != "" {
+				err = h.playPreset(cam, req.Category, req.Preset)
+			} else {
+				err = h.speakText(cam, req.Text, req.Voice)
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+
+			if err != nil {
+				errs = append(errs, fmt.Sprintf("%s: %s", cam, err))
+			} else {
+				succeeded = append(succeeded, cam)
+			}
+		}(name)
+	}
+
+	wg.Wait()
+
+	if len(errs) > 0 {
+		return c.JSON(http.StatusMultiStatus, map[string]any{
+			"succeeded": succeeded,
+			"errors":    errs,
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"status":    "ok",
+		"succeeded": succeeded,
+	})
+}
+
+// Cameras handles GET /api/cameras.
+func (h *Handlers) Cameras(c echo.Context) error {
+	status := h.reg.Status()
+
+	out := make([]map[string]any, 0)
+	for name, cfg := range h.cfg.Cameras {
+		out = append(out, map[string]any{
+			"name":   name,
+			"type":   cfg.Type,
+			"ip":     cfg.IP,
+			"online": status[name],
+		})
+	}
+
+	return c.JSON(http.StatusOK, out)
+}
+
+// Voices handles GET /api/voices.
+func (h *Handlers) Voices(c echo.Context) error {
+	return c.JSON(http.StatusOK, h.tts.Voices())
+}
+
+// ListLibrary handles GET /api/library.
+func (h *Handlers) ListLibrary(c echo.Context) error {
+	presets, err := h.store.List()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	return c.JSON(http.StatusOK, presets)
+}
+
+// GeneratePreset handles POST /api/library — TTS → save preset.
+func (h *Handlers) GeneratePreset(c echo.Context) error {
+	var req genPresetReq
+	if err := c.Bind(&req); err != nil || req.Name == "" || req.Text == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "name and text required")
+	}
+
+	if req.Category == "" {
+		req.Category = "default"
+	}
+
+	voice := req.Voice
+	if voice == "" {
+		voice = h.cfg.TTS.DefaultVoice
+	}
+
+	wav, err := h.tts.Speak(req.Text, voice)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("TTS failed: %s", err))
+	}
+
+	preset, err := h.store.Save(req.Category, req.Name, req.Text, voice, wav)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	return c.JSON(http.StatusCreated, preset)
+}
+
+// UploadPreset handles POST /api/library/upload — audio file → save preset.
+func (h *Handlers) UploadPreset(c echo.Context) error {
+	name := c.FormValue("name")
+	category := c.FormValue("category")
+
+	if name == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "name required")
+	}
+
+	if category == "" {
+		category = "uploads"
+	}
+
+	file, err := c.FormFile("file")
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "file required")
+	}
+
+	src, err := file.Open()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	defer src.Close()
+
+	// Sanitize filename for temp file pattern (strip path separators, wildcards)
+	safeName := sanitizeFilename(file.Filename)
+
+	tmp, err := os.CreateTemp("", "camspeak_upload_*_"+safeName)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	defer os.Remove(tmp.Name())
+
+	if _, err := io.Copy(tmp, src); err != nil {
+		tmp.Close()
+
+		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("reading upload: %s", err))
+	}
+
+	tmp.Close()
+
+	preset, err := h.store.SaveFile(category, name, tmp.Name())
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	return c.JSON(http.StatusCreated, preset)
+}
+
+// DeletePreset handles DELETE /api/library/:category/:name.
+func (h *Handlers) DeletePreset(c echo.Context) error {
+	err := h.store.Delete(c.Param("category"), c.Param("name"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, err.Error())
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// PreviewPreset handles GET /api/library/:category/:name/preview — streams WAV.
+func (h *Handlers) PreviewPreset(c echo.Context) error {
+	preset, err := h.store.Get(c.Param("category"), c.Param("name"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, err.Error())
+	}
+	// Convert raw → WAV on the fly for browser preview
+	wav, err := rawToWAV(preset.RawPath)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	defer os.Remove(wav)
+
+	return c.File(wav)
+}
+
+// Health handles GET /api/health.
+func (h *Handlers) Health(c echo.Context) error {
+	return c.JSON(http.StatusOK, map[string]string{
+		"status":  "ok",
+		"version": Version,
+	})
+}
+
+// Events handles GET /api/events — SSE stream of speak events.
+func (h *Handlers) Events(c echo.Context) error {
+	c.Response().Header().Set("Content-Type", "text/event-stream")
+	c.Response().Header().Set("Cache-Control", "no-cache")
+	c.Response().WriteHeader(http.StatusOK)
+
+	// Send recent history on connect
+	if recent, err := h.events.recentEvents(50); err == nil {
+		for _, v := range slices.Backward(recent) {
+			data, _ := json.Marshal(v)
+			fmt.Fprintf(c.Response(), "data: %s\n\n", data)
+		}
+
+		c.Response().Flush()
+	}
+
+	ch := h.events.subscribe()
+	defer h.events.unsubscribe(ch)
+
+	for {
+		select {
+		case ev := <-ch:
+			data, _ := json.Marshal(ev)
+			fmt.Fprintf(c.Response(), "data: %s\n\n", data)
+			c.Response().Flush()
+		case <-c.Request().Context().Done():
+			return nil
+		}
+	}
+}
+
+// --- Internal helpers ---
+
+func (h *Handlers) speakText(cameraName, text, voice string) error {
+	cam, err := h.reg.Get(cameraName)
+	if err != nil {
+		return err
+	}
+
+	if voice == "" {
+		voice = h.cfg.TTS.DefaultVoice
+	}
+
+	wav, err := h.tts.Speak(text, voice)
+	if err != nil {
+		return fmt.Errorf("TTS: %w", err)
+	}
+
+	raw, err := h.store.Save("_tmp", fmt.Sprintf("tmp_%d", time.Now().UnixNano()), text, voice, wav)
+	if err != nil {
+		return fmt.Errorf("transcoding: %w", err)
+	}
+	defer os.Remove(raw.RawPath)
+
+	if err := cam.SendRaw(raw.RawPath); err != nil {
+		return fmt.Errorf("sending to camera: %w", err)
+	}
+
+	h.events.publish(event{Camera: cameraName, Action: "speak", Text: text, At: time.Now()})
+
+	return nil
+}
+
+func (h *Handlers) playPreset(cameraName, category, presetName string) error {
+	cam, err := h.reg.Get(cameraName)
+	if err != nil {
+		return err
+	}
+
+	var preset *library.Preset
+	if category != "" {
+		preset, err = h.store.Get(category, presetName)
+	} else {
+		preset, err = h.store.GetByName(presetName)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	if err := cam.SendRaw(preset.RawPath); err != nil {
+		return fmt.Errorf("sending to camera: %w", err)
+	}
+
+	h.events.publish(event{Camera: cameraName, Action: "play", Text: preset.Name, At: time.Now()})
+
+	return nil
+}
+
+// SpeakForMQTT is called by the MQTT subscriber.
+func (h *Handlers) SpeakForMQTT(cams []string, text, preset, voice string) {
+	var wg sync.WaitGroup
+	for _, cam := range cams {
+		wg.Add(1)
+		go func(c string) {
+			defer wg.Done()
+
+			if preset != "" {
+				h.playPreset(c, "", preset) //nolint:errcheck
+			} else if text != "" {
+				h.speakText(c, text, voice) //nolint:errcheck
+			}
+		}(cam)
+	}
+
+	wg.Wait()
+}

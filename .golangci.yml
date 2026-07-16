@@ -1,0 +1,42 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - bodyclose
+    - misspell
+    - gocritic
+    - revive
+    - unconvert
+  settings:
+    revive:
+      rules:
+        - name: unused-parameter
+          disabled: true
+        - name: blank-imports
+          disabled: true
+  exclusions:
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - "frontend/.*"
+      - "vendor/.*"
+
+formatters:
+  enable:
+    - gofmt
+  exclusions:
+    paths:
+      - "frontend/.*"
+      - "vendor/.*"
+
+issues:
+  max-same-issues: 50

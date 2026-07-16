@@ -1,0 +1,12 @@
+camspeak
+frontend/dist/
+frontend/node_modules/
+*.raw
+/data/
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.*
+!.env.example
+frontend/.svelte-kit
