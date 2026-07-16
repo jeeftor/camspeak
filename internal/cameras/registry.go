@@ -38,9 +38,11 @@ type Speaker interface {
 
 // Registry holds all configured cameras.
 type Registry struct {
-	cameras map[string]Speaker
-	configs map[string]config.CameraConfig
-	tts     *tts.Client
+	cameras    map[string]Speaker
+	configs    map[string]config.CameraConfig
+	tts        *tts.Client
+	go2rtcURL  string
+	advertiseIP string
 }
 
 // NewRegistry builds a Registry from config.
@@ -49,45 +51,70 @@ type Registry struct {
 // speak/broadcast).
 func NewRegistry(cfg *config.Config, ttsClient *tts.Client) (*Registry, error) {
 	r := &Registry{
-		cameras: make(map[string]Speaker),
-		configs: cfg.Cameras,
-		tts:     ttsClient,
+		cameras:     make(map[string]Speaker),
+		configs:     cfg.Cameras,
+		tts:         ttsClient,
+		go2rtcURL:   cfg.Go2rtcURL,
+		advertiseIP: cfg.AdvertiseIP,
 	}
 
 	for name, cam := range cfg.Cameras {
 		if !cam.Enabled {
 			continue
 		}
-		switch cam.Type {
-		case "hikvision":
-			r.cameras[name] = NewHikvisionClient(cam.IP, cam.User, cam.Pass, cam.Channel)
-		case "reolink":
-			r.cameras[name] = NewReolinkClient(cam.IP, cam.User, cam.Pass)
-		case "go2rtc":
-			if cfg.Go2rtcURL == "" {
-				return nil, fmt.Errorf("camera %q uses go2rtc type but CAMSPEAK_GO2RTC_URL is not set", name)
-			}
-			if cam.Stream == "" {
-				return nil, fmt.Errorf("camera %q uses go2rtc type but no stream name configured", name)
-			}
-			r.cameras[name] = NewGo2rtcClient(cfg.Go2rtcURL, cam.Stream, cam.IP, cfg.AdvertiseIP)
-		case "onvif":
-			rtspURL := cam.Stream
-			if rtspURL == "" {
-				// Build RTSP URL from IP/credentials if stream not set
-				if cam.User != "" && cam.Pass != "" {
-					rtspURL = fmt.Sprintf("rtsp://%s:%s@%s:554/stream0", cam.User, cam.Pass, cam.IP)
-				} else {
-					rtspURL = fmt.Sprintf("rtsp://%s:554/stream0", cam.IP)
-				}
-			}
-			r.cameras[name] = NewOnvifClient(rtspURL, cam.IP)
-		default:
-			return nil, fmt.Errorf("unknown camera type %q for camera %q", cam.Type, name)
+		if err := r.register(name, cam); err != nil {
+			return nil, err
 		}
 	}
 
 	return r, nil
+}
+
+// register creates and registers a Speaker for the given camera config.
+func (r *Registry) register(name string, cam config.CameraConfig) error {
+	switch cam.Type {
+	case "hikvision":
+		r.cameras[name] = NewHikvisionClient(cam.IP, cam.User, cam.Pass, cam.Channel)
+	case "reolink":
+		r.cameras[name] = NewReolinkClient(cam.IP, cam.User, cam.Pass)
+	case "go2rtc":
+		if r.go2rtcURL == "" {
+			return fmt.Errorf("camera %q uses go2rtc type but CAMSPEAK_GO2RTC_URL is not set", name)
+		}
+		if cam.Stream == "" {
+			return fmt.Errorf("camera %q uses go2rtc type but no stream name configured", name)
+		}
+		r.cameras[name] = NewGo2rtcClient(r.go2rtcURL, cam.Stream, cam.IP, r.advertiseIP)
+	case "onvif":
+		rtspURL := cam.Stream
+		if rtspURL == "" {
+			// Build RTSP URL from IP/credentials if stream not set
+			if cam.User != "" && cam.Pass != "" {
+				rtspURL = fmt.Sprintf("rtsp://%s:%s@%s:554/stream0", cam.User, cam.Pass, cam.IP)
+			} else {
+				rtspURL = fmt.Sprintf("rtsp://%s:554/stream0", cam.IP)
+			}
+		}
+		r.cameras[name] = NewOnvifClient(rtspURL, cam.IP)
+	default:
+		return fmt.Errorf("unknown camera type %q for camera %q", cam.Type, name)
+	}
+	return nil
+}
+
+// EnableCamera registers a camera at runtime (after toggle on).
+func (r *Registry) EnableCamera(name string, cam config.CameraConfig) error {
+	return r.register(name, cam)
+}
+
+// DisableCamera unregisters a camera at runtime (after toggle off).
+func (r *Registry) DisableCamera(name string) {
+	delete(r.cameras, name)
+}
+
+// UpdateConfig updates the stored config for a camera (used after save/toggle).
+func (r *Registry) UpdateConfig(name string, cam config.CameraConfig) {
+	r.configs[name] = cam
 }
 
 // Get returns the Speaker for a camera name.

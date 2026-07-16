@@ -149,8 +149,16 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 	if err := config.SaveCamera(h.db, req.Name, cam); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	// Update running config
+	// Update running config + registry
 	h.cfg.Cameras[req.Name] = cam
+	h.reg.UpdateConfig(req.Name, cam)
+	if cam.Enabled {
+		if err := h.reg.EnableCamera(req.Name, cam); err != nil {
+			h.log.Error("camera enable failed", "name", req.Name, "err", err)
+		}
+	} else {
+		h.reg.DisableCamera(req.Name)
+	}
 	h.log.Info("camera saved", "name", req.Name, "type", req.Type, "enabled", enabled)
 	return c.JSON(http.StatusCreated, map[string]interface{}{
 		"name":    req.Name,
@@ -169,6 +177,7 @@ func (h *Handlers) DeleteCameraConfig(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	delete(h.cfg.Cameras, name)
+	h.reg.DisableCamera(name)
 	return c.JSON(http.StatusOK, map[string]string{"deleted": name})
 }
 
@@ -184,6 +193,15 @@ func (h *Handlers) ToggleCamera(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	h.cfg.Cameras[name] = cam
+	h.reg.UpdateConfig(name, cam)
+	if cam.Enabled {
+		if err := h.reg.EnableCamera(name, cam); err != nil {
+			h.log.Error("camera enable failed", "name", name, "err", err)
+			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		}
+	} else {
+		h.reg.DisableCamera(name)
+	}
 	h.log.Info("camera toggled", "name", name, "enabled", cam.Enabled)
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"name":    name,
