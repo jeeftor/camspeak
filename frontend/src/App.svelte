@@ -52,7 +52,7 @@
       {/each}
     </nav>
     {#if version}
-      <span class="ml-auto text-xs text-muted-foreground font-mono">v{version}</span>
+      <span class="ml-auto text-xs text-muted-foreground font-mono">{version}</span>
     {/if}
   </header>
 
