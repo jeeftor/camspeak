@@ -2,6 +2,7 @@
 package cameras
 
 import (
+	"bytes"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -100,19 +101,20 @@ func (c *HikvisionClient) closeChannel(sessionID string) {
 // SendRaw streams a raw G.711ulaw file to the camera speaker.
 // The file must already be G.711ulaw 8kHz raw (8000 bytes/sec).
 // Rate is throttled to 8000 bytes/sec to match real-time playback.
+//
+// The file is read into memory so that GetBody can produce a fresh
+// throttled reader for each attempt. The digest transport sends the
+// request twice (first gets 401 challenge, second sends with auth);
+// if we don't set GetBody, the transport caches the body as a plain
+// bytes.Reader and the retry sends everything unthrottled — the
+// camera drops or distorts the audio.
 func (c *HikvisionClient) SendRaw(rawFile string) error {
-	f, err := os.Open(rawFile)
+	data, err := os.ReadFile(rawFile)
 	if err != nil {
-		return fmt.Errorf("opening audio file: %w", err)
-	}
-	defer f.Close()
-
-	info, err := f.Stat()
-	if err != nil {
-		return fmt.Errorf("stat audio file: %w", err)
+		return fmt.Errorf("reading audio file: %w", err)
 	}
 
-	size := info.Size()
+	size := int64(len(data))
 	c.log.Info("send: opening channel", "ip", c.ip, "channel", c.channel, "bytes", size, "duration_s", size/8000)
 
 	openStart := time.Now()
@@ -124,15 +126,26 @@ func (c *HikvisionClient) SendRaw(rawFile string) error {
 	c.log.Debug("send: channel opened", "session", sessionID, "elapsed", time.Since(openStart))
 	defer c.closeChannel(sessionID)
 
-	// Timeout = playback duration + 1s grace
+	// Timeout = playback duration + 2s grace (digest retry needs headroom)
 	timeout := time.Duration(size/8000+2) * time.Second
 
 	url := fmt.Sprintf("%s/audioData?sessionId=%s", c.baseURL(), sessionID)
 
-	req, err := http.NewRequest(http.MethodPut, url, newThrottledReader(f, 8000))
+	// getBody returns a fresh throttled reader each time the digest
+	// transport needs to resend the request (401 → authenticated retry).
+	getBody := func() (io.ReadCloser, error) {
+		return io.NopCloser(newThrottledReader(bytes.NewReader(data), 8000)), nil
+	}
+
+	bodyReader, err := getBody()
+	if err != nil {
+		return fmt.Errorf("building audio body: %w", err)
+	}
+	req, err := http.NewRequest(http.MethodPut, url, bodyReader)
 	if err != nil {
 		return fmt.Errorf("building audio request: %w", err)
 	}
+	req.GetBody = getBody
 
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.ContentLength = size
