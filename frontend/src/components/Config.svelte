@@ -1,5 +1,9 @@
 <script>
   import { onMount } from 'svelte'
+  import { Button } from '$lib/components/ui/button'
+  import { Input } from '$lib/components/ui/input'
+  import { Select } from '$lib/components/ui/select'
+  import { Badge } from '$lib/components/ui/badge'
 
   let { onRefresh } = $props()
 
@@ -241,303 +245,241 @@
     ttsVoice = p.default_voice
     ttsDesc = p.description
   }
+
+  const configTabs = [
+    { id: 'tts', label: 'TTS Presets' },
+    { id: 'cameras', label: 'Cameras' },
+    { id: 'rules', label: 'MQTT Rules' },
+    { id: 'overview', label: 'Overview' },
+  ]
 </script>
 
 {#if loading}
-  <p class="empty">Loading config…</p>
+  <p class="italic text-muted-foreground">Loading config…</p>
 {:else}
-  <div class="config">
-    <div class="config-tabs">
-      <button class:active={tab === 'tts'} onclick={() => tab = 'tts'}>TTS Presets</button>
-      <button class:active={tab === 'cameras'} onclick={() => tab = 'cameras'}>Cameras</button>
-      <button class:active={tab === 'rules'} onclick={() => tab = 'rules'}>MQTT Rules</button>
-      <button class:active={tab === 'overview'} onclick={() => tab = 'overview'}>Overview</button>
+  <div class="flex flex-col gap-4">
+    <div class="flex gap-1">
+      {#each configTabs as t}
+        <Button
+          variant={tab === t.id ? 'default' : 'outline'}
+          size="sm"
+          onclick={() => tab = t.id}
+        >
+          {t.label}
+        </Button>
+      {/each}
     </div>
 
     <!-- TTS Presets -->
     {#if tab === 'tts'}
-      <section class="panel">
-        <div class="panel-header">
-          <h3>TTS Presets</h3>
-          <button class="test-btn" onclick={testTTS}>Test Connection</button>
+      <section class="rounded-lg border bg-card p-5">
+        <div class="mb-3 flex items-center justify-between">
+          <h3 class="text-base font-semibold text-primary">TTS Presets</h3>
+          <Button variant="outline" size="sm" onclick={testTTS}>Test Connection</Button>
         </div>
-        {#if testStatus.tts}<span class="test-result">{testStatus.tts}</span>{/if}
+        {#if testStatus.tts}<span class="mr-2 text-sm text-primary">{testStatus.tts}</span>{/if}
 
-        <div class="preset-list">
+        <div class="mb-4 flex flex-col gap-1.5">
           {#each ttsPresets as p}
-            <div class="preset-row" class:active={p.is_active}>
-              <div class="preset-info">
-                <span class="pname">{p.name}</span>
-                {#if p.is_active}<span class="badge">ACTIVE</span>{/if}
-                <span class="pmodel">{p.model}</span>
-                <span class="pvoice">{p.default_voice}</span>
+            <div class="flex items-center justify-between rounded-lg border bg-background px-3 py-2 {p.is_active ? 'border-primary bg-primary/5' : ''}">
+              <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                <span class="font-semibold">{p.name}</span>
+                {#if p.is_active}<Badge>ACTIVE</Badge>{/if}
+                <span class="text-sm text-muted-foreground">{p.model}</span>
+                <span class="text-sm text-muted-foreground">{p.default_voice}</span>
               </div>
-              <div class="preset-actions">
-                <button class="icon-btn" onclick={() => editTTS(p)} title="Edit">✎</button>
+              <div class="flex shrink-0 gap-1">
+                <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => editTTS(p)} title="Edit">✎</Button>
                 {#if !p.is_active}
-                  <button class="icon-btn" onclick={() => activateTTS(p.name)} title="Activate">●</button>
+                  <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => activateTTS(p.name)} title="Activate">●</Button>
                 {/if}
-                <button class="icon-btn del" onclick={() => deleteTTS(p.name)} title="Delete">✕</button>
+                <Button variant="outline" size="sm" class="h-7 px-2 hover:border-destructive hover:text-destructive" onclick={() => deleteTTS(p.name)} title="Delete">✕</Button>
               </div>
             </div>
           {/each}
           {#if ttsPresets.length === 0}
-            <p class="empty">No TTS presets configured.</p>
+            <p class="italic text-muted-foreground">No TTS presets configured.</p>
           {/if}
         </div>
 
-        <details class="add-form">
-          <summary>{ttsName ? 'Edit' : 'Add'} TTS Preset</summary>
-          <div class="form-grid">
-            <label>Name <input bind:value={ttsName} placeholder="lemonade-local" /></label>
-            <label>Endpoint <input bind:value={ttsEndpoint} placeholder="http://192.168.1.91:13305/v1/audio/speech" /></label>
-            <label>Model <input bind:value={ttsModel} placeholder="kokoro" /></label>
-            <label>Default Voice
-              <select bind:value={ttsVoice}>
+        <details class="border-t pt-3">
+          <summary class="cursor-pointer py-1.5 text-sm text-primary hover:text-primary/80">{ttsName ? 'Edit' : 'Add'} TTS Preset</summary>
+          <div class="mt-3 grid grid-cols-2 gap-2.5 max-sm:grid-cols-1">
+            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+              Name
+              <Input bind:value={ttsName} placeholder="lemonade-local" />
+            </label>
+            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+              Endpoint
+              <Input bind:value={ttsEndpoint} placeholder="http://192.168.1.91:13305/v1/audio/speech" />
+            </label>
+            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+              Model
+              <Input bind:value={ttsModel} placeholder="kokoro" />
+            </label>
+            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+              Default Voice
+              <Select bind:value={ttsVoice}>
                 <option value="">default</option>
                 {#each voices as v}<option>{v}</option>{/each}
-              </select>
+              </Select>
             </label>
-            <label>API Key (optional) <input bind:value={ttsKey} type="password" placeholder="sk-..." /></label>
-            <label>Description <input bind:value={ttsDesc} placeholder="Local Lemonade instance" /></label>
+            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+              API Key (optional)
+              <Input bind:value={ttsKey} type="password" placeholder="sk-..." />
+            </label>
+            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+              Description
+              <Input bind:value={ttsDesc} placeholder="Local Lemonade instance" />
+            </label>
           </div>
-          <button onclick={saveTTS} disabled={!ttsName || !ttsEndpoint}>Save Preset</button>
-          {#if ttsStatus}<span class="status">{ttsStatus}</span>{/if}
+          <Button onclick={saveTTS} disabled={!ttsName || !ttsEndpoint} class="mt-3">
+            Save Preset
+          </Button>
+          {#if ttsStatus}<span class="ml-2 text-sm text-primary">{ttsStatus}</span>{/if}
         </details>
       </section>
 
     <!-- Cameras -->
     {:else if tab === 'cameras'}
-      <section class="panel">
-        <h3>Cameras</h3>
-        <div class="cam-list">
+      <section class="rounded-lg border bg-card p-5">
+        <h3 class="mb-3 text-base font-semibold text-primary">Cameras</h3>
+        <div class="mb-4 flex flex-col gap-1.5">
           {#each cameras as cam}
-            <div class="cam-row">
-              <div class="cam-info">
-                <span class="cname">{cam.name}</span>
-                <span class="ctype">{cam.type}</span>
-                <span class="cip">{cam.ip}</span>
-                <span class="cch">ch{cam.channel}</span>
+            <div class="flex items-center justify-between rounded-lg border bg-background px-3 py-2">
+              <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                <span class="font-semibold">{cam.name}</span>
+                <span class="text-sm text-muted-foreground">{cam.type}</span>
+                <span class="text-sm text-muted-foreground">{cam.ip}</span>
+                <span class="text-sm text-muted-foreground">ch{cam.channel}</span>
               </div>
-              <div class="cam-actions">
-                {#if testStatus[cam.name]}<span class="test-result">{testStatus[cam.name]}</span>{/if}
-                <button class="icon-btn" onclick={() => testCamera(cam.name)} title="Test beep">🔔</button>
-                <button class="icon-btn" onclick={() => editCamera(cam)} title="Edit">✎</button>
-                <button class="icon-btn del" onclick={() => deleteCamera(cam.name)} title="Delete">✕</button>
+              <div class="flex shrink-0 items-center gap-1">
+                {#if testStatus[cam.name]}<span class="mr-1 text-sm text-primary">{testStatus[cam.name]}</span>{/if}
+                <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => testCamera(cam.name)} title="Test beep">🔔</Button>
+                <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => editCamera(cam)} title="Edit">✎</Button>
+                <Button variant="outline" size="sm" class="h-7 px-2 hover:border-destructive hover:text-destructive" onclick={() => deleteCamera(cam.name)} title="Delete">✕</Button>
               </div>
             </div>
           {/each}
           {#if cameras.length === 0}
-            <p class="empty">No cameras configured. Run <code>camspeak discover --frigate &lt;url&gt;</code> or add one below.</p>
+            <p class="italic text-muted-foreground">No cameras configured. Run <code class="not-italic text-muted-foreground/80">camspeak discover --frigate &lt;url&gt;</code> or add one below.</p>
           {/if}
         </div>
 
-        <details class="add-form">
-          <summary>{camName ? 'Edit' : 'Add'} Camera</summary>
-          <div class="form-grid">
-            <label>Name <input bind:value={camName} placeholder="backyard" /></label>
-            <label>Type
-              <select bind:value={camType}>
+        <details class="border-t pt-3">
+          <summary class="cursor-pointer py-1.5 text-sm text-primary hover:text-primary/80">{camName ? 'Edit' : 'Add'} Camera</summary>
+          <div class="mt-3 grid grid-cols-2 gap-2.5 max-sm:grid-cols-1">
+            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+              Name
+              <Input bind:value={camName} placeholder="backyard" />
+            </label>
+            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+              Type
+              <Select bind:value={camType}>
                 <option value="hikvision">hikvision</option>
                 <option value="reolink">reolink</option>
-              </select>
+              </Select>
             </label>
-            <label>IP <input bind:value={camIP} placeholder="192.168.1.181" /></label>
-            <label>Username <input bind:value={camUser} placeholder="Operator" /></label>
-            <label>Password <input bind:value={camPass} type="password" placeholder="password" /></label>
-            <label>Channel <input bind:value={camChannel} type="number" min="1" /></label>
+            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+              IP
+              <Input bind:value={camIP} placeholder="192.168.1.181" />
+            </label>
+            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+              Username
+              <Input bind:value={camUser} placeholder="Operator" />
+            </label>
+            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+              Password
+              <Input bind:value={camPass} type="password" placeholder="password" />
+            </label>
+            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+              Channel
+              <Input bind:value={camChannel} type="number" min="1" />
+            </label>
           </div>
-          <button onclick={saveCamera} disabled={!camName || !camIP}>Save Camera</button>
-          {#if camStatus}<span class="status">{camStatus}</span>{/if}
+          <Button onclick={saveCamera} disabled={!camName || !camIP} class="mt-3">
+            Save Camera
+          </Button>
+          {#if camStatus}<span class="ml-2 text-sm text-primary">{camStatus}</span>{/if}
         </details>
       </section>
 
     <!-- MQTT Rules -->
     {:else if tab === 'rules'}
-      <section class="panel">
-        <h3>MQTT Rules</h3>
-        <p class="hint">Rules trigger TTS announcements when MQTT messages match the topic + filter.</p>
-        <div class="rule-list">
+      <section class="rounded-lg border bg-card p-5">
+        <h3 class="mb-1 text-base font-semibold text-primary">MQTT Rules</h3>
+        <p class="mb-3 text-sm text-muted-foreground">Rules trigger TTS announcements when MQTT messages match the topic + filter.</p>
+        <div class="mb-4 flex flex-col gap-1.5">
           {#each rules as r}
-            <div class="rule-row" class:disabled={!r.enabled}>
-              <div class="rule-info">
-                <span class="rtopic">{r.topic}</span>
-                {#if r.preset}<span class="rpreset">preset: {r.preset}</span>{/if}
-                {#if r.text}<span class="rtext">"{r.text}"</span>{/if}
-                {#if r.cameras?.length}<span class="rcams">→ {r.cameras.join(', ')}</span>{/if}
-                {#if r.voice}<span class="rvoice">voice: {r.voice}</span>{/if}
+            <div class="flex items-center justify-between rounded-lg border bg-background px-3 py-2 {!r.enabled ? 'opacity-50' : ''}">
+              <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                <span class="font-mono text-sm text-primary">{r.topic}</span>
+                {#if r.preset}<span class="text-xs text-muted-foreground">preset: {r.preset}</span>{/if}
+                {#if r.text}<span class="text-xs italic text-muted-foreground">"{r.text}"</span>{/if}
+                {#if r.cameras?.length}<span class="text-xs text-muted-foreground">→ {r.cameras.join(', ')}</span>{/if}
+                {#if r.voice}<span class="text-xs text-muted-foreground">voice: {r.voice}</span>{/if}
                 {#if Object.keys(r.filter ?? {}).length}
-                  <span class="rfilter">filter: {JSON.stringify(r.filter)}</span>
+                  <span class="text-xs text-muted-foreground">filter: {JSON.stringify(r.filter)}</span>
                 {/if}
               </div>
-              <div class="rule-actions">
-                {#if testStatus['rule_' + r.id]}<span class="test-result">{testStatus['rule_' + r.id]}</span>{/if}
-                <button class="icon-btn" onclick={() => testRule(r)} title="Test speak">▶</button>
+              <div class="flex shrink-0 items-center gap-1">
+                {#if testStatus['rule_' + r.id]}<span class="mr-1 text-sm text-primary">{testStatus['rule_' + r.id]}</span>{/if}
+                <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => testRule(r)} title="Test speak">▶</Button>
               </div>
             </div>
           {/each}
           {#if rules.length === 0}
-            <p class="empty">No rules configured.</p>
+            <p class="italic text-muted-foreground">No rules configured.</p>
           {/if}
         </div>
 
-        <details class="add-form">
-          <summary>Add Rule</summary>
-          <div class="form-grid">
-            <label>MQTT Topic <input bind:value={ruleTopic} placeholder="frigate/events" /></label>
-            <label>Filter (JSON) <input bind:value={ruleFilter} placeholder={'{"type":"person"}'} /></label>
-            <label>Cameras (comma-sep) <input bind:value={ruleCameras} placeholder="backyard,frontyard" /></label>
-            <label>Preset (optional) <input bind:value={rulePreset} placeholder="person_detected" /></label>
-            <label>Text (if no preset) <input bind:value={ruleText} placeholder="Person detected" /></label>
-            <label>Voice
-              <select bind:value={ruleVoice}>
+        <details class="border-t pt-3">
+          <summary class="cursor-pointer py-1.5 text-sm text-primary hover:text-primary/80">Add Rule</summary>
+          <div class="mt-3 grid grid-cols-2 gap-2.5 max-sm:grid-cols-1">
+            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+              MQTT Topic
+              <Input bind:value={ruleTopic} placeholder="frigate/events" />
+            </label>
+            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+              Filter (JSON)
+              <Input bind:value={ruleFilter} placeholder={'{"type":"person"}'} />
+            </label>
+            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+              Cameras (comma-sep)
+              <Input bind:value={ruleCameras} placeholder="backyard,frontyard" />
+            </label>
+            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+              Preset (optional)
+              <Input bind:value={rulePreset} placeholder="person_detected" />
+            </label>
+            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+              Text (if no preset)
+              <Input bind:value={ruleText} placeholder="Person detected" />
+            </label>
+            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+              Voice
+              <Select bind:value={ruleVoice}>
                 <option value="">default</option>
                 {#each voices as v}<option>{v}</option>{/each}
-              </select>
+              </Select>
             </label>
-            <label class="checkbox">
-              <input type="checkbox" bind:checked={ruleEnabled} /> Enabled
+            <label class="flex flex-row items-center gap-2 text-xs text-muted-foreground">
+              <input type="checkbox" bind:checked={ruleEnabled} class="h-4 w-4 rounded border-input" /> Enabled
             </label>
           </div>
-          <button onclick={saveRule} disabled={!ruleTopic}>Save Rule</button>
-          {#if ruleStatus}<span class="status">{ruleStatus}</span>{/if}
+          <Button onclick={saveRule} disabled={!ruleTopic} class="mt-3">
+            Save Rule
+          </Button>
+          {#if ruleStatus}<span class="ml-2 text-sm text-primary">{ruleStatus}</span>{/if}
         </details>
       </section>
 
     <!-- Overview -->
     {:else if tab === 'overview'}
-      <section class="panel">
-        <h3>Runtime Configuration</h3>
-        <pre class="json">{JSON.stringify(config, null, 2)}</pre>
+      <section class="rounded-lg border bg-card p-5">
+        <h3 class="mb-3 text-base font-semibold text-primary">Runtime Configuration</h3>
+        <pre class="max-h-[600px] overflow-auto rounded-lg border bg-background p-4 text-sm text-foreground/80">{JSON.stringify(config, null, 2)}</pre>
       </section>
     {/if}
   </div>
 {/if}
-
-<style>
-  .config { display: flex; flex-direction: column; gap: 1rem; }
-
-  .config-tabs { display: flex; gap: 0.25rem; }
-  .config-tabs button {
-    padding: 0.4rem 1rem;
-    border: 1px solid #3a3a50;
-    border-radius: 6px;
-    background: transparent;
-    color: #888;
-    font-size: 0.9rem;
-  }
-  .config-tabs button:hover { border-color: #7c3aed; color: #ccc; }
-  .config-tabs button.active { background: #4c1d95; border-color: #7c3aed; color: #e8e8f0; }
-
-  .panel {
-    background: #1a1a24;
-    border: 1px solid #2a2a3a;
-    border-radius: 10px;
-    padding: 1.25rem;
-  }
-  .panel-header { display: flex; align-items: center; justify-content: space-between; }
-  h3 { font-size: 1rem; color: #a78bfa; margin-bottom: 0.75rem; }
-  .hint { font-size: 0.8rem; color: #666; margin-bottom: 0.75rem; }
-
-  .preset-list, .cam-list, .rule-list { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 1rem; }
-
-  .preset-row, .cam-row, .rule-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.5rem 0.75rem;
-    background: #12121a;
-    border: 1px solid #2a2a3a;
-    border-radius: 8px;
-  }
-  .preset-row.active { border-color: #7c3aed; background: #1a1525; }
-  .rule-row.disabled { opacity: 0.5; }
-
-  .preset-info, .cam-info, .rule-info { display: flex; align-items: center; gap: 0.5rem; flex: 1; min-width: 0; flex-wrap: wrap; }
-  .pname, .cname { font-weight: 600; }
-  .badge { font-size: 0.65rem; background: #7c3aed; color: #fff; padding: 0.1rem 0.4rem; border-radius: 4px; }
-  .pmodel, .pvoice, .ctype, .cip, .cch, .rtopic { font-size: 0.8rem; color: #888; }
-  .rtopic { font-family: monospace; color: #a78bfa; }
-  .rfilter, .rtext, .rcams, .rvoice, .rpreset { font-size: 0.75rem; color: #666; }
-
-  .preset-actions, .cam-actions, .rule-actions { display: flex; align-items: center; gap: 0.3rem; flex-shrink: 0; }
-
-  .icon-btn {
-    padding: 0.2rem 0.5rem;
-    background: transparent;
-    border: 1px solid #3a3a50;
-    border-radius: 5px;
-    color: #888;
-    font-size: 0.85rem;
-  }
-  .icon-btn:hover { border-color: #7c3aed; color: #ccc; }
-  .icon-btn.del:hover { border-color: #ef4444; color: #ef4444; }
-
-  .test-btn {
-    padding: 0.3rem 0.8rem;
-    background: transparent;
-    border: 1px solid #3a3a50;
-    border-radius: 6px;
-    color: #888;
-    font-size: 0.85rem;
-  }
-  .test-btn:hover { border-color: #7c3aed; color: #ccc; }
-
-  .test-result { font-size: 0.8rem; color: #a78bfa; margin-right: 0.5rem; }
-
-  .add-form { margin-top: 0.75rem; border-top: 1px solid #2a2a3a; padding-top: 0.75rem; }
-  .add-form summary {
-    cursor: pointer;
-    font-size: 0.9rem;
-    color: #a78bfa;
-    padding: 0.3rem 0;
-  }
-  .add-form summary:hover { color: #c4b5fd; }
-
-  .form-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.6rem;
-    margin: 0.75rem 0;
-  }
-  .form-grid label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.8rem; color: #aaa; }
-  .form-grid label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; }
-  .form-grid input, .form-grid select {
-    padding: 0.35rem 0.6rem;
-    background: #12121a;
-    border: 1px solid #3a3a50;
-    border-radius: 6px;
-    color: #e8e8f0;
-    font-size: 0.85rem;
-  }
-  .form-grid input:focus, .form-grid select:focus { outline: none; border-color: #7c3aed; }
-
-  .add-form button {
-    padding: 0.4rem 1rem;
-    background: #7c3aed;
-    border: none;
-    border-radius: 6px;
-    color: #fff;
-    font-size: 0.85rem;
-  }
-  .add-form button:disabled { opacity: 0.4; }
-
-  .status { font-size: 0.85rem; color: #a78bfa; margin-left: 0.5rem; }
-  .empty { color: #555; font-style: italic; }
-  .empty code { color: #888; font-style: normal; }
-
-  .json {
-    background: #12121a;
-    border: 1px solid #2a2a3a;
-    border-radius: 8px;
-    padding: 1rem;
-    font-size: 0.8rem;
-    color: #ccc;
-    overflow: auto;
-    max-height: 600px;
-  }
-
-  @media (max-width: 600px) {
-    .form-grid { grid-template-columns: 1fr; }
-  }
-</style>

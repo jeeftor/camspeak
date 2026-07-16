@@ -1,4 +1,9 @@
 <script>
+  import { Button } from '$lib/components/ui/button'
+  import { Input } from '$lib/components/ui/input'
+  import { Select } from '$lib/components/ui/select'
+  import { Textarea } from '$lib/components/ui/textarea'
+
   let { presets = [], voices = [], onRefresh } = $props()
 
   let tab = $state('browse')
@@ -77,33 +82,45 @@
     a.target = '_blank'
     a.click()
   }
+
+  const libTabs = [
+    { id: 'browse', label: 'Browse' },
+    { id: 'generate', label: 'Generate TTS' },
+    { id: 'upload', label: 'Upload' },
+  ]
 </script>
 
-<div class="library">
-  <div class="lib-tabs">
-    <button class:active={tab === 'browse'} onclick={() => tab = 'browse'}>Browse</button>
-    <button class:active={tab === 'generate'} onclick={() => tab = 'generate'}>Generate TTS</button>
-    <button class:active={tab === 'upload'} onclick={() => tab = 'upload'}>Upload</button>
+<div class="flex flex-col gap-4">
+  <div class="flex gap-1">
+    {#each libTabs as t}
+      <Button
+        variant={tab === t.id ? 'default' : 'outline'}
+        size="sm"
+        onclick={() => tab = t.id}
+      >
+        {t.label}
+      </Button>
+    {/each}
   </div>
 
   {#if tab === 'browse'}
     {#if presets.length === 0}
-      <p class="empty">No presets yet. Generate or upload one.</p>
+      <p class="italic text-muted-foreground">No presets yet. Generate or upload one.</p>
     {:else}
       {#each Object.entries(grouped) as [cat, items]}
-        <div class="category">
-          <h3>{cat}</h3>
-          <div class="preset-list">
+        <div class="mb-4">
+          <h3 class="mb-2 text-xs uppercase tracking-widest text-muted-foreground">{cat}</h3>
+          <div class="flex flex-col gap-1.5">
             {#each items as p}
-              <div class="preset">
-                <div class="preset-info">
-                  <span class="pname">{p.name}</span>
-                  <span class="dur">{p.duration?.toFixed(1)}s</span>
-                  {#if p.text}<span class="ptext">"{p.text}"</span>{/if}
+              <div class="flex items-center justify-between rounded-lg border bg-card px-3 py-2">
+                <div class="flex min-w-0 flex-1 items-center gap-2.5">
+                  <span class="font-semibold whitespace-nowrap">{p.name}</span>
+                  <span class="text-xs text-muted-foreground whitespace-nowrap">{p.duration?.toFixed(1)}s</span>
+                  {#if p.text}<span class="truncate text-sm italic text-muted-foreground">"{p.text}"</span>{/if}
                 </div>
-                <div class="preset-actions">
-                  <button class="icon-btn" onclick={() => preview(p.category, p.name)} title="Preview">▶</button>
-                  <button class="icon-btn del" onclick={() => deletePreset(p.category, p.name)} title="Delete">✕</button>
+                <div class="flex shrink-0 gap-1">
+                  <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => preview(p.category, p.name)} title="Preview">▶</Button>
+                  <Button variant="outline" size="sm" class="h-7 px-2 hover:border-destructive hover:text-destructive" onclick={() => deletePreset(p.category, p.name)} title="Delete">✕</Button>
                 </div>
               </div>
             {/each}
@@ -113,134 +130,55 @@
     {/if}
 
   {:else if tab === 'generate'}
-    <div class="form">
-      <h3>Generate TTS Preset</h3>
-      <label>
+    <div class="flex max-w-md flex-col gap-3">
+      <h3 class="text-base font-semibold text-primary">Generate TTS Preset</h3>
+      <label class="flex flex-col gap-1 text-sm text-muted-foreground">
         Name
-        <input bind:value={genName} placeholder="e.g. person_detected" />
+        <Input bind:value={genName} placeholder="e.g. person_detected" />
       </label>
-      <label>
+      <label class="flex flex-col gap-1 text-sm text-muted-foreground">
         Category
-        <input bind:value={genCategory} placeholder="alerts" />
+        <Input bind:value={genCategory} placeholder="alerts" />
       </label>
-      <label>
+      <label class="flex flex-col gap-1 text-sm text-muted-foreground">
         Text
-        <textarea bind:value={genText} rows="3" placeholder="Text to synthesize..."></textarea>
+        <Textarea bind:value={genText} rows="3" placeholder="Text to synthesize..." />
       </label>
-      <label>
+      <label class="flex flex-col gap-1 text-sm text-muted-foreground">
         Voice
-        <select bind:value={genVoice}>
+        <Select bind:value={genVoice}>
           <option value="">default</option>
           {#each voices as v}
             <option>{v}</option>
           {/each}
-        </select>
+        </Select>
       </label>
-      <button onclick={generate} disabled={genBusy || !genName || !genText}>
+      <Button onclick={generate} disabled={genBusy || !genName || !genText} class="w-fit">
         {genBusy ? 'Generating…' : '✨ Generate & Save'}
-      </button>
-      {#if genStatus}<p class="status">{genStatus}</p>{/if}
+      </Button>
+      {#if genStatus}<p class="text-sm text-primary">{genStatus}</p>{/if}
     </div>
 
   {:else}
-    <div class="form">
-      <h3>Upload Audio File</h3>
-      <p class="hint">Any format — ffmpeg will convert to G.711ulaw 8kHz</p>
-      <label>
+    <div class="flex max-w-md flex-col gap-3">
+      <h3 class="text-base font-semibold text-primary">Upload Audio File</h3>
+      <p class="text-sm text-muted-foreground">Any format — ffmpeg will convert to G.711ulaw 8kHz</p>
+      <label class="flex flex-col gap-1 text-sm text-muted-foreground">
         Name
-        <input bind:value={uploadName} placeholder="preset name" />
+        <Input bind:value={uploadName} placeholder="preset name" />
       </label>
-      <label>
+      <label class="flex flex-col gap-1 text-sm text-muted-foreground">
         Category
-        <input bind:value={uploadCategory} placeholder="uploads" />
+        <Input bind:value={uploadCategory} placeholder="uploads" />
       </label>
-      <label>
+      <label class="flex flex-col gap-1 text-sm text-muted-foreground">
         File
-        <input type="file" accept="audio/*" onchange={e => uploadFile = e.target.files[0]} />
+        <input type="file" accept="audio/*" class="flex w-full rounded-md border border-dashed border-input bg-transparent p-2 text-sm file:mr-3 file:rounded file:border-0 file:bg-primary file:px-3 file:py-1 file:text-primary-foreground hover:file:bg-primary/90" onchange={e => uploadFile = e.target.files[0]} />
       </label>
-      <button onclick={upload} disabled={uploadBusy || !uploadName || !uploadFile}>
+      <Button onclick={upload} disabled={uploadBusy || !uploadName || !uploadFile} class="w-fit">
         {uploadBusy ? 'Uploading…' : '⬆ Upload'}
-      </button>
-      {#if uploadStatus}<p class="status">{uploadStatus}</p>{/if}
+      </Button>
+      {#if uploadStatus}<p class="text-sm text-primary">{uploadStatus}</p>{/if}
     </div>
   {/if}
 </div>
-
-<style>
-  .library { display: flex; flex-direction: column; gap: 1rem; }
-
-  .lib-tabs { display: flex; gap: 0.25rem; }
-  .lib-tabs button {
-    padding: 0.4rem 1rem;
-    border: 1px solid #3a3a50;
-    border-radius: 6px;
-    background: transparent;
-    color: #888;
-    font-size: 0.9rem;
-  }
-  .lib-tabs button:hover { border-color: #7c3aed; color: #ccc; }
-  .lib-tabs button.active { background: #4c1d95; border-color: #7c3aed; color: #e8e8f0; }
-
-  .category { margin-bottom: 1rem; }
-  h3 { font-size: 0.85rem; color: #888; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.5rem; }
-
-  .preset-list { display: flex; flex-direction: column; gap: 0.4rem; }
-  .preset {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.5rem 0.75rem;
-    background: #1a1a24;
-    border: 1px solid #2a2a3a;
-    border-radius: 8px;
-  }
-  .preset-info { display: flex; align-items: center; gap: 0.6rem; flex: 1; min-width: 0; }
-  .pname { font-weight: 600; white-space: nowrap; }
-  .dur { font-size: 0.75rem; color: #888; white-space: nowrap; }
-  .ptext { font-size: 0.8rem; color: #666; font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .preset-actions { display: flex; gap: 0.3rem; flex-shrink: 0; }
-
-  .icon-btn {
-    padding: 0.2rem 0.5rem;
-    background: transparent;
-    border: 1px solid #3a3a50;
-    border-radius: 5px;
-    color: #888;
-    font-size: 0.8rem;
-  }
-  .icon-btn:hover { border-color: #7c3aed; color: #ccc; }
-  .icon-btn.del:hover { border-color: #ef4444; color: #ef4444; }
-
-  .form {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    max-width: 480px;
-  }
-  .hint { font-size: 0.8rem; color: #666; }
-  label { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; color: #aaa; }
-  input, textarea, select {
-    padding: 0.4rem 0.6rem;
-    background: #1a1a24;
-    border: 1px solid #3a3a50;
-    border-radius: 6px;
-    color: #e8e8f0;
-    font-size: 0.9rem;
-    font-family: inherit;
-  }
-  input:focus, textarea:focus, select:focus { outline: none; border-color: #7c3aed; }
-  input[type="file"] { background: transparent; border: 1px dashed #3a3a50; padding: 0.5rem; }
-  textarea { resize: vertical; }
-  .form button {
-    align-self: flex-start;
-    padding: 0.45rem 1.1rem;
-    background: #7c3aed;
-    border: none;
-    border-radius: 7px;
-    color: #fff;
-    font-size: 0.9rem;
-  }
-  .form button:disabled { opacity: 0.4; }
-  .status { font-size: 0.85rem; color: #a78bfa; }
-  .empty { color: #555; font-style: italic; }
-</style>

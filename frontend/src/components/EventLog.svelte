@@ -1,5 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte'
+  import { Button } from '$lib/components/ui/button'
 
   let events = $state([])
   let es
@@ -24,60 +25,27 @@
   const icons = { speak: '🗣', play: '▶', beep: '🔔', broadcast: '📢' }
 </script>
 
-<div class="log-wrap">
-  <div class="log-header">
-    <h2>Live Event Log</h2>
+<div class="flex flex-col gap-4">
+  <div class="flex items-center justify-between">
+    <h2 class="text-lg font-semibold text-primary">Live Event Log</h2>
     {#if events.length > 0}
-      <button onclick={() => events = []}>Clear</button>
+      <Button variant="outline" size="sm" onclick={() => events = []}>Clear</Button>
     {/if}
   </div>
 
   {#if events.length === 0}
-    <p class="empty">Waiting for events…</p>
+    <p class="italic text-muted-foreground">Waiting for events…</p>
   {:else}
-    <div class="log">
+    <div class="flex flex-col gap-1 font-mono">
       {#each events as ev (ev.id)}
-        <div class="ev">
-          <span class="icon">{icons[ev.action] ?? '•'}</span>
-          <span class="time">{fmt(ev.at)}</span>
-          <span class="camera">{ev.camera}</span>
-          <span class="action">{ev.action}</span>
-          {#if ev.text}<span class="evtext">"{ev.text}"</span>{/if}
+        <div class="flex items-baseline gap-2.5 rounded-md border-l-4 border-primary bg-card px-3 py-1.5 text-sm animate-in fade-in slide-in-from-top-1 duration-200">
+          <span class="text-base">{icons[ev.action] ?? '•'}</span>
+          <span class="whitespace-nowrap text-muted-foreground">{fmt(ev.at)}</span>
+          <span class="font-semibold text-primary">{ev.camera}</span>
+          <span class="text-muted-foreground">{ev.action}</span>
+          {#if ev.text}<span class="truncate italic text-foreground/80">"{ev.text}"</span>{/if}
         </div>
       {/each}
     </div>
   {/if}
 </div>
-
-<style>
-  .log-wrap { display: flex; flex-direction: column; gap: 1rem; }
-  .log-header { display: flex; align-items: center; justify-content: space-between; }
-  h2 { font-size: 1.1rem; color: #a78bfa; }
-  .log-header button {
-    padding: 0.3rem 0.7rem;
-    background: transparent;
-    border: 1px solid #3a3a50;
-    border-radius: 6px;
-    color: #888;
-    font-size: 0.85rem;
-  }
-  .log { display: flex; flex-direction: column; gap: 0.3rem; font-family: 'Menlo', 'Consolas', monospace; }
-  .ev {
-    display: flex;
-    align-items: baseline;
-    gap: 0.6rem;
-    padding: 0.35rem 0.7rem;
-    background: #1a1a24;
-    border-radius: 6px;
-    border-left: 3px solid #4c1d95;
-    font-size: 0.85rem;
-    animation: fadeIn 0.2s ease;
-  }
-  @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; } }
-  .icon { font-size: 1rem; }
-  .time { color: #666; white-space: nowrap; }
-  .camera { color: #a78bfa; font-weight: 600; }
-  .action { color: #888; }
-  .evtext { color: #ccc; font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .empty { color: #555; font-style: italic; }
-</style>
