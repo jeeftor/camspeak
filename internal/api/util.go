@@ -126,9 +126,11 @@ func rawToWAV(rawFile, tmpDir string) (string, error) {
 }
 
 // transcodeFileToRaw converts any audio file to G.711ulaw 8kHz raw via ffmpeg.
+// Applies a 3x volume boost and loudnorm for consistent levels.
 func transcodeFileToRaw(src, dst string) error {
 	cmd := exec.Command("ffmpeg", "-y",
 		"-i", src,
+		"-af", "volume=3.0,loudnorm=I=-16:TP=-1.5:LRA=11",
 		"-ar", "8000",
 		"-ac", "1",
 		"-c:a", "pcm_mulaw",
