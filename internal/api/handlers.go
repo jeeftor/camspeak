@@ -104,6 +104,76 @@ func (h *Handlers) Play(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// PlayURL handles POST /api/play-url — download URL → transcode → camera.
+func (h *Handlers) PlayURL(c echo.Context) error {
+	var req struct {
+		Camera string `json:"camera"`
+		URL    string `json:"url"`
+	}
+	if err := c.Bind(&req); err != nil || req.Camera == "" || req.URL == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "camera and url required")
+	}
+
+	h.log.Info("play-url: request", "camera", req.Camera, "url", req.URL)
+	start := time.Now()
+
+	cam, err := h.reg.Get(req.Camera)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, err.Error())
+	}
+
+	// Download to temp file
+	resp, err := http.Get(req.URL)
+	if err != nil {
+		h.log.Error("play-url: download failed", "camera", req.Camera, "url", req.URL, "err", err)
+		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("download failed: %s", err))
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		h.log.Error("play-url: download bad status", "camera", req.Camera, "url", req.URL, "status", resp.StatusCode)
+		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("download returned HTTP %d", resp.StatusCode))
+	}
+
+	tmp, err := os.CreateTemp(h.tmpDir, "camspeak_url_*")
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	defer os.Remove(tmp.Name())
+
+	if _, err := io.Copy(tmp, resp.Body); err != nil {
+		tmp.Close()
+		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("saving download: %s", err))
+	}
+	tmp.Close()
+
+	// Transcode to raw
+	raw, err := os.CreateTemp(h.tmpDir, "camspeak_url_*.raw")
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	rawName := raw.Name()
+	raw.Close()
+
+	if err := transcodeFileToRaw(tmp.Name(), rawName); err != nil {
+		os.Remove(rawName)
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	defer os.Remove(rawName)
+
+	h.log.Debug("play-url: sending to camera", "camera", req.Camera, "url", req.URL)
+	if err := cam.SendRaw(rawName); err != nil {
+		h.log.Error("play-url: send failed", "camera", req.Camera, "elapsed", time.Since(start), "err", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	h.log.Info("play-url: done", "camera", req.Camera, "url", req.URL, "elapsed", time.Since(start))
+	h.events.publish(event{Camera: req.Camera, Action: "play-url", Text: req.URL, At: time.Now()})
+
+	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // Beep handles POST /api/beep — 800Hz test tone → camera.
 func (h *Handlers) Beep(c echo.Context) error {
 	var req struct {
@@ -253,6 +323,29 @@ func (h *Handlers) ListLibrary(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, filtered)
+}
+
+// TTSPreview handles POST /api/tts/preview — generates TTS and returns WAV audio.
+func (h *Handlers) TTSPreview(c echo.Context) error {
+	var req struct {
+		Text  string `json:"text"`
+		Voice string `json:"voice"`
+	}
+	if err := c.Bind(&req); err != nil || req.Text == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "text required")
+	}
+
+	voice := req.Voice
+	if voice == "" {
+		voice = h.cfg.TTS.DefaultVoice
+	}
+
+	wav, err := h.tts.Speak(req.Text, voice)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("TTS failed: %s", err))
+	}
+
+	return c.Blob(http.StatusOK, "audio/wav", wav)
 }
 
 // GeneratePreset handles POST /api/library — TTS → save preset.

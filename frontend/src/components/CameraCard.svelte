@@ -10,6 +10,7 @@
   let text = $state('')
   let voice = $state('')
   let preset = $state('')
+  let url = $state('')
   let busy = $state(false)
   let status = $state('')
 
@@ -43,6 +44,21 @@
     try {
       await post('/api/play', { camera: camera.name, preset })
       status = '✓'
+    } catch (e) {
+      status = '✗ ' + e.message
+    } finally {
+      busy = false
+      setTimeout(() => (status = ''), 3000)
+    }
+  }
+
+  async function playUrl() {
+    if (!url) return
+    busy = true; status = ''
+    try {
+      await post('/api/play-url', { camera: camera.name, url })
+      status = '✓'
+      url = ''
     } catch (e) {
       status = '✗ ' + e.message
     } finally {
@@ -103,6 +119,17 @@
       <Button size="sm" onclick={play} disabled={busy || !preset}>▶</Button>
     </div>
   {/if}
+
+  <div class="flex gap-1.5">
+    <Input
+      bind:value={url}
+      placeholder="Play from URL..."
+      onkeydown={e => e.key === 'Enter' && playUrl()}
+      disabled={busy}
+      class="flex-1 text-sm"
+    />
+    <Button size="sm" onclick={playUrl} disabled={busy || !url}>▶</Button>
+  </div>
 
   {#if status}<div class="text-sm text-primary">{status}</div>{/if}
 </Card>

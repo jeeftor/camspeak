@@ -13,6 +13,8 @@
   let genVoice = $state('')
   let genBusy = $state(false)
   let genStatus = $state('')
+  let genAudio = $state(null)      // holds the generated WAV blob URL
+  let genPlaying = $state(false)
 
   let uploadName = $state('')
   let uploadCategory = $state('uploads')
@@ -29,7 +31,45 @@
   )
 
   async function generate() {
-    if (!genName || !genText) return
+    if (!genText) return
+    genBusy = true; genStatus = ''
+    // Clear previous audio
+    if (genAudio) { URL.revokeObjectURL(genAudio); genAudio = null }
+    try {
+      const res = await fetch('/api/tts/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: genText, voice: genVoice }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      const blob = await res.blob()
+      genAudio = URL.createObjectURL(blob)
+      genStatus = '✓ Generated — preview or save'
+    } catch (e) {
+      genStatus = '✗ ' + e.message
+    } finally {
+      genBusy = false
+      setTimeout(() => (genStatus = ''), 4000)
+    }
+  }
+
+  let genAudioEl = $state(null)
+
+  function previewGen() {
+    if (!genAudio) return
+    if (genPlaying) {
+      genAudioEl?.pause()
+      genPlaying = false
+      return
+    }
+    genAudioEl = new Audio(genAudio)
+    genAudioEl.onended = () => { genPlaying = false }
+    genAudioEl.play()
+    genPlaying = true
+  }
+
+  async function save() {
+    if (!genName || !genText || !genAudio) return
     genBusy = true; genStatus = ''
     try {
       const res = await fetch('/api/library', {
@@ -40,6 +80,8 @@
       if (!res.ok) throw new Error(await res.text())
       genStatus = '✓ Saved'
       genName = ''; genText = ''
+      if (genAudio) { URL.revokeObjectURL(genAudio); genAudio = null }
+      genPlaying = false
       onRefresh()
     } catch (e) {
       genStatus = '✗ ' + e.message
@@ -158,14 +200,6 @@
     <div class="flex max-w-md flex-col gap-3">
       <h3 class="text-base font-semibold text-primary">Generate TTS Preset</h3>
       <label class="flex flex-col gap-1 text-sm text-muted-foreground">
-        Name
-        <Input bind:value={genName} placeholder="e.g. person_detected" />
-      </label>
-      <label class="flex flex-col gap-1 text-sm text-muted-foreground">
-        Category
-        <Input bind:value={genCategory} placeholder="alerts" />
-      </label>
-      <label class="flex flex-col gap-1 text-sm text-muted-foreground">
         Text
         <Textarea bind:value={genText} rows="3" placeholder="Text to synthesize..." />
       </label>
@@ -178,9 +212,30 @@
           {/each}
         </Select>
       </label>
-      <Button onclick={generate} disabled={genBusy || !genName || !genText} class="w-fit">
-        {genBusy ? 'Generating…' : '✨ Generate & Save'}
-      </Button>
+      <div class="flex gap-2">
+        <Button onclick={generate} disabled={genBusy || !genText}>
+          {genBusy ? 'Generating…' : '✨ Generate'}
+        </Button>
+        <Button variant="outline" onclick={previewGen} disabled={!genAudio}>
+          {genPlaying ? '⏸ Stop' : '▶ Preview'}
+        </Button>
+      </div>
+      {#if genAudio}
+        <div class="rounded-lg border border-dashed border-primary/40 bg-primary/5 p-3">
+          <p class="mb-2 text-xs text-muted-foreground">Generated — enter name to save</p>
+          <label class="flex flex-col gap-1 text-sm text-muted-foreground">
+            Name
+            <Input bind:value={genName} placeholder="e.g. person_detected" />
+          </label>
+          <label class="flex flex-col gap-1 text-sm text-muted-foreground">
+            Category
+            <Input bind:value={genCategory} placeholder="alerts" />
+          </label>
+          <Button variant="secondary" onclick={save} disabled={genBusy || !genName} class="mt-2 w-fit">
+            {genBusy ? 'Saving…' : '💾 Save'}
+          </Button>
+        </div>
+      {/if}
       {#if genStatus}<p class="text-sm text-primary">{genStatus}</p>{/if}
     </div>
 
@@ -198,7 +253,12 @@
       </label>
       <label class="flex flex-col gap-1 text-sm text-muted-foreground">
         File
-        <input type="file" accept="audio/*" class="flex w-full rounded-md border border-dashed border-input bg-transparent p-2 text-sm file:mr-3 file:rounded file:border-0 file:bg-primary file:px-3 file:py-1 file:text-primary-foreground hover:file:bg-primary/90" onchange={e => uploadFile = e.target.files[0]} />
+        <input
+          type="file"
+          accept="audio/*"
+          class="flex w-full rounded-md border border-dashed border-input bg-transparent p-2 text-sm file:mr-3 file:rounded file:border-0 file:bg-primary file:px-3 file:py-1 file:text-primary-foreground hover:file:bg-primary/90"
+          onchange={(e) => { uploadFile = e.currentTarget.files?.[0] ?? null }}
+        />
       </label>
       <Button onclick={upload} disabled={uploadBusy || !uploadName || !uploadFile} class="w-fit">
         {uploadBusy ? 'Uploading…' : '⬆ Upload'}
