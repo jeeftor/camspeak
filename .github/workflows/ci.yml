@@ -31,6 +31,8 @@ jobs:
 
       - name: Build frontend
         run: cd frontend && bun install --frozen-lockfile && bun run build
+        env:
+          NODE_OPTIONS: --no-deprecation
 
       - name: Build Go binary
         run: go build -ldflags="-s -w -X main.Version=ci-${{ github.sha }}" -o camspeak .

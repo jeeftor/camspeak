@@ -1,6 +1,7 @@
 ### Stage 1: build frontend
 FROM oven/bun:1 AS frontend
 WORKDIR /app/frontend
+ENV NODE_OPTIONS=--no-deprecation
 COPY frontend/package.json frontend/bun.lock ./
 RUN bun install --frozen-lockfile
 COPY frontend/ ./

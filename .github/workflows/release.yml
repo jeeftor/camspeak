@@ -30,6 +30,8 @@ jobs:
 
       - name: Build frontend
         run: cd frontend && bun install --frozen-lockfile && bun run build
+        env:
+          NODE_OPTIONS: --no-deprecation
 
       - name: Test
         run: go test ./...
