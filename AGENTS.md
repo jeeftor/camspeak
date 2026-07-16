@@ -1,6 +1,6 @@
 # camspeak
 
-Camera audio router — stream TTS and audio to Hikvision and Reolink camera speakers.
+Camera audio router — stream TTS and audio to IP camera speakers via Hikvision ISAPI, Reolink, go2rtc, or ONVIF RTSP backchannel.
 
 ## Build & Run
 
@@ -45,6 +45,7 @@ Multiple TTS endpoints can be configured (klipbord-style presets). The active pr
 | `CAMSPEAK_DATA_DIR` | Data directory (DB + library) | `./data` |
 | `CAMSPEAK_PORT` | HTTP server port | `8585` |
 | `CAMSPEAK_FRIGATE_URL` | Frigate NVR URL for auto-discovery | (none) |
+| `CAMSPEAK_GO2RTC_URL` | go2rtc URL for cameras using `go2rtc` type | (none) |
 | `CAMSPEAK_TTS_URL` | TTS API endpoint (overrides active preset) | (from active preset) |
 | `CAMSPEAK_TTS_MODEL` | TTS model name | (from active preset) |
 | `CAMSPEAK_TTS_VOICE` | Default TTS voice | (from active preset) |
@@ -59,7 +60,7 @@ Copy `.env.example` to `.env` for local dev. Loaded by godotenv at startup. Giti
 
 - `cmd/` — Cobra CLI commands (`serve`, `speak`, `beep`, `list`, `discover`)
 - `internal/api/` — Echo HTTP server, REST handlers, MCP endpoint, SSE events, config API
-- `internal/cameras/` — Camera speaker clients (Hikvision ISAPI, Reolink stub)
+- `internal/cameras/` — Camera speaker clients (Hikvision ISAPI, Reolink, go2rtc stream-to-camera, ONVIF RTSP backchannel via gortsplib)
 - `internal/config/` — SQLite-based config loading with env var overrides
 - `internal/db/` — SQLite database initialization (modernc.org/sqlite, pure Go)
 - `internal/frigate/` — Frigate NVR camera discovery (parses /config/raw)
@@ -73,7 +74,15 @@ Copy `.env.example` to `.env` for local dev. Loaded by godotenv at startup. Giti
 - `events` — speak/play/beep event log for SSE history
 - `preferences` — key-value runtime preferences (port, library path, frigate URL, MQTT)
 - `tts_presets` — named TTS endpoint configurations (klipbord-style)
-- `cameras` — camera definitions (name, type, ip, user, pass, channel)
+- `cameras` — camera definitions (name, type, ip, user, pass, channel, stream)
+
+### Camera types
+| Type | Protocol | Audio Method | Requirements |
+|---|---|---|---|
+| `hikvision` | ISAPI Two-Way Audio | HTTP PUT to `/ISAPI/Streaming/channels/{ch}/audioData` | Camera must support ISAPI (mainstream Hikvision) |
+| `reolink` | Reolink HTTP API | Stub (not yet implemented) | — |
+| `go2rtc` | go2rtc stream-to-camera API | `POST http://go2rtc:1984/api/streams?dst=<stream>&src=ffmpeg:<url>#audio=pcmu` | go2rtc must have a stream with `#backchannel=1`. Set `CAMSPEAK_GO2RTC_URL`. |
+| `onvif` | ONVIF RTSP backchannel | Direct RTP/G.711 via gortsplib (no external deps) | Camera must advertise `a=sendonly` audio track in RTSP SDP |
 - `rules` — MQTT-triggered auto-speak rules
 
 ### REST API

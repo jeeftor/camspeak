@@ -24,11 +24,12 @@ type TTSConfig struct {
 
 // CameraConfig holds connection details for a single camera.
 type CameraConfig struct {
-	Type    string `json:"type"` // "hikvision" or "reolink"
+	Type    string `json:"type"` // "hikvision", "reolink", "go2rtc", "onvif"
 	IP      string `json:"ip"`
 	User    string `json:"user"`
 	Pass    string `json:"pass"`
 	Channel int    `json:"channel"` // Hikvision audio channel, default 1
+	Stream  string `json:"stream"`  // go2rtc stream name (e.g. "garage_2way") or RTSP path for onvif
 }
 
 // MQTTConfig holds connection details for the MQTT broker.
@@ -70,6 +71,7 @@ type Config struct {
 	Library    string                  `json:"library"`
 	Port       int                     `json:"port"`
 	FrigateURL string                  `json:"frigate_url,omitempty"`
+	Go2rtcURL  string                  `json:"go2rtc_url,omitempty"`
 }
 
 // Defaults.
@@ -162,6 +164,9 @@ func loadPreferences(db *sql.DB, cfg *Config) {
 	if v, ok := prefs["frigate_url"]; ok {
 		cfg.FrigateURL = v
 	}
+	if v, ok := prefs["go2rtc_url"]; ok {
+		cfg.Go2rtcURL = v
+	}
 	if v, ok := prefs["mqtt_broker"]; ok {
 		cfg.MQTT.Broker = v
 	}
@@ -233,7 +238,7 @@ func seedDefaultPresets(db *sql.DB) {
 // loadCameras loads camera configurations from SQLite.
 func loadCameras(db *sql.DB, cfg *Config) {
 	rows, err := db.Query(
-		`SELECT name, type, ip, user, pass, channel FROM cameras`,
+		`SELECT name, type, ip, user, pass, channel, stream FROM cameras`,
 	)
 	if err != nil {
 		return
@@ -243,7 +248,7 @@ func loadCameras(db *sql.DB, cfg *Config) {
 	for rows.Next() {
 		var cam CameraConfig
 		var name string
-		if err := rows.Scan(&name, &cam.Type, &cam.IP, &cam.User, &cam.Pass, &cam.Channel); err != nil {
+		if err := rows.Scan(&name, &cam.Type, &cam.IP, &cam.User, &cam.Pass, &cam.Channel, &cam.Stream); err != nil {
 			continue
 		}
 		cfg.Cameras[name] = cam
@@ -287,6 +292,9 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("CAMSPEAK_FRIGATE_URL"); v != "" {
 		cfg.FrigateURL = v
+	}
+	if v := os.Getenv("CAMSPEAK_GO2RTC_URL"); v != "" {
+		cfg.Go2rtcURL = v
 	}
 	if v := os.Getenv("CAMSPEAK_TTS_URL"); v != "" {
 		cfg.TTS.URL = v
@@ -347,12 +355,12 @@ func SetPreference(db *sql.DB, key, value string) error {
 // SaveCamera inserts or updates a camera in SQLite.
 func SaveCamera(db *sql.DB, name string, cam CameraConfig) error {
 	_, err := db.Exec(
-		`INSERT INTO cameras (name, type, ip, user, pass, channel)
-		 VALUES (?, ?, ?, ?, ?, ?)
+		`INSERT INTO cameras (name, type, ip, user, pass, channel, stream)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(name) DO UPDATE SET
 		   type = excluded.type, ip = excluded.ip, user = excluded.user,
-		   pass = excluded.pass, channel = excluded.channel`,
-		name, cam.Type, cam.IP, cam.User, cam.Pass, cam.Channel,
+		   pass = excluded.pass, channel = excluded.channel, stream = excluded.stream`,
+		name, cam.Type, cam.IP, cam.User, cam.Pass, cam.Channel, cam.Stream,
 	)
 	if err != nil {
 		return fmt.Errorf("saving camera %s: %w", name, err)

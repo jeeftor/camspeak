@@ -32,6 +32,7 @@
   let camUser = $state('')
   let camPass = $state('')
   let camChannel = $state(1)
+  let camStream = $state('')
   let camStatus = $state('')
 
   // Rule form
@@ -134,11 +135,12 @@
         body: JSON.stringify({
           name: camName, type: camType, ip: camIP,
           user: camUser, pass: camPass, channel: parseInt(camChannel) || 1,
+          stream: camStream,
         }),
       })
       if (!res.ok) throw new Error(await res.text())
       camStatus = '✓ Saved'
-      camName = ''; camIP = ''; camUser = ''; camPass = ''; camChannel = 1
+      camName = ''; camIP = ''; camUser = ''; camPass = ''; camChannel = 1; camStream = ''
       loadConfig()
       onRefresh?.()
     } catch (e) {
@@ -236,6 +238,7 @@
     camType = cam.type
     camIP = cam.ip
     camChannel = cam.channel || 1
+    camStream = cam.stream || ''
   }
 
   function editTTS(p) {
@@ -378,6 +381,8 @@
               <Select bind:value={camType}>
                 <option value="hikvision">hikvision</option>
                 <option value="reolink">reolink</option>
+                <option value="go2rtc">go2rtc</option>
+                <option value="onvif">onvif</option>
               </Select>
             </label>
             <label class="flex flex-col gap-1 text-xs text-muted-foreground">
@@ -396,6 +401,12 @@
               Channel
               <Input bind:value={camChannel} type="number" min="1" />
             </label>
+            {#if camType === 'go2rtc' || camType === 'onvif'}
+            <label class="flex flex-col gap-1 text-xs text-muted-foreground col-span-2">
+              {camType === 'go2rtc' ? 'go2rtc Stream Name' : 'RTSP URL'}
+              <Input bind:value={camStream} placeholder={camType === 'go2rtc' ? 'garage_2way' : 'rtsp://user:pass@ip:554/stream0'} />
+            </label>
+            {/if}
           </div>
           <Button onclick={saveCamera} disabled={!camName || !camIP} class="mt-3">
             Save Camera

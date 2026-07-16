@@ -55,7 +55,8 @@ CREATE TABLE IF NOT EXISTS cameras (
     ip      TEXT NOT NULL,
     user    TEXT DEFAULT '',
     pass    TEXT DEFAULT '',
-    channel INTEGER DEFAULT 1
+    channel INTEGER DEFAULT 1,
+    stream  TEXT DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS rules (
@@ -105,5 +106,17 @@ func Open(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("initializing schema: %w", err)
 	}
 
+	// Migrations: add columns that may not exist in older databases.
+	migrate(db)
+
 	return db, nil
+}
+
+// migrate applies incremental schema changes for existing databases.
+func migrate(db *sql.DB) {
+	// Add 'stream' column to cameras if missing (added in v1.4.0).
+	var streamCol int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cameras') WHERE name='stream'`).Scan(&streamCol); err == nil && streamCol == 0 {
+		_, _ = db.Exec(`ALTER TABLE cameras ADD COLUMN stream TEXT DEFAULT ''`)
+	}
 }

@@ -99,6 +99,7 @@ func (h *Handlers) ListCamerasConfig(c echo.Context) error {
 			"type":    cam.Type,
 			"ip":      cam.IP,
 			"channel": cam.Channel,
+			"stream":  cam.Stream,
 		})
 	}
 	return c.JSON(http.StatusOK, cameras)
@@ -113,6 +114,7 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 		User    string `json:"user"`
 		Pass    string `json:"pass"`
 		Channel int    `json:"channel"`
+		Stream  string `json:"stream"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid JSON body")
@@ -132,6 +134,7 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 		User:    req.User,
 		Pass:    req.Pass,
 		Channel: req.Channel,
+		Stream:  req.Stream,
 	}
 	if err := config.SaveCamera(h.db, req.Name, cam); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -143,6 +146,7 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 		"type":    req.Type,
 		"ip":      req.IP,
 		"channel": req.Channel,
+		"stream":  req.Stream,
 	})
 }
 
