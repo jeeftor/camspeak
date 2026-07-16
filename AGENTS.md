@@ -46,6 +46,7 @@ Multiple TTS endpoints can be configured (klipbord-style presets). The active pr
 | `CAMSPEAK_PORT` | HTTP server port | `8585` |
 | `CAMSPEAK_FRIGATE_URL` | Frigate NVR URL for auto-discovery | (none) |
 | `CAMSPEAK_GO2RTC_URL` | go2rtc URL for cameras using `go2rtc` type | (none) |
+| `CAMSPEAK_ADVERTISE_IP` | IP that go2rtc can reach camspeak on (for Docker) | (auto-detect) |
 | `CAMSPEAK_TTS_URL` | TTS API endpoint (overrides active preset) | (from active preset) |
 | `CAMSPEAK_TTS_MODEL` | TTS model name | (from active preset) |
 | `CAMSPEAK_TTS_VOICE` | Default TTS voice | (from active preset) |

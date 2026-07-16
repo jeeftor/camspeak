@@ -19,17 +19,22 @@ import (
 //  2. POSTing to go2rtc: /api/streams?dst=<stream>&src=ffmpeg:http://<host>:<port>/file.raw#audio=pcmu#input=file
 //  3. go2rtc fetches the file, transcodes via ffmpeg, and pushes RTP to the camera's backchannel
 type Go2rtcClient struct {
-	go2rtcURL string // e.g. "http://192.168.1.120:1984"
-	stream    string // go2rtc stream name with backchannel (e.g. "garage_2way")
-	ip        string // camera IP (for ping)
+	go2rtcURL   string // e.g. "http://192.168.1.120:1984"
+	stream      string // go2rtc stream name with backchannel (e.g. "garage_2way")
+	ip          string // camera IP (for ping)
+	advertiseIP string // IP that go2rtc can reach camspeak on (for Docker, set to host IP)
 }
 
 // NewGo2rtcClient creates a client that uses go2rtc's stream-to-camera API.
-func NewGo2rtcClient(go2rtcURL, stream, ip string) *Go2rtcClient {
+// advertiseIP is the IP that go2rtc should use to fetch the audio file from
+// camspeak's temporary HTTP server. If empty, auto-detects the local IP.
+// In Docker, set this to the host's LAN IP so go2rtc (on another host) can reach it.
+func NewGo2rtcClient(go2rtcURL, stream, ip, advertiseIP string) *Go2rtcClient {
 	return &Go2rtcClient{
-		go2rtcURL: go2rtcURL,
-		stream:    stream,
-		ip:        ip,
+		go2rtcURL:   go2rtcURL,
+		stream:      stream,
+		ip:          ip,
+		advertiseIP: advertiseIP,
 	}
 }
 
@@ -45,12 +50,15 @@ func (c *Go2rtcClient) SendRaw(rawFile string) error {
 
 	port := listener.Addr().(*net.TCPAddr).Port
 
-	// Get our IP that go2rtc can reach (use the same host go2rtc is on,
-	// or just use the first non-loopback IP)
-	hostIP, err := getLocalIP()
-	if err != nil {
-		listener.Close()
-		return fmt.Errorf("detecting local IP: %w", err)
+	// Determine the IP that go2rtc can reach us on
+	hostIP := c.advertiseIP
+	if hostIP == "" {
+		var err error
+		hostIP, err = getLocalIP()
+		if err != nil {
+			listener.Close()
+			return fmt.Errorf("detecting local IP: %w", err)
+		}
 	}
 
 	fileName := filepath.Base(rawFile)

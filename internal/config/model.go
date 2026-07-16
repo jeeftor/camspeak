@@ -64,14 +64,15 @@ type TTSPreset struct {
 
 // Config is the root configuration model.
 type Config struct {
-	TTS        TTSConfig               `json:"tts"`
-	Cameras    map[string]CameraConfig `json:"cameras"`
-	MQTT       MQTTConfig              `json:"mqtt"`
-	Rules      []Rule                  `json:"rules"`
-	Library    string                  `json:"library"`
-	Port       int                     `json:"port"`
-	FrigateURL string                  `json:"frigate_url,omitempty"`
-	Go2rtcURL  string                  `json:"go2rtc_url,omitempty"`
+	TTS         TTSConfig               `json:"tts"`
+	Cameras     map[string]CameraConfig `json:"cameras"`
+	MQTT        MQTTConfig              `json:"mqtt"`
+	Rules       []Rule                  `json:"rules"`
+	Library     string                  `json:"library"`
+	Port        int                     `json:"port"`
+	FrigateURL  string                  `json:"frigate_url,omitempty"`
+	Go2rtcURL   string                  `json:"go2rtc_url,omitempty"`
+	AdvertiseIP string                  `json:"advertise_ip,omitempty"`
 }
 
 // Defaults.
@@ -166,6 +167,9 @@ func loadPreferences(db *sql.DB, cfg *Config) {
 	}
 	if v, ok := prefs["go2rtc_url"]; ok {
 		cfg.Go2rtcURL = v
+	}
+	if v, ok := prefs["advertise_ip"]; ok {
+		cfg.AdvertiseIP = v
 	}
 	if v, ok := prefs["mqtt_broker"]; ok {
 		cfg.MQTT.Broker = v
@@ -295,6 +299,9 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("CAMSPEAK_GO2RTC_URL"); v != "" {
 		cfg.Go2rtcURL = v
+	}
+	if v := os.Getenv("CAMSPEAK_ADVERTISE_IP"); v != "" {
+		cfg.AdvertiseIP = v
 	}
 	if v := os.Getenv("CAMSPEAK_TTS_URL"); v != "" {
 		cfg.TTS.URL = v

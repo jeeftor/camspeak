@@ -44,7 +44,7 @@ func NewRegistry(cfg *config.Config, ttsClient *tts.Client) (*Registry, error) {
 			if cam.Stream == "" {
 				return nil, fmt.Errorf("camera %q uses go2rtc type but no stream name configured", name)
 			}
-			r.cameras[name] = NewGo2rtcClient(cfg.Go2rtcURL, cam.Stream, cam.IP)
+			r.cameras[name] = NewGo2rtcClient(cfg.Go2rtcURL, cam.Stream, cam.IP, cfg.AdvertiseIP)
 		case "onvif":
 			rtspURL := cam.Stream
 			if rtspURL == "" {
