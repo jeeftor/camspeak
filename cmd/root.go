@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	clog "github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
@@ -18,9 +19,24 @@ var (
 	version = "dev"
 	appLog  = clog.NewWithOptions(os.Stderr, clog.Options{
 		ReportTimestamp: true,
-		Level:           clog.InfoLevel,
+		Level:           logLevel(),
 	})
 )
+
+// logLevel returns the log level from CAMSPEAK_LOG_LEVEL env var,
+// defaulting to Info. Valid values: debug, info, warn, error.
+func logLevel() clog.Level {
+	switch strings.ToLower(os.Getenv("CAMSPEAK_LOG_LEVEL")) {
+	case "debug":
+		return clog.DebugLevel
+	case "warn":
+		return clog.WarnLevel
+	case "error":
+		return clog.ErrorLevel
+	default:
+		return clog.InfoLevel
+	}
+}
 
 // SetVersion sets the application version (called from main.go).
 func SetVersion(v string) {

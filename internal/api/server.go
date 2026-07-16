@@ -56,12 +56,33 @@ func New(
 		tts:    ttsClient,
 		events: newEventBus(store.DB()),
 		db:     database,
+		log:    clog.NewWithOptions(os.Stderr, clog.Options{Prefix: "api"}),
 	}
 
 	e := echo.New()
 	e.HideBanner = true
 	e.HidePort = true
 	e.Use(middleware.Recover())
+	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
+		LogStatus: true,
+		LogMethod: true,
+		LogURI:    true,
+		LogLatency: true,
+		Skipper: func(c echo.Context) bool {
+			// Skip health checks and SSE streams
+			uri := c.Request().URL.Path
+			return uri == "/api/health" || uri == "/api/events"
+		},
+		LogValuesFunc: func(c echo.Context, v middleware.RequestLoggerValues) error {
+			h.log.Debug("request",
+				"method", v.Method,
+				"uri", v.URI,
+				"status", v.Status,
+				"latency", v.Latency,
+			)
+			return nil
+		},
+	}))
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		// LAN-only service — allow all origins so the SPA works from any
 		// host:port the browser uses (localhost, 127.0.0.1, LAN IP, etc.)

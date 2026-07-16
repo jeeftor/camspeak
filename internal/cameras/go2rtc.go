@@ -3,13 +3,14 @@ package cameras
 import (
 	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"time"
+
+	clog "github.com/charmbracelet/log"
 )
 
 // Go2rtcClient plays audio on a camera via go2rtc's stream-to-camera API.
@@ -23,6 +24,7 @@ type Go2rtcClient struct {
 	stream      string // go2rtc stream name with backchannel (e.g. "garage_2way")
 	ip          string // camera IP (for ping)
 	advertiseIP string // IP that go2rtc can reach camspeak on (for Docker, set to host IP)
+	log         *clog.Logger
 }
 
 // NewGo2rtcClient creates a client that uses go2rtc's stream-to-camera API.
@@ -35,6 +37,7 @@ func NewGo2rtcClient(go2rtcURL, stream, ip, advertiseIP string) *Go2rtcClient {
 		stream:      stream,
 		ip:          ip,
 		advertiseIP: advertiseIP,
+		log:         clog.NewWithOptions(os.Stderr, clog.Options{Prefix: "go2rtc"}),
 	}
 }
 
@@ -85,7 +88,7 @@ func (c *Go2rtcClient) SendRaw(rawFile string) error {
 		url.QueryEscape(srcURL),
 	)
 
-	slog.Info("go2rtc: streaming to camera", "stream", c.stream, "file", fileName, "src", srcURL)
+	c.log.Info("streaming to camera", "stream", c.stream, "file", fileName, "src", srcURL)
 
 	// Get file size for timeout calculation
 	info, err := os.Stat(rawFile)

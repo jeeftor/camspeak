@@ -43,6 +43,7 @@ Multiple TTS endpoints can be configured (klipbord-style presets). The active pr
 | Variable | Description | Default |
 |---|---|---|
 | `CAMSPEAK_DATA_DIR` | Data directory (DB + library) | `./data` |
+| `CAMSPEAK_LOG_LEVEL` | Log level: debug, info, warn, error | `info` |
 | `CAMSPEAK_PORT` | HTTP server port | `8585` |
 | `CAMSPEAK_FRIGATE_URL` | Frigate NVR URL for auto-discovery | (none) |
 | `CAMSPEAK_GO2RTC_URL` | go2rtc URL for cameras using `go2rtc` type | (none) |

@@ -3,10 +3,10 @@ package cameras
 import (
 	"crypto/rand"
 	"fmt"
-	"log/slog"
 	"os"
 	"time"
 
+	clog "github.com/charmbracelet/log"
 	"github.com/bluenviron/gortsplib/v4"
 	"github.com/bluenviron/gortsplib/v4/pkg/base"
 	"github.com/bluenviron/gortsplib/v4/pkg/description"
@@ -21,6 +21,7 @@ import (
 type OnvifClient struct {
 	rtspURL string // e.g. "rtsp://user:pass@192.168.1.195:554/stream0"
 	ip      string // camera IP (for ping)
+	log     *clog.Logger
 }
 
 // NewOnvifClient creates a client that uses ONVIF RTSP backchannel.
@@ -29,6 +30,7 @@ func NewOnvifClient(rtspURL, ip string) *OnvifClient {
 	return &OnvifClient{
 		rtspURL: rtspURL,
 		ip:      ip,
+		log:     clog.NewWithOptions(os.Stderr, clog.Options{Prefix: "onvif"}),
 	}
 }
 
@@ -90,7 +92,7 @@ func (c *OnvifClient) SendRaw(rawFile string) error {
 		return fmt.Errorf("no G.711 backchannel found in RTSP SDP — camera may not support two-way audio")
 	}
 
-	slog.Info("onvif: found backchannel",
+	c.log.Info("found backchannel",
 		"mulaw", forma.MULaw,
 		"sample_rate", forma.ClockRate(),
 		"channels", forma.ChannelCount,
@@ -178,7 +180,7 @@ func (c *OnvifClient) SendRaw(rawFile string) error {
 		sentSamples += n
 	}
 
-	slog.Info("onvif: audio sent", "samples", sentSamples, "duration_ms", sentSamples/8)
+	c.log.Info("audio sent", "samples", sentSamples, "duration_ms", sentSamples/8)
 
 	return nil
 }

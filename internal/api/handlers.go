@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	clog "github.com/charmbracelet/log"
 	"github.com/labstack/echo/v4"
 
 	"github.com/jeeftor/camspeak/internal/cameras"
@@ -27,6 +28,7 @@ type Handlers struct {
 	tts    *tts.Client
 	events *eventBus
 	db     *sql.DB
+	log    *clog.Logger
 }
 
 // speakReq is the body for POST /api/speak.
@@ -67,11 +69,16 @@ func (h *Handlers) Speak(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "camera and text required")
 	}
 
+	h.log.Info("speak: request", "camera", req.Camera, "text_len", len(req.Text), "voice", req.Voice)
+	start := time.Now()
+
 	err = h.speakText(req.Camera, req.Text, req.Voice)
 	if err != nil {
+		h.log.Error("speak: failed", "camera", req.Camera, "elapsed", time.Since(start), "err", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
+	h.log.Info("speak: done", "camera", req.Camera, "elapsed", time.Since(start))
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -83,11 +90,16 @@ func (h *Handlers) Play(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "camera and preset required")
 	}
 
+	h.log.Info("play: request", "camera", req.Camera, "preset", req.Preset, "category", req.Category)
+	start := time.Now()
+
 	err = h.playPreset(req.Camera, req.Category, req.Preset)
 	if err != nil {
+		h.log.Error("play: failed", "camera", req.Camera, "preset", req.Preset, "elapsed", time.Since(start), "err", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
+	h.log.Info("play: done", "camera", req.Camera, "preset", req.Preset, "elapsed", time.Since(start))
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -102,19 +114,26 @@ func (h *Handlers) Beep(c echo.Context) error {
 
 	cam, err := h.reg.Get(req.Camera)
 	if err != nil {
+		h.log.Warn("beep: camera not found", "camera", req.Camera, "err", err)
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
 
 	raw, err := GenerateBeep()
 	if err != nil {
+		h.log.Error("beep: generating tone failed", "camera", req.Camera, "err", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	defer os.Remove(raw)
 
+	h.log.Info("beep: sending", "camera", req.Camera, "type", h.cfg.Cameras[req.Camera].Type)
+	start := time.Now()
+
 	if err := cam.SendRaw(raw); err != nil {
+		h.log.Error("beep: send failed", "camera", req.Camera, "elapsed", time.Since(start), "err", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
+	h.log.Info("beep: sent", "camera", req.Camera, "elapsed", time.Since(start))
 	h.events.publish(event{Camera: req.Camera, Action: "beep", At: time.Now()})
 
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
@@ -133,6 +152,12 @@ func (h *Handlers) Broadcast(c echo.Context) error {
 	}
 
 	names := h.reg.Names()
+	mode := "tts"
+	if req.Preset != "" {
+		mode = "preset"
+	}
+	h.log.Info("broadcast: starting", "mode", mode, "cameras", names, "text_len", len(req.Text))
+	start := time.Now()
 
 	var (
 		wg sync.WaitGroup
@@ -147,6 +172,7 @@ func (h *Handlers) Broadcast(c echo.Context) error {
 		go func(cam string) {
 			defer wg.Done()
 
+			camStart := time.Now()
 			var err error
 			if req.Preset != "" {
 				err = h.playPreset(cam, req.Category, req.Preset)
@@ -158,14 +184,18 @@ func (h *Handlers) Broadcast(c echo.Context) error {
 			defer mu.Unlock()
 
 			if err != nil {
+				h.log.Error("broadcast: camera failed", "camera", cam, "elapsed", time.Since(camStart), "err", err)
 				errs = append(errs, fmt.Sprintf("%s: %s", cam, err))
 			} else {
+				h.log.Info("broadcast: camera done", "camera", cam, "elapsed", time.Since(camStart))
 				succeeded = append(succeeded, cam)
 			}
 		}(name)
 	}
 
 	wg.Wait()
+
+	h.log.Info("broadcast: complete", "succeeded", len(succeeded), "failed", len(errs), "elapsed", time.Since(start))
 
 	if len(errs) > 0 {
 		return c.JSON(http.StatusMultiStatus, map[string]any{
@@ -367,10 +397,12 @@ func (h *Handlers) speakText(cameraName, text, voice string) error {
 		voice = h.cfg.TTS.DefaultVoice
 	}
 
+	ttsStart := time.Now()
 	wav, err := h.tts.Speak(text, voice)
 	if err != nil {
 		return fmt.Errorf("TTS: %w", err)
 	}
+	h.log.Debug("speak: TTS generated", "camera", cameraName, "voice", voice, "wav_bytes", len(wav), "elapsed", time.Since(ttsStart))
 
 	raw, err := h.store.Save("_tmp", fmt.Sprintf("tmp_%d", time.Now().UnixNano()), text, voice, wav)
 	if err != nil {
@@ -378,9 +410,12 @@ func (h *Handlers) speakText(cameraName, text, voice string) error {
 	}
 	defer os.Remove(raw.RawPath)
 
+	h.log.Debug("speak: sending to camera", "camera", cameraName, "raw_bytes", raw.Size, "duration_ms", int(raw.Duration*1000))
+	sendStart := time.Now()
 	if err := cam.SendRaw(raw.RawPath); err != nil {
 		return fmt.Errorf("sending to camera: %w", err)
 	}
+	h.log.Debug("speak: camera send complete", "camera", cameraName, "elapsed", time.Since(sendStart))
 
 	h.events.publish(event{Camera: cameraName, Action: "speak", Text: text, At: time.Now()})
 
@@ -404,9 +439,12 @@ func (h *Handlers) playPreset(cameraName, category, presetName string) error {
 		return err
 	}
 
+	h.log.Debug("play: sending preset", "camera", cameraName, "preset", preset.Name, "raw_bytes", preset.Size, "duration_ms", int(preset.Duration*1000))
+	sendStart := time.Now()
 	if err := cam.SendRaw(preset.RawPath); err != nil {
 		return fmt.Errorf("sending to camera: %w", err)
 	}
+	h.log.Debug("play: camera send complete", "camera", cameraName, "elapsed", time.Since(sendStart))
 
 	h.events.publish(event{Camera: cameraName, Action: "play", Text: preset.Name, At: time.Now()})
 

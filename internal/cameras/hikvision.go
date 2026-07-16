@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	clog "github.com/charmbracelet/log"
 	"github.com/icholy/digest"
 )
 
@@ -19,6 +20,7 @@ type HikvisionClient struct {
 	pass    string
 	channel int
 	client  *http.Client
+	log     *clog.Logger
 }
 
 // NewHikvisionClient creates a client with digest auth transport.
@@ -34,6 +36,7 @@ func NewHikvisionClient(ip, user, pass string, channel int) *HikvisionClient {
 		pass:    pass,
 		channel: channel,
 		client:  &http.Client{Transport: transport},
+		log:     clog.NewWithOptions(os.Stderr, clog.Options{Prefix: "hikvision"}),
 	}
 }
 
@@ -109,13 +112,18 @@ func (c *HikvisionClient) SendRaw(rawFile string) error {
 		return fmt.Errorf("stat audio file: %w", err)
 	}
 
+	size := info.Size()
+	c.log.Info("send: opening channel", "ip", c.ip, "channel", c.channel, "bytes", size, "duration_s", size/8000)
+
+	openStart := time.Now()
 	sessionID, err := c.openChannel()
 	if err != nil {
+		c.log.Error("send: open channel failed", "ip", c.ip, "err", err)
 		return fmt.Errorf("open channel: %w", err)
 	}
+	c.log.Debug("send: channel opened", "session", sessionID, "elapsed", time.Since(openStart))
 	defer c.closeChannel(sessionID)
 
-	size := info.Size()
 	// Timeout = playback duration + 1s grace
 	timeout := time.Duration(size/8000+2) * time.Second
 
@@ -134,23 +142,28 @@ func (c *HikvisionClient) SendRaw(rawFile string) error {
 		Timeout:   timeout,
 	}
 
+	c.log.Info("send: streaming audio", "ip", c.ip, "session", sessionID, "bytes", size)
+	sendStart := time.Now()
+
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		// Timeout after upload = we sent everything, camera is still playing. That's fine.
 		if isTimeoutError(err) {
+			c.log.Info("send: complete (timeout after upload)", "ip", c.ip, "bytes", size, "elapsed", time.Since(sendStart))
 			return nil
 		}
-
+		c.log.Error("send: upload failed", "ip", c.ip, "err", err)
 		return fmt.Errorf("sending audio: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
-
+		c.log.Error("send: camera rejected audio", "ip", c.ip, "status", resp.StatusCode, "body", string(body))
 		return fmt.Errorf("camera returned HTTP %d: %s", resp.StatusCode, body)
 	}
 
+	c.log.Info("send: complete", "ip", c.ip, "bytes", size, "elapsed", time.Since(sendStart))
 	return nil
 }
 

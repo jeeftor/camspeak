@@ -5,6 +5,7 @@ services:
     environment:
       - TZ=${TZ:-America/Denver}
       - CAMSPEAK_DATA_DIR=/config
+      - CAMSPEAK_LOG_LEVEL=${CAMSPEAK_LOG_LEVEL:-info}
       - CAMSPEAK_FRIGATE_URL=${CAMSPEAK_FRIGATE_URL:-}
       - CAMSPEAK_GO2RTC_URL=${CAMSPEAK_GO2RTC_URL:-}
       - CAMSPEAK_ADVERTISE_IP=${CAMSPEAK_ADVERTISE_IP:-}
