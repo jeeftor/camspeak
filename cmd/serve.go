@@ -32,6 +32,11 @@ func init() {
 func runServe(cmd *cobra.Command, args []string) error {
 	appLog.Info("starting camspeak", "version", version)
 
+	// Propagate log level to sub-packages
+	level := logLevel()
+	api.SetLogLevel(level)
+	cameras.SetLogLevel(level)
+
 	database, dir, err := openDB()
 	if err != nil {
 		return err

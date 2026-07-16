@@ -24,6 +24,10 @@ var staticFiles embed.FS
 // Version is set via -ldflags at build time.
 var Version = "dev"
 
+// apiLogLevel controls the log level for API handlers. Set by cmd package
+// at startup from CAMSPEAK_LOG_LEVEL env var.
+var apiLogLevel = clog.InfoLevel
+
 // SetStaticFiles sets the embedded frontend filesystem (called from main.go).
 func SetStaticFiles(fs embed.FS) {
 	staticFiles = fs
@@ -32,6 +36,11 @@ func SetStaticFiles(fs embed.FS) {
 // SetVersion sets the application version (called from main.go).
 func SetVersion(v string) {
 	Version = v
+}
+
+// SetLogLevel sets the log level for API handlers (called from cmd at startup).
+func SetLogLevel(level clog.Level) {
+	apiLogLevel = level
 }
 
 // Server is the HTTP server.
@@ -56,7 +65,7 @@ func New(
 		tts:    ttsClient,
 		events: newEventBus(store.DB()),
 		db:     database,
-		log:    clog.NewWithOptions(os.Stderr, clog.Options{Prefix: "api"}),
+		log:    clog.NewWithOptions(os.Stderr, clog.Options{Prefix: "api", Level: apiLogLevel}),
 	}
 
 	e := echo.New()

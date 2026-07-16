@@ -30,7 +30,7 @@ func NewOnvifClient(rtspURL, ip string) *OnvifClient {
 	return &OnvifClient{
 		rtspURL: rtspURL,
 		ip:      ip,
-		log:     clog.NewWithOptions(os.Stderr, clog.Options{Prefix: "onvif"}),
+		log:     newLogger("onvif"),
 	}
 }
 

@@ -23,6 +23,11 @@ var (
 	})
 )
 
+func init() {
+	// Set the global default level so all clog.New() calls inherit it
+	clog.SetLevel(logLevel())
+}
+
 // logLevel returns the log level from CAMSPEAK_LOG_LEVEL env var,
 // defaulting to Info. Valid values: debug, info, warn, error.
 func logLevel() clog.Level {

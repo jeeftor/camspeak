@@ -3,12 +3,32 @@ package cameras
 import (
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
 	"time"
 
+	clog "github.com/charmbracelet/log"
 	"github.com/jeeftor/camspeak/internal/config"
 	"github.com/jeeftor/camspeak/internal/tts"
 )
+
+// LogLevel holds the global log level for camera clients. Set by cmd package
+// at startup from CAMSPEAK_LOG_LEVEL env var.
+var LogLevel = clog.InfoLevel
+
+// SetLogLevel sets the log level for all camera clients (called from cmd at startup).
+func SetLogLevel(level clog.Level) {
+	LogLevel = level
+}
+
+// newLogger creates a charmbracelet logger with the given prefix and global LogLevel.
+func newLogger(prefix string) *clog.Logger {
+	return clog.NewWithOptions(os.Stderr, clog.Options{
+		Prefix:           prefix,
+		ReportTimestamp:  true,
+		Level:            LogLevel,
+	})
+}
 
 // Speaker is the interface all camera types implement.
 type Speaker interface {

@@ -36,7 +36,7 @@ func NewHikvisionClient(ip, user, pass string, channel int) *HikvisionClient {
 		pass:    pass,
 		channel: channel,
 		client:  &http.Client{Transport: transport},
-		log:     clog.NewWithOptions(os.Stderr, clog.Options{Prefix: "hikvision"}),
+		log:     newLogger("hikvision"),
 	}
 }
 

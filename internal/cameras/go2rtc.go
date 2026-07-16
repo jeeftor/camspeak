@@ -37,7 +37,7 @@ func NewGo2rtcClient(go2rtcURL, stream, ip, advertiseIP string) *Go2rtcClient {
 		stream:      stream,
 		ip:          ip,
 		advertiseIP: advertiseIP,
-		log:         clog.NewWithOptions(os.Stderr, clog.Options{Prefix: "go2rtc"}),
+		log:         newLogger("go2rtc"),
 	}
 }
 
