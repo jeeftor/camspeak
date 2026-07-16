@@ -63,12 +63,16 @@ func New(
 	e.HidePort = true
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-		// Restrict to localhost and LAN origins; configurable via CAMSPEAK_CORS_ORIGINS
-		AllowOrigins: []string{
-			"http://localhost:8585",
-			"http://127.0.0.1:8585",
+		// LAN-only service — allow all origins so the SPA works from any
+		// host:port the browser uses (localhost, 127.0.0.1, LAN IP, etc.)
+		AllowOrigins: []string{"*"},
+		AllowMethods: []string{
+			http.MethodGet,
+			http.MethodPost,
+			http.MethodPut,
+			http.MethodDelete,
+			http.MethodOptions,
 		},
-		AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodDelete, http.MethodOptions},
 		AllowHeaders: []string{"Content-Type", "Authorization"},
 	}))
 
