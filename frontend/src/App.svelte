@@ -16,9 +16,9 @@
       fetch('/api/voices'),
       fetch('/api/library'),
     ])
-    cameras = await camRes.json()
-    voices = await voiceRes.json()
-    presets = await presetRes.json()
+    cameras = await camRes.json() ?? []
+    voices = await voiceRes.json() ?? []
+    presets = await presetRes.json() ?? []
   }
 
   onMount(loadAll)

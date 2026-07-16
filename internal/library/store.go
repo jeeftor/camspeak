@@ -208,7 +208,7 @@ func (s *Store) List() ([]Preset, error) {
 	}
 	defer rows.Close()
 
-	var presets []Preset
+	presets := make([]Preset, 0)
 
 	for rows.Next() {
 		var p Preset
