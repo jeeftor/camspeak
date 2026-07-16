@@ -110,18 +110,22 @@ func New(
 	if err == nil {
 		fileServer := http.FileServer(http.FS(distFS))
 
+		// Pre-read index.html for SPA fallback (avoids http.FileServer redirect loop)
+		indexHTML, _ := fs.ReadFile(distFS, "index.html")
+
 		e.GET("/*", func(c echo.Context) error {
 			path := c.Param("*")
-			// If the file exists, serve it; otherwise fall back to index.html
+			// If the file exists, serve it directly
 			if path != "" {
 				if _, statErr := fs.Stat(distFS, path); statErr == nil {
 					return echo.WrapHandler(fileServer)(c)
 				}
 			}
-			// SPA fallback — rewrite to index.html for client-side routing
-			c.Request().URL.Path = "/index.html"
-
-			return echo.WrapHandler(fileServer)(c)
+			// SPA fallback — return index.html for client-side routing
+			if indexHTML != nil {
+				return c.Blob(http.StatusOK, "text/html; charset=utf-8", indexHTML)
+			}
+			return c.String(http.StatusOK, "camspeak — frontend not built")
 		})
 	} else {
 		// Dev fallback: no frontend built yet
