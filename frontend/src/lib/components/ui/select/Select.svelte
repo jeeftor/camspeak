@@ -1,6 +1,6 @@
 <script>
   import { cn } from '$lib/utils'
-  let { class: className = '', ...rest } = $props()
+  let { class: className = '', children, ...rest } = $props()
 </script>
 
 <select
@@ -8,4 +8,6 @@
     'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50',
     className,
   )}
-  {...rest}></select>
+  {...rest}>
+  {@render children?.()}
+</select>

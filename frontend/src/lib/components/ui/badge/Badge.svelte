@@ -1,6 +1,6 @@
 <script>
   import { cn } from '$lib/utils'
-  let { class: className = '', variant = 'default', ...rest } = $props()
+  let { class: className = '', variant = 'default', children, ...rest } = $props()
   const variants = {
     default: 'bg-primary text-primary-foreground',
     secondary: 'bg-secondary text-secondary-foreground',
@@ -15,4 +15,6 @@
     variants[variant],
     className,
   )}
-  {...rest}></span>
+  {...rest}>
+  {@render children?.()}
+</span>

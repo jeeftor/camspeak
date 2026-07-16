@@ -1,6 +1,6 @@
 <script>
   import { cn } from '$lib/utils'
-  let { class: className = '', variant = 'default', size = 'default', ...rest } = $props()
+  let { class: className = '', variant = 'default', size = 'default', children, ...rest } = $props()
   const variants = {
     default: 'bg-primary text-primary-foreground hover:bg-primary/90',
     destructive: 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
@@ -24,4 +24,6 @@
     sizes[size],
     className,
   )}
-  {...rest}></button>
+  {...rest}>
+  {@render children?.()}
+</button>
