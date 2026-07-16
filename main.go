@@ -16,5 +16,6 @@ var Version = "dev"
 func main() {
 	api.SetStaticFiles(staticFiles)
 	api.SetVersion(Version)
+	cmd.SetVersion(Version)
 	cmd.Execute()
 }

@@ -15,11 +15,17 @@ import (
 
 var (
 	dataDir string
+	version = "dev"
 	appLog  = clog.NewWithOptions(os.Stderr, clog.Options{
 		ReportTimestamp: true,
 		Level:           clog.InfoLevel,
 	})
 )
+
+// SetVersion sets the application version (called from main.go).
+func SetVersion(v string) {
+	version = v
+}
 
 var rootCmd = &cobra.Command{
 	Use:   "camspeak",

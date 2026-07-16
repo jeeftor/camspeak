@@ -30,6 +30,8 @@ func init() {
 }
 
 func runServe(cmd *cobra.Command, args []string) error {
+	appLog.Info("starting camspeak", "version", version)
+
 	database, dir, err := openDB()
 	if err != nil {
 		return err
@@ -126,7 +128,7 @@ var infoStyle = lipgloss.NewStyle().
 	Foreground(lipgloss.Color("#626262"))
 
 func printBanner(cfg *config.Config) {
-	fmt.Println(titleStyle.Render("  camspeak"))
+	fmt.Println(titleStyle.Render(fmt.Sprintf("  camspeak v%s", version)))
 	fmt.Println(infoStyle.Render(fmt.Sprintf("  UI  -> http://localhost:%d", cfg.Port)))
 	fmt.Println(infoStyle.Render(fmt.Sprintf("  MCP -> http://localhost:%d/mcp", cfg.Port)))
 	fmt.Println(infoStyle.Render("  TTS -> " + cfg.TTS.URL))
