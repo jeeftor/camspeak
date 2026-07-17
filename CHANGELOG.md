@@ -5,6 +5,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v1.10.6] — 2026-07-17
+
+### Fixed
+- **Hover tooltip transparent background** — `--popover` CSS variable didn't exist in the theme; switched to `--card`
+- **Hover tooltip not appearing** — `onmouseenter`/`onmouseleave` weren't firing reliably; switched to `onmouseover`/`onmouseout`
+
+---
+
 ## [v1.10.5] — 2026-07-17
 
 ### Fixed
