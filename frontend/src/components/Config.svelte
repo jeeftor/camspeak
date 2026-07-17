@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte'
-  import { Bell, Play, Pencil, X, Check, Loader2 } from 'lucide-svelte'
+  import { Bell, Pencil, X, Check, Loader2 } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Select } from '$lib/components/ui/select'
@@ -13,7 +13,6 @@
   let ttsPresets = $state([])
   let activeTTS = $state('')
   let cameras = $state([])
-  let rules = $state([])
   let voices = $state([])
   let loading = $state(true)
 
@@ -37,16 +36,6 @@
   let camEnabled = $state(false)
   let camStatus = $state('')
 
-  // Rule form
-  let ruleTopic = $state('frigate/events')
-  let ruleFilter = $state('')  // JSON string
-  let ruleCameras = $state('')
-  let rulePreset = $state('')
-  let ruleText = $state('')
-  let ruleVoice = $state('')
-  let ruleEnabled = $state(true)
-  let ruleStatus = $state('')
-
   // Test status
   let testStatus = $state({})
   let configError = $state('')
@@ -54,11 +43,10 @@
   async function loadConfig() {
     loading = true
     try {
-      const [cfgRes, ttsRes, camRes, rulesRes, voiceRes] = await Promise.all([
+      const [cfgRes, ttsRes, camRes, voiceRes] = await Promise.all([
         fetch('/api/config'),
         fetch('/api/config/tts'),
         fetch('/api/config/cameras'),
-        fetch('/api/config/rules'),
         fetch('/api/voices'),
       ])
       config = await cfgRes.json()
@@ -66,7 +54,6 @@
       ttsPresets = ttsData.presets ?? []
       activeTTS = ttsData.active?.url ?? ''
       cameras = await camRes.json() ?? []
-      rules = await rulesRes.json() ?? []
       voices = await voiceRes.json() ?? []
     } catch (e) {
       console.error('loadConfig error:', e)
@@ -194,63 +181,6 @@
     }, 5000)
   }
 
-  // --- Rules ---
-  async function saveRule() {
-    if (!ruleTopic) return
-    ruleStatus = ''
-    let filter = {}
-    if (ruleFilter) {
-      try { filter = JSON.parse(ruleFilter) }
-      catch { ruleStatus = '✗ Invalid filter JSON'; return }
-    }
-    try {
-      const res = await fetch('/api/config/rules', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          topic: ruleTopic,
-          filter,
-          cameras: ruleCameras.split(',').map(s => s.trim()).filter(Boolean),
-          preset: rulePreset,
-          text: ruleText,
-          voice: ruleVoice,
-          enabled: ruleEnabled,
-        }),
-      })
-      if (!res.ok) throw new Error(await res.text())
-      ruleStatus = '✓ Saved'
-      ruleTopic = 'frigate/events'; ruleFilter = ''; ruleCameras = ''
-      rulePreset = ''; ruleText = ''; ruleVoice = ''; ruleEnabled = true
-      loadConfig()
-    } catch (e) {
-      ruleStatus = '✗ ' + e.message
-    } finally {
-      setTimeout(() => ruleStatus = '', 4000)
-    }
-  }
-
-  async function testRule(rule) {
-    testStatus = { ...testStatus, ['rule_' + rule.id]: 'speaking...' }
-    try {
-      const body = rule.preset
-        ? { preset: rule.preset, camera: rule.cameras?.[0] }
-        : { text: rule.text || 'Test announcement', voice: rule.voice, camera: rule.cameras?.[0] }
-      const res = await fetch('/api/speak', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      testStatus = { ...testStatus, ['rule_' + rule.id]: res.ok ? '✓ Sent' : '✗ HTTP ' + res.status }
-    } catch (e) {
-      testStatus = { ...testStatus, ['rule_' + rule.id]: '✗ ' + e.message }
-    }
-    setTimeout(() => {
-      const s = { ...testStatus }
-      delete s['rule_' + rule.id]
-      testStatus = s
-    }, 5000)
-  }
-
   function editCamera(cam) {
     camName = cam.name
     camType = cam.type
@@ -284,7 +214,6 @@
   const configTabs = [
     { id: 'tts', label: 'TTS Presets' },
     { id: 'cameras', label: 'Cameras' },
-    { id: 'rules', label: 'MQTT Rules' },
     { id: 'overview', label: 'Overview' },
   ]
 </script>
@@ -457,76 +386,6 @@
             Save Camera
           </Button>
           {#if camStatus}<span class="ml-2 text-sm text-primary">{camStatus}</span>{/if}
-        </details>
-      </section>
-
-    <!-- MQTT Rules -->
-    {:else if tab === 'rules'}
-      <section class="rounded-lg border bg-card p-5">
-        <h3 class="mb-1 text-base font-semibold text-primary">MQTT Rules</h3>
-        <p class="mb-3 text-sm text-muted-foreground">Rules trigger TTS announcements when MQTT messages match the topic + filter.</p>
-        <div class="mb-4 flex flex-col gap-1.5">
-          {#each rules as r}
-            <div class="flex items-center justify-between rounded-lg border bg-background px-3 py-2 {!r.enabled ? 'opacity-50' : ''}">
-              <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                <span class="font-mono text-sm text-primary">{r.topic}</span>
-                {#if r.preset}<span class="text-xs text-muted-foreground">preset: {r.preset}</span>{/if}
-                {#if r.text}<span class="text-xs italic text-muted-foreground">"{r.text}"</span>{/if}
-                {#if r.cameras?.length}<span class="text-xs text-muted-foreground">→ {r.cameras.join(', ')}</span>{/if}
-                {#if r.voice}<span class="text-xs text-muted-foreground">voice: {r.voice}</span>{/if}
-                {#if Object.keys(r.filter ?? {}).length}
-                  <span class="text-xs text-muted-foreground">filter: {JSON.stringify(r.filter)}</span>
-                {/if}
-              </div>
-              <div class="flex shrink-0 items-center gap-1">
-                {#if testStatus['rule_' + r.id]}<span class="mr-1 text-sm text-primary">{testStatus['rule_' + r.id]}</span>{/if}
-                <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => testRule(r)} title="Test speak" aria-label="Test rule"><Play class="h-4 w-4" /></Button>
-              </div>
-            </div>
-          {/each}
-          {#if rules.length === 0}
-            <p class="italic text-muted-foreground">No rules configured.</p>
-          {/if}
-        </div>
-
-        <details class="border-t pt-3">
-          <summary class="cursor-pointer py-1.5 text-sm text-primary hover:text-primary/80">Add Rule</summary>
-          <div class="mt-3 grid grid-cols-2 gap-2.5 max-sm:grid-cols-1">
-            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-              MQTT Topic
-              <Input bind:value={ruleTopic} placeholder="frigate/events" />
-            </label>
-            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-              Filter (JSON)
-              <Input bind:value={ruleFilter} placeholder={'{"type":"person"}'} />
-            </label>
-            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-              Cameras (comma-sep)
-              <Input bind:value={ruleCameras} placeholder="backyard,frontyard" />
-            </label>
-            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-              Preset (optional)
-              <Input bind:value={rulePreset} placeholder="person_detected" />
-            </label>
-            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-              Text (if no preset)
-              <Input bind:value={ruleText} placeholder="Person detected" />
-            </label>
-            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-              Voice
-              <Select bind:value={ruleVoice}>
-                <option value="">default</option>
-                {#each voices as v}<option>{v}</option>{/each}
-              </Select>
-            </label>
-            <label class="flex flex-row items-center gap-2 text-xs text-muted-foreground">
-              <input type="checkbox" bind:checked={ruleEnabled} class="h-4 w-4 rounded border-input" /> Enabled
-            </label>
-          </div>
-          <Button onclick={saveRule} disabled={!ruleTopic} class="mt-3">
-            Save Rule
-          </Button>
-          {#if ruleStatus}<span class="ml-2 text-sm text-primary">{ruleStatus}</span>{/if}
         </details>
       </section>
 
