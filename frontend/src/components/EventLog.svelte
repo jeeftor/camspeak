@@ -70,6 +70,7 @@
           <CopyButton
             text={eventCurl(ev)}
             label="Copy curl command"
+            preview previewType="curl"
             class="h-6 w-6 flex-shrink-0 self-center"
           />
         </div>
