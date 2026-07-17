@@ -1,6 +1,9 @@
 // Shared state for the base URL used in generated curl commands.
 // Persists to localStorage so the user's choice survives reloads.
 // Defaults to window.location.origin (however they accessed the UI).
+//
+// Uses a reactive object pattern for Svelte 5 runes in .svelte.ts files:
+// components read `curlState.baseUrl` which is reactive.
 
 const STORAGE_KEY = 'camspeak_curl_base_url'
 
@@ -12,10 +15,10 @@ function getInitial() {
   return typeof window !== 'undefined' ? window.location.origin : ''
 }
 
-export let curlBaseUrl = $state(getInitial())
+export const curlState = $state({ baseUrl: getInitial() })
 
 export function setCurlBaseUrl(url) {
-  curlBaseUrl = url
+  curlState.baseUrl = url
   try { localStorage.setItem(STORAGE_KEY, url) } catch {}
 }
 
@@ -26,7 +29,7 @@ export function resetCurlBaseUrl() {
 
 // Build a curl command string for a given API call.
 export function buildCurl(method, path, body) {
-  const url = `${curlBaseUrl}${path}`
+  const url = `${curlState.baseUrl}${path}`
   const parts = [`curl -X ${method} '${url}'`]
   if (body && Object.keys(body).length > 0) {
     parts.push(`  -H 'Content-Type: application/json'`)
