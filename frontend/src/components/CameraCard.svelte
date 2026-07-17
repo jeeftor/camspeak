@@ -1,6 +1,6 @@
 <script>
   import { onDestroy } from 'svelte'
-  import { Eye, Bell, Play, Volume2, Loader2, MessageSquare, FileAudio } from 'lucide-svelte'
+  import { Eye, Bell, Play, Volume2, Loader2, MessageSquare, FileAudio, X } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Card } from '$lib/components/ui/card'
@@ -143,6 +143,13 @@
     } finally {
       busy = false
     }
+  }
+
+  function clearSnapshot() {
+    if (snapshot) URL.revokeObjectURL(snapshot)
+    snapshot = ''
+    description = ''
+    status = ''
   }
 
   // WAV / audio file drag-and-drop
@@ -330,8 +337,16 @@
 
     <!-- Snapshot + description -->
     {#if snapshot}
-      <div class="rounded-lg border border-primary/30 overflow-hidden">
+      <div class="rounded-lg border border-primary/30 overflow-hidden relative">
         <img src={snapshot} alt="Camera snapshot" class="w-full" />
+        <Button
+          variant="outline" size="icon"
+          onclick={clearSnapshot} disabled={busy}
+          title="Clear" aria-label="Clear snapshot"
+          class="absolute top-2 right-2 h-7 w-7 bg-background/80 backdrop-blur"
+        >
+          <X class="h-4 w-4" />
+        </Button>
         {#if description}
           <div class="flex items-start gap-2 p-2 bg-muted/30">
             <p class="text-xs text-muted-foreground flex-1">{description}</p>
