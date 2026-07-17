@@ -23,6 +23,7 @@
   } = $props()
 
   let copied = $state(false)
+  let showTooltip = $state(false)
   let timeout
 
   async function doCopy() {
@@ -35,7 +36,12 @@
   }
 </script>
 
-<div class="copy-wrapper" class:preview-enabled={preview && !disabled}>
+<div
+  class="copy-wrapper"
+  class:preview-enabled={preview && !disabled}
+  onmouseenter={() => { if (preview && text && !disabled) showTooltip = true }}
+  onmouseleave={() => { showTooltip = false }}
+>
   {#if size === 'sm'}
     <Button
       variant="outline" size="sm"
@@ -57,7 +63,7 @@
   {/if}
 
   {#if preview && text}
-    <div class="curl-tooltip">
+    <div class="curl-tooltip" class:show={showTooltip}>
       {#if previewType === 'curl'}
         <CurlCode code={text} />
       {:else}
@@ -91,12 +97,9 @@
     pointer-events: none;
   }
 
-  /* Desktop only — devices that support hover (not touch) */
-  @media (hover: hover) {
-    .copy-wrapper.preview-enabled:hover .curl-tooltip {
-      display: block;
-      animation: tooltip-fade 120ms ease-out;
-    }
+  .curl-tooltip.show {
+    display: block;
+    animation: tooltip-fade 120ms ease-out;
   }
 
   @keyframes tooltip-fade {
