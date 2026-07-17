@@ -1,6 +1,6 @@
 <script>
   import { onDestroy } from 'svelte'
-  import { Eye, Bell, Play, Volume2, Loader2, MessageSquare, FileAudio } from 'lucide-svelte'
+  import { Eye, Bell, Play, Volume2, Loader2, MessageSquare, FileAudio, X } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Card } from '$lib/components/ui/card'
@@ -113,10 +113,10 @@
       const snapBlob = await snapRes.blob()
       snapshot = URL.createObjectURL(snapBlob)
 
-      setStatus('Processing vision…')
-      const body = { camera: camera.name }
+      setStatus('Describing → speaking…')
+      const body = { camera: camera.name, gain }
       if (visionPrompt) body.prompt = visionPrompt
-      const res = await fetch('/api/vision', {
+      const res = await fetch('/api/describe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -124,13 +124,32 @@
       if (!res.ok) throw new Error(await res.text())
       const data = await res.json()
       description = data.description || ''
-      text = description
     } catch (e) {
       setStatus('✗ ' + e.message, 'err')
     } finally {
       busy = false
-      if (description) setStatus('✓ described')
+      if (description) setStatus('✓ described & spoken')
     }
+  }
+
+  async function replayDescription() {
+    if (!description) return
+    busy = true; status = ''
+    try {
+      await post('/api/speak', { camera: camera.name, text: description, voice, gain })
+      setStatus('✓ replaying')
+    } catch (e) {
+      setStatus('✗ ' + e.message, 'err')
+    } finally {
+      busy = false
+    }
+  }
+
+  function clearSnapshot() {
+    if (snapshot) URL.revokeObjectURL(snapshot)
+    snapshot = ''
+    description = ''
+    status = ''
   }
 
   // WAV / audio file drag-and-drop
@@ -207,7 +226,7 @@
           title="Describe (vision)" aria-label="Describe"
           class="h-8 w-8"
         >
-          {#if busy && status.includes('vision')}
+          {#if busy && status.toLowerCase().includes('describ')}
             <Loader2 class="h-4 w-4 animate-spin" />
           {:else}
             <Eye class="h-4 w-4" />
@@ -318,10 +337,28 @@
 
     <!-- Snapshot + description -->
     {#if snapshot}
-      <div class="rounded-lg border border-primary/30 overflow-hidden">
+      <div class="rounded-lg border border-primary/30 overflow-hidden relative">
         <img src={snapshot} alt="Camera snapshot" class="w-full" />
+        <Button
+          variant="outline" size="icon"
+          onclick={clearSnapshot} disabled={busy}
+          title="Clear" aria-label="Clear snapshot"
+          class="absolute top-2 right-2 h-7 w-7 bg-background/80 backdrop-blur"
+        >
+          <X class="h-4 w-4" />
+        </Button>
         {#if description}
-          <p class="p-2 text-xs text-muted-foreground bg-muted/30">{description}</p>
+          <div class="flex items-start gap-2 p-2 bg-muted/30">
+            <p class="text-xs text-muted-foreground flex-1">{description}</p>
+            <Button
+              variant="outline" size="icon"
+              onclick={replayDescription} disabled={busy}
+              title="Re-play description" aria-label="Re-play"
+              class="h-6 w-6 flex-shrink-0"
+            >
+              <Play class="h-3 w-3" />
+            </Button>
+          </div>
         {/if}
       </div>
     {/if}
