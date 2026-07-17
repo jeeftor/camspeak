@@ -5,6 +5,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v1.10.5] — 2026-07-17
+
+### Fixed
+- **Hover preview not showing** — the CSS-only `:hover` approach wasn't working due to Svelte's CSS scoping. Switched to JS-based `onmouseenter`/`onmouseleave` events to toggle the tooltip.
+
+---
+
 ## [v1.10.4] — 2026-07-17
 
 ### Fixed
