@@ -18,6 +18,7 @@ import (
 	"github.com/jeeftor/camspeak/internal/config"
 	"github.com/jeeftor/camspeak/internal/library"
 	"github.com/jeeftor/camspeak/internal/tts"
+	"github.com/jeeftor/camspeak/internal/vision"
 )
 
 var staticFiles embed.FS
@@ -71,6 +72,7 @@ func New(
 		reg:    reg,
 		store:  store,
 		tts:    ttsClient,
+		vision: vision.NewClient(cfg.Vision.URL, cfg.Vision.Model, cfg.Vision.APIKey),
 		events: newEventBus(store.DB()),
 		db:     database,
 		tmpDir: tmpDir,
@@ -122,6 +124,7 @@ func New(
 	api.POST("/play", h.Play)
 	api.POST("/play-url", h.PlayURL)
 	api.POST("/beep", h.Beep)
+	api.POST("/describe", h.Describe)
 	api.POST("/broadcast", h.Broadcast)
 	api.GET("/cameras", h.Cameras)
 	api.GET("/voices", h.Voices)

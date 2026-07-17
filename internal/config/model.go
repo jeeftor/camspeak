@@ -22,6 +22,13 @@ type TTSConfig struct {
 	APIKey       string `json:"api_key,omitempty"`
 }
 
+// VisionConfig holds connection details for the vision LLM endpoint.
+type VisionConfig struct {
+	URL    string `json:"url"`
+	Model  string `json:"model"`
+	APIKey string `json:"api_key,omitempty"`
+}
+
 // CameraConfig holds connection details for a single camera.
 type CameraConfig struct {
 	Type    string `json:"type"` // "hikvision", "reolink", "go2rtc", "onvif"
@@ -66,6 +73,7 @@ type TTSPreset struct {
 // Config is the root configuration model.
 type Config struct {
 	TTS         TTSConfig               `json:"tts"`
+	Vision      VisionConfig            `json:"vision"`
 	Cameras     map[string]CameraConfig `json:"cameras"`
 	MQTT        MQTTConfig              `json:"mqtt"`
 	Rules       []Rule                  `json:"rules"`
@@ -317,6 +325,15 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("CAMSPEAK_TTS_API_KEY"); v != "" {
 		cfg.TTS.APIKey = v
+	}
+	if v := os.Getenv("CAMSPEAK_VISION_URL"); v != "" {
+		cfg.Vision.URL = v
+	}
+	if v := os.Getenv("CAMSPEAK_VISION_MODEL"); v != "" {
+		cfg.Vision.Model = v
+	}
+	if v := os.Getenv("CAMSPEAK_VISION_API_KEY"); v != "" {
+		cfg.Vision.APIKey = v
 	}
 	if v := os.Getenv("CAMSPEAK_MQTT_BROKER"); v != "" {
 		cfg.MQTT.Broker = v
