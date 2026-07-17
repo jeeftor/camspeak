@@ -5,6 +5,26 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v1.10.0] — 2026-07-17
+
+### Added
+- **Swagger UI** at `/swagger` — interactive API explorer with "Try it out" enabled, CDN-hosted (no npm dep)
+- **OpenAPI 3.0 spec** at `/api/openapi.json` — covers all REST endpoints with schemas and examples
+- **"Swagger" tab** in the SPA navigation
+- **Copy-curl buttons** on every camera action (speak, play, describe, beep, replay) — copies a ready-to-paste curl command with current form values
+- **Base URL toggle** in the header (globe icon) — switch between local IP:port and public domain for generated curl commands; persists to localStorage
+- **Copy-curl per event** in the Events tab — reconstructs the curl for any past action
+- **YAML syntax highlighting** on the Home Assistant tab (new `YamlCode` component, theme-aware)
+- **Reusable UI components** — `CopyButton`, `VoiceSelect`, `GainSlider` (DRY refactor)
+
+### Changed
+- **SPA routing** — each tab now has its own URL (`#/cameras`, `#/config`, etc.); reload preserves the active tab; browser back/forward navigates between tabs
+- **Events tab** — long text now word-wraps instead of truncating
+- **Home Assistant tab** — copy buttons replaced with reusable `CopyButton` component
+- **CameraCard** — voice dropdown and gain slider replaced with reusable components
+
+---
+
 ## [v1.9.0] — 2026-07-17
 
 ### Added
