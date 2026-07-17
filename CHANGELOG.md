@@ -5,6 +5,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v1.10.1] — 2026-07-17
+
+### Fixed
+- **"Cannot find variable $state" runtime crash** — the `curl.ts` module used Svelte 5's `$state` rune in a plain `.ts` file, which the Svelte compiler doesn't process. Renamed to `curl.svelte.ts` and switched to an object pattern (`$state({ baseUrl: ... })`) for shared reactive state.
+
+---
+
 ## [v1.10.0] — 2026-07-17
 
 ### Added
