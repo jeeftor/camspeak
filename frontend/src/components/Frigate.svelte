@@ -32,59 +32,90 @@
   let ruleStatus = $state('')
   let formOpen = $state(false)
 
-  // Common Frigate topics for datalist
+  // Accurate Frigate MQTT topics (from docs.frigate.video/integrations/mqtt)
+  // Global topics
   const topicSuggestions = [
-    'frigate/events',
-    'frigate/reviews',
-    'frigate/stats',
-    'frigate/+/motion',
-    'frigate/+/person',
-    'frigate/+/car',
-    'frigate/+/dog',
-    'frigate/+/cat',
+    // --- Global ---
+    'frigate/events',            // tracked object lifecycle: new/update/end
+    'frigate/reviews',           // review item lifecycle: new/update/end
+    'frigate/tracked_object_update', // AI enrichment: description/face/lpr
+    'frigate/available',         // "online" / "offline"
+    'frigate/stats',             // stats snapshot (matches /api/stats)
+    'frigate/camera_activity',   // camera feature/activity overview
+    // --- Per-camera: use real camera name or + wildcard ---
+    'frigate/+/motion',          // motion state: ON / OFF
+    'frigate/+/person',          // person count (integer)
+    'frigate/+/car',             // car count (integer)
+    'frigate/+/dog',             // dog count (integer)
+    'frigate/+/cat',             // cat count (integer)
+    'frigate/+/person/active',   // active (non-stationary) person count
+    'frigate/+/car/active',      // active car count
+    'frigate/+/review_status',   // NONE / DETECTION / ALERT
+    'frigate/+/status/detect',   // detection service: online/offline/disabled
+    'frigate/+/status/record',   // recording service: online/offline/disabled
+    'frigate/+/audio/+',         // audio detection (bark/scream/etc): ON/OFF
+    'frigate/+/classification/+',// state classification (open/closed/on/off)
+    // --- Catch-all for browsing ---
     'frigate/#',
   ]
 
-  // Filter templates: {label, filter} — filter is a flat key:value map
+  // Filter templates for frigate/events — uses dot-notation for nested fields
+  // Frigate event payload: { type, before: {...}, after: { label, camera, score,
+  //   stationary, entered_zones, current_zones, ... } }
   const filterTemplates = [
-    { label: 'New event (any label)', filter: 'type=new' },
-    { label: 'New — person', filter: 'type=new,after.label=person' },
-    { label: 'New — car', filter: 'type=new,after.label=car' },
-    { label: 'New — dog', filter: 'type=new,after.label=dog' },
-    { label: 'New — cat', filter: 'type=new,after.label=cat' },
-    { label: 'Motion started', filter: 'type=start' },
-    { label: 'Motion ended', filter: 'type=end' },
+    { label: 'New event',          filter: { type: 'new' } },
+    { label: 'New — person',       filter: { type: 'new', 'after.label': 'person' } },
+    { label: 'New — car',          filter: { type: 'new', 'after.label': 'car' } },
+    { label: 'New — dog',          filter: { type: 'new', 'after.label': 'dog' } },
+    { label: 'New — cat',          filter: { type: 'new', 'after.label': 'cat' } },
+    { label: 'Moving (not stationary)', filter: { type: 'new', 'after.stationary': 'false' } },
+    { label: 'Event ended',        filter: { type: 'end' } },
+    { label: 'Alert review',       filter: { type: 'new', severity: 'alert' } },
   ]
 
-  // Rule templates
+  // Rule templates — one-click to populate the form
   const ruleTemplates = [
     {
-      label: 'Person at front door',
+      label: 'Person detected',
       topic: 'frigate/events',
       filter: '{"type":"new","after.label":"person"}',
-      cameras: 'frontyard',
-      text: 'Person detected at the front door',
+      cameras: '',
+      text: 'Person detected',
     },
     {
-      label: 'Car in driveway',
+      label: 'Car detected',
       topic: 'frigate/events',
       filter: '{"type":"new","after.label":"car"}',
       cameras: '',
-      text: 'Vehicle detected in the driveway',
+      text: 'Vehicle detected',
     },
     {
-      label: 'Dog in yard',
+      label: 'Dog detected',
       topic: 'frigate/events',
       filter: '{"type":"new","after.label":"dog"}',
-      cameras: 'backyard',
-      text: 'Dog detected in the backyard',
+      cameras: '',
+      text: 'Dog detected',
+    },
+    {
+      label: 'Motion on any camera',
+      topic: 'frigate/+/motion',
+      filter: '',
+      cameras: '',
+      text: 'Motion detected',
+    },
+    {
+      label: 'Alert-level review',
+      topic: 'frigate/reviews',
+      filter: '{"type":"new","after.severity":"alert"}',
+      cameras: '',
+      text: 'Security alert',
     },
     {
       label: 'Any new detection',
       topic: 'frigate/events',
       filter: '{"type":"new"}',
       cameras: '',
-      text: 'Motion detected',
+      text: 'Object detected',
     },
   ]
 
@@ -403,13 +434,7 @@
           {#each filterTemplates as ft}
             <button
               class="rounded-full border px-2.5 py-0.5 text-xs hover:border-primary hover:text-primary transition-colors"
-              onclick={() => {
-                const map = Object.fromEntries(ft.filter.split(',').map(p => {
-                  const [k, v] = p.split('=')
-                  return [k, v]
-                }))
-                ruleFilter = JSON.stringify(map)
-              }}
+              onclick={() => { ruleFilter = JSON.stringify(ft.filter) }}
             >{ft.label}</button>
           {/each}
         </div>
@@ -425,27 +450,88 @@
       </div>
     {/if}
 
-    <!-- Frigate event payload reference -->
+    <!-- Frigate MQTT reference (source: docs.frigate.video/integrations/mqtt) -->
     <details class="rounded-lg border bg-card overflow-hidden">
       <summary class="cursor-pointer px-4 py-3 text-sm font-medium hover:bg-muted/30 transition-colors">
-        Frigate event payload reference
+        Frigate MQTT topic & payload reference
       </summary>
-      <div class="border-t px-4 py-3 text-xs text-muted-foreground space-y-2">
-        <p>On topic <code class="bg-muted px-1 rounded font-mono">frigate/events</code>, Frigate publishes:</p>
-        <pre class="bg-background border rounded p-3 overflow-x-auto text-foreground/80">{`{
+      <div class="border-t px-4 py-3 text-xs text-muted-foreground flex flex-col gap-4">
+
+        <!-- frigate/events -->
+        <div>
+          <p class="font-semibold text-foreground mb-1">frigate/events — object lifecycle</p>
+          <p class="mb-1.5">Published on every tracked object create/update/end. Most useful for TTS rules.</p>
+          <pre class="bg-background border rounded p-3 overflow-x-auto text-foreground/80">{`{
   "type": "new" | "update" | "end",
-  "before": { "label": "person", "camera": "backyard", "score": 0.92, ... },
-  "after":  { "label": "person", "camera": "backyard", "score": 0.94,
-              "entered_zones": ["driveway"], ... }
+  "before": {
+    "label": "person",       // object class
+    "camera": "backyard",
+    "score": 0.87,
+    "stationary": false,
+    "current_zones": [],
+    "entered_zones": []
+  },
+  "after": {                 // updated state (same fields as before)
+    "label": "person",
+    "camera": "backyard",
+    "score": 0.94,
+    "stationary": false,
+    "current_zones": ["driveway"],
+    "entered_zones": ["driveway"]
+  }
 }`}</pre>
-        <p>Filter keys use dot-notation to match nested fields:</p>
-        <ul class="list-disc pl-4 space-y-0.5">
-          <li><code class="bg-muted px-1 rounded">type</code> → <code class="bg-muted px-1 rounded">new</code>, <code class="bg-muted px-1 rounded">update</code>, <code class="bg-muted px-1 rounded">end</code></li>
-          <li><code class="bg-muted px-1 rounded">after.label</code> → <code class="bg-muted px-1 rounded">person</code>, <code class="bg-muted px-1 rounded">car</code>, <code class="bg-muted px-1 rounded">dog</code>, …</li>
-          <li><code class="bg-muted px-1 rounded">after.camera</code> → camera name</li>
-          <li><code class="bg-muted px-1 rounded">after.stationary</code> → <code class="bg-muted px-1 rounded">false</code></li>
-        </ul>
-        <p>Configure Frigate's MQTT broker in your Frigate config, then set the same broker in camspeak Config → Overview (or env <code class="bg-muted px-1 rounded">CAMSPEAK_MQTT_BROKER</code>).</p>
+          <p class="mt-1.5 font-medium text-foreground">Filter keys (dot-notation into above):</p>
+          <div class="grid grid-cols-2 gap-x-4 gap-y-0.5 mt-1">
+            <span><code class="bg-muted px-1 rounded">type</code> — new · update · end</span>
+            <span><code class="bg-muted px-1 rounded">after.label</code> — person · car · dog · cat · bird…</span>
+            <span><code class="bg-muted px-1 rounded">after.camera</code> — camera name string</span>
+            <span><code class="bg-muted px-1 rounded">after.stationary</code> — true · false</span>
+          </div>
+        </div>
+
+        <!-- frigate/reviews -->
+        <div>
+          <p class="font-semibold text-foreground mb-1">frigate/reviews — review items</p>
+          <pre class="bg-background border rounded p-3 overflow-x-auto text-foreground/80">{`{
+  "type": "new" | "update" | "end",
+  "after": {
+    "severity": "alert" | "detection",
+    "camera": "backyard",
+    "data": { "objects": ["person"], "zones": ["driveway"], ... }
+  }
+}`}</pre>
+          <p class="mt-1">Filter: <code class="bg-muted px-1 rounded">{`{"type":"new","after.severity":"alert"}`}</code></p>
+        </div>
+
+        <!-- Per-camera count topics -->
+        <div>
+          <p class="font-semibold text-foreground mb-1">frigate/&lt;camera&gt;/&lt;label&gt; — object count</p>
+          <p>Payload is a plain integer (e.g. <code class="bg-muted px-1 rounded">2</code>). No filter needed — fires every time the count changes.</p>
+          <p class="mt-0.5">Examples: <code class="bg-muted px-1 rounded">frigate/backyard/person</code> · <code class="bg-muted px-1 rounded">frigate/frontyard/car</code></p>
+          <p class="mt-0.5">Add <code class="bg-muted px-1 rounded">/active</code> for non-stationary count only.</p>
+        </div>
+
+        <!-- Motion -->
+        <div>
+          <p class="font-semibold text-foreground mb-1">frigate/&lt;camera&gt;/motion — motion state</p>
+          <p>Payload: <code class="bg-muted px-1 rounded">ON</code> or <code class="bg-muted px-1 rounded">OFF</code>. Includes the configured <code class="bg-muted px-1 rounded">mqtt_off_delay</code> buffer.</p>
+        </div>
+
+        <!-- Audio -->
+        <div>
+          <p class="font-semibold text-foreground mb-1">frigate/&lt;camera&gt;/audio/&lt;type&gt; — audio detection</p>
+          <p>Types: bark · scream · speech · yell · glass_breaking · etc. Payload: <code class="bg-muted px-1 rounded">ON</code> / <code class="bg-muted px-1 rounded">OFF</code>.</p>
+          <p class="mt-0.5">Example topic: <code class="bg-muted px-1 rounded">frigate/backyard/audio/bark</code></p>
+        </div>
+
+        <!-- Setup note -->
+        <div class="rounded-md bg-muted/40 border px-3 py-2">
+          <p class="font-medium text-foreground mb-0.5">Setup</p>
+          <p>Set the same MQTT broker in Frigate (<code class="bg-muted px-1 rounded">mqtt.host</code>) and camspeak
+            (<code class="bg-muted px-1 rounded">CAMSPEAK_MQTT_BROKER=tcp://192.168.1.x:1883</code>).
+            camspeak only subscribes to topics that have active rules — use the Live Browser above to verify messages are arriving.
+          </p>
+        </div>
       </div>
     </details>
   {/if}
