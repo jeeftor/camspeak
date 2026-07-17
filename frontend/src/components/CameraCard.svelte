@@ -1,8 +1,9 @@
 <script>
   import { onDestroy } from 'svelte'
-  import { Eye, Bell, Play, Loader2, FileAudio, X } from 'lucide-svelte'
+  import { Eye, Bell, Play, Loader2, FileAudio, X, MessageSquare } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
+  import { Textarea } from '$lib/components/ui/textarea'
   import { Card } from '$lib/components/ui/card'
   import { Badge } from '$lib/components/ui/badge'
   import CopyButton from '$lib/components/CopyButton.svelte'
@@ -25,6 +26,7 @@
   // Pre-fill from saved camera default; user can override per-session
   const savedPrompt = camera.vision_prompt ?? ''
   let visionPrompt = $state(savedPrompt)
+  let showPromptPopup = $state(false)
   let isDragOver = $state(false)
   let statusTimeout
 
@@ -236,6 +238,14 @@
           {/if}
         </Button>
         <Button
+          variant={visionPrompt ? 'default' : 'outline'} size="icon"
+          onclick={() => showPromptPopup = true}
+          title="Edit vision prompt" aria-label="Vision prompt"
+          class="h-8 w-8"
+        >
+          <MessageSquare class="h-4 w-4" />
+        </Button>
+        <Button
           variant="outline" size="icon"
           onclick={beep} disabled={busy}
           title="Test beep (800 Hz)" aria-label="Test beep"
@@ -283,6 +293,12 @@
         <Button size="sm" onclick={play} disabled={busy || !preset} aria-label="Play preset" title="Play preset on camera" class="flex-shrink-0">
           <Play class="h-4 w-4" />
         </Button>
+        <CopyButton
+          text={buildCurl('POST', '/api/play', { camera: camera.name, preset, category: presets.find(x => x.name === preset)?.category, gain })}
+          disabled={!preset} label="Copy curl — play preset endpoint"
+          preview={!!preset} previewType="curl"
+          class="flex-shrink-0"
+        />
       </div>
     {/if}
 
@@ -298,6 +314,12 @@
       <Button size="sm" onclick={playUrl} disabled={busy || !url} aria-label="Play URL" title="Download and play audio from URL" class="flex-shrink-0">
         <Play class="h-4 w-4" />
       </Button>
+      <CopyButton
+        text={buildCurl('POST', '/api/play-url', { camera: camera.name, url, gain })}
+        disabled={!url} label="Copy curl — play URL endpoint"
+        preview={!!url} previewType="curl"
+        class="flex-shrink-0"
+      />
     </div>
 
     <!-- Drag overlay hint -->
@@ -354,19 +376,12 @@
             </div>
           </div>
         {/if}
-        <!-- Inline vision prompt with re-describe -->
-        <div class="flex gap-1.5 p-2 border-t bg-muted/20">
-          <Input
-            bind:value={visionPrompt}
-            placeholder="Custom vision prompt — re-describe with this prompt…"
-            class="flex-1 text-xs min-w-0"
-            disabled={busy}
-            onkeydown={e => e.key === 'Enter' && describe()}
-          />
+        <!-- Re-describe button (prompt is edited via the popup) -->
+        <div class="flex justify-end p-2 border-t bg-muted/20">
           <Button
             variant="secondary" size="sm"
             onclick={describe} disabled={busy}
-            title="Re-describe with this prompt" class="flex-shrink-0 text-xs"
+            title="Re-describe with current prompt" class="text-xs"
           >
             {#if busy && status.toLowerCase().includes('describ')}
               <Loader2 class="h-3.5 w-3.5 animate-spin" />
@@ -379,4 +394,44 @@
       </div>
     {/if}
   </Card>
+
+  <!-- Vision prompt popup -->
+  {#if showPromptPopup}
+    <!-- svelte-ignore a11y_click_events_have_key_handlers, a11y_no_static_element_interactions -->
+    <div class="fixed inset-0 z-50" onclick={() => showPromptPopup = false}></div>
+    <div class="absolute z-50 top-auto rounded-lg border bg-popover shadow-lg p-4 flex flex-col gap-3"
+         style="left: 50%; transform: translateX(-50%); max-width: 400px; width: calc(100% - 2rem); margin-top: -200px;">
+      <div class="flex items-center justify-between">
+        <h4 class="text-sm font-semibold text-foreground">Vision Prompt</h4>
+        <Button variant="ghost" size="icon" class="h-6 w-6" onclick={() => showPromptPopup = false} title="Close">
+          <X class="h-3.5 w-3.5" />
+        </Button>
+      </div>
+      <p class="text-xs text-muted-foreground">
+        Custom prompt for this camera's describe action. Overrides the global default.
+        Leave empty to use the global vision prompt.
+      </p>
+      <Textarea
+        bind:value={visionPrompt}
+        rows="4"
+        placeholder="e.g. How many people do you see? Describe any vehicles."
+        class="text-xs"
+        disabled={busy}
+      />
+      <div class="flex gap-2 justify-end">
+        {#if visionPrompt !== savedPrompt}
+          <Button variant="ghost" size="sm" onclick={() => visionPrompt = savedPrompt} title="Reset to saved camera prompt">
+            Reset
+          </Button>
+        {/if}
+        <Button variant="secondary" size="sm" onclick={() => { showPromptPopup = false; describe() }} disabled={busy}>
+          <Eye class="h-3.5 w-3.5" />
+          Apply & Describe
+        </Button>
+        <Button variant="default" size="sm" onclick={() => showPromptPopup = false}>
+          Done
+        </Button>
+      </div>
+    </div>
+  {/if}
 </div>
