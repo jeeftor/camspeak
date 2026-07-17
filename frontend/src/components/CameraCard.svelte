@@ -1,10 +1,11 @@
 <script>
   import { onDestroy } from 'svelte'
-  import { Eye, Bell, Play, Volume2, Loader2, MessageSquare, FileAudio, X } from 'lucide-svelte'
+  import { Eye, Bell, Play, Volume2, Loader2, MessageSquare, FileAudio, X, Copy, Check } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Card } from '$lib/components/ui/card'
   import { Badge } from '$lib/components/ui/badge'
+  import { buildCurl, copyToClipboard } from '$lib/curl'
 
   let { camera, voices = [], presets = [] } = $props()
 
@@ -24,6 +25,8 @@
   let showPrompt = $state(false)
   let isDragOver = $state(false)
   let statusTimeout
+  let copiedKey = $state('')
+  let copiedTimeout
 
   onDestroy(() => {
     if (snapshot) URL.revokeObjectURL(snapshot)
@@ -37,6 +40,15 @@
       body: JSON.stringify(body),
     })
     if (!res.ok) throw new Error(await res.text())
+  }
+
+  async function copyCurl(key, method, path, body) {
+    const ok = await copyToClipboard(buildCurl(method, path, body))
+    if (ok) {
+      copiedKey = key
+      clearTimeout(copiedTimeout)
+      copiedTimeout = setTimeout(() => (copiedKey = ''), 2000)
+    }
   }
 
   function setStatus(msg, type = 'ok') {
@@ -233,6 +245,14 @@
           {/if}
         </Button>
         <Button
+          variant="outline" size="icon"
+          onclick={() => { const body = { camera: camera.name, gain }; if (visionPrompt) body.prompt = visionPrompt; copyCurl('describe', 'POST', '/api/describe', body) }}
+          title="Copy curl for describe" aria-label="Copy describe curl"
+          class="h-8 w-8"
+        >
+          {#if copiedKey === 'describe'}<Check class="h-4 w-4 text-green-500" />{:else}<Copy class="h-4 w-4" />{/if}
+        </Button>
+        <Button
           variant={showPrompt ? 'default' : 'outline'} size="icon"
           onclick={() => showPrompt = !showPrompt}
           title="Custom vision prompt" aria-label="Vision prompt"
@@ -247,6 +267,14 @@
           class="h-8 w-8"
         >
           <Bell class="h-4 w-4" />
+        </Button>
+        <Button
+          variant="outline" size="icon"
+          onclick={() => copyCurl('beep', 'POST', '/api/beep', { camera: camera.name })}
+          title="Copy curl for beep" aria-label="Copy beep curl"
+          class="h-8 w-8"
+        >
+          {#if copiedKey === 'beep'}<Check class="h-4 w-4 text-green-500" />{:else}<Copy class="h-4 w-4" />{/if}
         </Button>
       </div>
     </div>
@@ -280,6 +308,15 @@
       <Button size="sm" onclick={speak} disabled={busy || !text} aria-label="Speak" class="flex-shrink-0">
         <Play class="h-4 w-4" />
       </Button>
+      <Button
+        variant="outline" size="sm"
+        onclick={() => copyCurl('speak', 'POST', '/api/speak', { camera: camera.name, text, voice: voice || undefined, gain })}
+        disabled={!text}
+        title="Copy curl command" aria-label="Copy curl"
+        class="flex-shrink-0"
+      >
+        {#if copiedKey === 'speak'}<Check class="h-4 w-4 text-green-500" />{:else}<Copy class="h-4 w-4" />{/if}
+      </Button>
     </div>
 
     <!-- Volume row -->
@@ -303,6 +340,15 @@
         <Button size="sm" onclick={play} disabled={busy || !preset} aria-label="Play preset" class="flex-shrink-0">
           <Play class="h-4 w-4" />
         </Button>
+        <Button
+          variant="outline" size="sm"
+          onclick={() => { const p = presets.find(x => x.name === preset); copyCurl('preset', 'POST', '/api/play', { camera: camera.name, preset, category: p?.category, gain }) }}
+          disabled={!preset}
+          title="Copy curl command" aria-label="Copy curl"
+          class="flex-shrink-0"
+        >
+          {#if copiedKey === 'preset'}<Check class="h-4 w-4 text-green-500" />{:else}<Copy class="h-4 w-4" />{/if}
+        </Button>
       </div>
     {/if}
 
@@ -317,6 +363,15 @@
       />
       <Button size="sm" onclick={playUrl} disabled={busy || !url} aria-label="Play URL" class="flex-shrink-0">
         <Play class="h-4 w-4" />
+      </Button>
+      <Button
+        variant="outline" size="sm"
+        onclick={() => copyCurl('playurl', 'POST', '/api/play-url', { camera: camera.name, url, gain })}
+        disabled={!url}
+        title="Copy curl command" aria-label="Copy curl"
+        class="flex-shrink-0"
+      >
+        {#if copiedKey === 'playurl'}<Check class="h-4 w-4 text-green-500" />{:else}<Copy class="h-4 w-4" />{/if}
       </Button>
     </div>
 
@@ -357,6 +412,14 @@
               class="h-6 w-6 flex-shrink-0"
             >
               <Play class="h-3 w-3" />
+            </Button>
+            <Button
+              variant="outline" size="icon"
+              onclick={() => copyCurl('replay', 'POST', '/api/speak', { camera: camera.name, text: description, voice: voice || undefined, gain })}
+              title="Copy curl for re-play" aria-label="Copy replay curl"
+              class="h-6 w-6 flex-shrink-0"
+            >
+              {#if copiedKey === 'replay'}<Check class="h-3 w-3 text-green-500" />{:else}<Copy class="h-3 w-3" />{/if}
             </Button>
           </div>
         {/if}
