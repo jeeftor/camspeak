@@ -173,6 +173,10 @@ func New(
 	mcpServer := buildMCPServer(h)
 	e.Any("/mcp", echo.WrapHandler(server.NewStreamableHTTPServer(mcpServer)))
 
+	// Swagger UI + OpenAPI spec
+	e.GET("/swagger", SwaggerUI)
+	api.GET("/openapi.json", OpenAPISpec)
+
 	// Svelte SPA — serve from embedded frontend/dist with SPA fallback
 	distFS, err := fs.Sub(staticFiles, "frontend/dist")
 	if err == nil {
