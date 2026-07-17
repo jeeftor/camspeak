@@ -4,6 +4,7 @@
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Select } from '$lib/components/ui/select'
+  import JsonCode from '$lib/components/JsonCode.svelte'
 
   let rules = $state([])
   let voices = $state([])
@@ -672,7 +673,7 @@
         <div>
           <p class="font-semibold text-foreground mb-1">frigate/events — object lifecycle</p>
           <p class="mb-1.5">Published on every tracked object create/update/end. Most useful for TTS rules.</p>
-          <pre class="bg-background border rounded p-3 overflow-x-auto text-foreground/80">{`{
+          <JsonCode code={`{
   "type": "new" | "update" | "end",
   "before": {
     "label": "person",       // object class
@@ -690,7 +691,7 @@
     "current_zones": ["driveway"],
     "entered_zones": ["driveway"]
   }
-}`}</pre>
+}`} />
           <p class="mt-1.5 font-medium text-foreground">Filter keys (dot-notation into above):</p>
           <div class="grid grid-cols-2 gap-x-4 gap-y-0.5 mt-1">
             <span><code class="bg-muted px-1 rounded">type</code> — new · update · end</span>
@@ -702,14 +703,14 @@
 
         <div>
           <p class="font-semibold text-foreground mb-1">frigate/reviews — review items</p>
-          <pre class="bg-background border rounded p-3 overflow-x-auto text-foreground/80">{`{
+          <JsonCode code={`{
   "type": "new" | "update" | "end",
   "after": {
     "severity": "alert" | "detection",
     "camera": "backyard",
     "data": { "objects": ["person"], "zones": ["driveway"], ... }
   }
-}`}</pre>
+}`} />
           <p class="mt-1">Filter: <code class="bg-muted px-1 rounded">{`{"type":"new","after.severity":"alert"}`}</code></p>
         </div>
 
