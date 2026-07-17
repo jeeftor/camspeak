@@ -9,6 +9,7 @@
   import Config from './components/Config.svelte'
   import RestDocs from './components/RestDocs.svelte'
   import McpDocs from './components/McpDocs.svelte'
+  import HomeAssistant from './components/HomeAssistant.svelte'
 
   let tab = $state('cameras')
   let cameras = $state([])
@@ -48,6 +49,7 @@
     { id: 'events',    label: 'Events' },
     { id: 'broadcast', label: 'Broadcast' },
     { id: 'frigate',   label: 'Frigate' },
+    { id: 'ha',        label: 'Home Assistant' },
     { id: 'config',    label: 'Config' },
     { id: 'rest',      label: 'REST' },
     { id: 'mcp',       label: 'MCP' },
@@ -107,6 +109,8 @@
         <Broadcast {voices} {presets} />
       {:else if tab === 'frigate'}
         <Frigate />
+      {:else if tab === 'ha'}
+        <HomeAssistant />
       {:else if tab === 'config'}
         <Config onRefresh={loadAll} />
       {:else if tab === 'rest'}
