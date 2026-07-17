@@ -1,0 +1,21 @@
+version: 2
+updates:
+  # Keep GitHub Actions in workflows up to date
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+    groups:
+      actions:
+        patterns:
+          - "actions/*"
+      docker:
+        patterns:
+          - "docker/*"
+      oven-sh:
+        patterns:
+          - "oven-sh/*"
