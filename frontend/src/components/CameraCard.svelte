@@ -8,7 +8,7 @@
   import CopyButton from '$lib/components/CopyButton.svelte'
   import VoiceSelect from '$lib/components/VoiceSelect.svelte'
   import GainSlider from '$lib/components/GainSlider.svelte'
-  import { buildCurl } from '$lib/curl'
+  import { buildCurl } from '$lib/curl.svelte'
 
   let { camera, voices = [], presets = [] } = $props()
 

@@ -10,7 +10,7 @@
   import RestDocs from './components/RestDocs.svelte'
   import McpDocs from './components/McpDocs.svelte'
   import HomeAssistant from './components/HomeAssistant.svelte'
-  import { curlBaseUrl, setCurlBaseUrl, resetCurlBaseUrl } from '$lib/curl'
+  import { curlState, setCurlBaseUrl, resetCurlBaseUrl } from '$lib/curl.svelte'
 
   let tab = $state('cameras')
   let cameras = $state([])
@@ -117,11 +117,11 @@
           <button
             class="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground
                    bg-muted/60 border px-2 py-0.5 rounded-full transition-colors"
-            onclick={() => { urlEditValue = curlBaseUrl; showUrlEditor = !showUrlEditor }}
+            onclick={() => { urlEditValue = curlState.baseUrl; showUrlEditor = !showUrlEditor }}
             title="Base URL for curl commands"
           >
             <Globe class="h-3 w-3" />
-            <span class="font-mono max-w-[120px] truncate">{curlBaseUrl.replace(/^https?:\/\//, '')}</span>
+            <span class="font-mono max-w-[120px] truncate">{curlState.baseUrl.replace(/^https?:\/\//, '')}</span>
           </button>
           {#if showUrlEditor}
             <!-- svelte-ignore a11y_click_events_have_key_handlers, a11y_no_static_element_interactions -->
@@ -142,7 +142,7 @@
                 >Set</button>
                 <button
                   class="flex-1 rounded-md border px-2 py-1 text-xs hover:bg-muted"
-                  onclick={() => { resetCurlBaseUrl(); urlEditValue = curlBaseUrl; showUrlEditor = false }}
+                  onclick={() => { resetCurlBaseUrl(); urlEditValue = curlState.baseUrl; showUrlEditor = false }}
                 >Reset</button>
               </div>
             </div>

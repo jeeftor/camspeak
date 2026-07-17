@@ -3,7 +3,7 @@
   import { Mic, Play, Bell, Radio, Trash2, Eye } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import CopyButton from '$lib/components/CopyButton.svelte'
-  import { buildCurl } from '$lib/curl'
+  import { buildCurl } from '$lib/curl.svelte'
 
   let events = $state([])
   let es

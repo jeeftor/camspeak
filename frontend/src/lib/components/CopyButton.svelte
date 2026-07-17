@@ -7,7 +7,7 @@
   //   class — extra classes
   import { Copy, Check } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
-  import { copyToClipboard } from '$lib/curl'
+  import { copyToClipboard } from '$lib/curl.svelte'
 
   let { text, label = 'Copy', size = 'icon', class: klass = '', disabled = false } = $props()
 
