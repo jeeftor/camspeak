@@ -8,11 +8,52 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/jeeftor/camspeak/internal/config"
+	"github.com/jeeftor/camspeak/internal/vision"
 )
 
 // GetConfig handles GET /api/config — returns the current runtime config.
 func (h *Handlers) GetConfig(c echo.Context) error {
 	return c.JSON(http.StatusOK, h.cfg)
+}
+
+// GetVisionConfig handles GET /api/config/vision — returns vision config.
+func (h *Handlers) GetVisionConfig(c echo.Context) error {
+	h.cfgMu.Lock()
+	defer h.cfgMu.Unlock()
+	return c.JSON(http.StatusOK, h.cfg.Vision)
+}
+
+// UpdateVisionConfig handles PUT /api/config/vision — updates vision config.
+func (h *Handlers) UpdateVisionConfig(c echo.Context) error {
+	var req config.VisionConfig
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid JSON body")
+	}
+
+	prefs := map[string]string{
+		"vision_url":     req.URL,
+		"vision_model":   req.Model,
+		"vision_api_key": req.APIKey,
+		"vision_prompt":  req.Prompt,
+	}
+	for key, val := range prefs {
+		if err := config.SetPreference(h.db, key, val); err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		}
+	}
+
+	h.cfgMu.Lock()
+	h.cfg.Vision = req
+	h.vision = vision.NewClient(req.URL, req.Model, req.APIKey)
+	h.cfgMu.Unlock()
+
+	h.log.Info(
+		"vision config updated",
+		"url", req.URL,
+		"model", req.Model,
+		"has_prompt", req.Prompt != "",
+	)
+	return c.JSON(http.StatusOK, req)
 }
 
 // ListTTSPresets handles GET /api/config/tts — returns all TTS presets.

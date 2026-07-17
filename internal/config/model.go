@@ -28,11 +28,12 @@ type VisionConfig struct {
 	URL    string `json:"url"`
 	Model  string `json:"model"`
 	APIKey string `json:"api_key,omitempty"`
+	Prompt string `json:"prompt"` // global default prompt; empty = hardcoded fallback
 }
 
 // CameraConfig holds connection details for a single camera.
 type CameraConfig struct {
-	Type         string `json:"type"`          // "hikvision", "reolink", "go2rtc", "onvif"
+	Type         string `json:"type"` // "hikvision", "reolink", "go2rtc", "onvif"
 	IP           string `json:"ip"`
 	User         string `json:"user"`
 	Pass         string `json:"pass"`
@@ -191,6 +192,18 @@ func loadPreferences(db *sql.DB, cfg *Config) {
 	if v, ok := prefs["mqtt_pass"]; ok {
 		cfg.MQTT.Pass = v
 	}
+	if v, ok := prefs["vision_url"]; ok {
+		cfg.Vision.URL = v
+	}
+	if v, ok := prefs["vision_model"]; ok {
+		cfg.Vision.Model = v
+	}
+	if v, ok := prefs["vision_api_key"]; ok {
+		cfg.Vision.APIKey = v
+	}
+	if v, ok := prefs["vision_prompt"]; ok {
+		cfg.Vision.Prompt = v
+	}
 }
 
 // loadTTSPreset loads the active TTS preset from SQLite.
@@ -338,6 +351,9 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("CAMSPEAK_VISION_API_KEY"); v != "" {
 		cfg.Vision.APIKey = v
+	}
+	if v := os.Getenv("CAMSPEAK_VISION_PROMPT"); v != "" {
+		cfg.Vision.Prompt = v
 	}
 	if v := os.Getenv("CAMSPEAK_MQTT_BROKER"); v != "" {
 		cfg.MQTT.Broker = v
