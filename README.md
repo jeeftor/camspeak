@@ -247,6 +247,8 @@ All routes are under `/api`. The server listens on port `8585` by default.
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/api/health` | Health check with version |
+| `GET` | `/api/openapi.json` | OpenAPI 3.0 spec |
+| `GET` | `/swagger` | Swagger UI (interactive API explorer) |
 | `GET` | `/api/events` | Server-sent events stream (speak/play/beep log) |
 | `ANY` | `/mcp` | MCP endpoint (streamable HTTP transport) |
 

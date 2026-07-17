@@ -23,7 +23,7 @@
   let urlEditValue = $state('')
 
   // --- Hash-based SPA routing ---
-  const validTabs = ['cameras', 'library', 'events', 'broadcast', 'frigate', 'ha', 'config', 'rest', 'mcp']
+  const validTabs = ['cameras', 'library', 'events', 'broadcast', 'frigate', 'ha', 'config', 'rest', 'swagger', 'mcp']
 
   function tabFromHash() {
     const h = window.location.hash.replace(/^#\/?/, '')
@@ -81,6 +81,7 @@
     { id: 'ha',        label: 'Home Assistant' },
     { id: 'config',    label: 'Config' },
     { id: 'rest',      label: 'REST' },
+    { id: 'swagger',   label: 'Swagger' },
     { id: 'mcp',       label: 'MCP' },
   ]
 </script>
@@ -181,6 +182,10 @@
         <Config onRefresh={loadAll} />
       {:else if tab === 'rest'}
         <RestDocs />
+      {:else if tab === 'swagger'}
+        <div class="rounded-lg border overflow-hidden">
+          <iframe src="/swagger" class="w-full" style="height: calc(100vh - 120px); border: 0;" title="Swagger UI"></iframe>
+        </div>
       {:else if tab === 'mcp'}
         <McpDocs />
       {/if}

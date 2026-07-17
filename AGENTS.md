@@ -101,6 +101,8 @@ Copy `.env.example` to `.env` for local dev. Loaded by godotenv at startup. Giti
 - `DELETE /api/config/cameras/:name` — remove camera
 - `GET/POST /api/config/rules` — list/create MQTT rules
 - `GET /api/health` — health check with version
+- `GET /api/openapi.json` — OpenAPI 3.0 spec
+- `GET /swagger` — Swagger UI (interactive API explorer, CDN-hosted)
 - `GET /api/events` — SSE event stream
 - `POST /api/speak` — TTS to camera
 - `POST /api/play` — preset to camera
