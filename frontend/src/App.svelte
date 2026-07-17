@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte'
-  import { Radio, Loader2 } from 'lucide-svelte'
+  import { Radio, Loader2, Globe } from 'lucide-svelte'
   import CameraGrid from './components/CameraGrid.svelte'
   import Library from './components/Library.svelte'
   import EventLog from './components/EventLog.svelte'
@@ -10,6 +10,7 @@
   import RestDocs from './components/RestDocs.svelte'
   import McpDocs from './components/McpDocs.svelte'
   import HomeAssistant from './components/HomeAssistant.svelte'
+  import { curlBaseUrl, setCurlBaseUrl, resetCurlBaseUrl } from '$lib/curl'
 
   let tab = $state('cameras')
   let cameras = $state([])
@@ -18,6 +19,8 @@
   let version = $state('')
   let loading = $state(false)
   let loadError = $state('')
+  let showUrlEditor = $state(false)
+  let urlEditValue = $state('')
 
   async function loadAll() {
     loading = true
@@ -81,11 +84,48 @@
         {/each}
       </nav>
 
-      <!-- Version badge -->
-      {#if version}
-        <span class="flex-shrink-0 text-xs text-muted-foreground font-mono hidden sm:block
-                     bg-muted/60 border px-2 py-0.5 rounded-full">{version}</span>
-      {/if}
+      <!-- Curl base URL + version -->
+      <div class="flex items-center gap-2 flex-shrink-0">
+        <div class="relative">
+          <button
+            class="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground
+                   bg-muted/60 border px-2 py-0.5 rounded-full transition-colors"
+            onclick={() => { urlEditValue = curlBaseUrl; showUrlEditor = !showUrlEditor }}
+            title="Base URL for curl commands"
+          >
+            <Globe class="h-3 w-3" />
+            <span class="font-mono max-w-[120px] truncate">{curlBaseUrl.replace(/^https?:\/\//, '')}</span>
+          </button>
+          {#if showUrlEditor}
+            <!-- svelte-ignore a11y_click_events_have_key_handlers, a11y_no_static_element_interactions -->
+            <div class="fixed inset-0 z-40" onclick={() => showUrlEditor = false}></div>
+            <div class="absolute right-0 top-full mt-1 z-50 w-72 rounded-lg border bg-card p-3 shadow-lg">
+              <p class="text-xs text-muted-foreground mb-2">Base URL for curl commands</p>
+              <input
+                type="text"
+                bind:value={urlEditValue}
+                placeholder="http://192.168.1.100:8585"
+                class="w-full rounded-md border border-input bg-transparent px-2 py-1 text-xs font-mono
+                       focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              />
+              <div class="flex gap-1.5 mt-2">
+                <button
+                  class="flex-1 rounded-md bg-primary px-2 py-1 text-xs text-primary-foreground hover:bg-primary/90"
+                  onclick={() => { setCurlBaseUrl(urlEditValue); showUrlEditor = false }}
+                >Set</button>
+                <button
+                  class="flex-1 rounded-md border px-2 py-1 text-xs hover:bg-muted"
+                  onclick={() => { resetCurlBaseUrl(); urlEditValue = curlBaseUrl; showUrlEditor = false }}
+                >Reset</button>
+              </div>
+            </div>
+          {/if}
+        </div>
+        {#if version}
+          <span class="text-xs text-muted-foreground font-mono hidden sm:block
+                       bg-muted/60 border px-2 py-0.5 rounded-full">{version}</span>
+        {/if}
+      </div>
     </div>
   </header>
 
