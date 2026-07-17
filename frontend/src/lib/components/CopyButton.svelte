@@ -39,8 +39,8 @@
 <div
   class="copy-wrapper"
   class:preview-enabled={preview && !disabled}
-  onmouseenter={() => { if (preview && text && !disabled) showTooltip = true }}
-  onmouseleave={() => { showTooltip = false }}
+  onmouseover={() => { if (preview && text && !disabled) showTooltip = true }}
+  onmouseout={() => { showTooltip = false }}
 >
   {#if size === 'sm'}
     <Button
@@ -85,7 +85,7 @@
     min-width: 320px;
     max-width: 520px;
     padding: 10px 12px;
-    background: hsl(var(--popover));
+    background: hsl(var(--card));
     border: 1px solid hsl(var(--border));
     border-radius: 6px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
