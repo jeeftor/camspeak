@@ -32,13 +32,14 @@ type VisionConfig struct {
 
 // CameraConfig holds connection details for a single camera.
 type CameraConfig struct {
-	Type    string `json:"type"` // "hikvision", "reolink", "go2rtc", "onvif"
-	IP      string `json:"ip"`
-	User    string `json:"user"`
-	Pass    string `json:"pass"`
-	Channel int    `json:"channel"` // Hikvision audio channel, default 1
-	Stream  string `json:"stream"`  // go2rtc stream name (e.g. "garage_2way") or RTSP path for onvif
-	Enabled bool   `json:"enabled"` // if false, camera is loaded but skipped for speak/broadcast
+	Type         string `json:"type"`          // "hikvision", "reolink", "go2rtc", "onvif"
+	IP           string `json:"ip"`
+	User         string `json:"user"`
+	Pass         string `json:"pass"`
+	Channel      int    `json:"channel"`       // Hikvision audio channel, default 1
+	Stream       string `json:"stream"`        // go2rtc stream name (e.g. "garage_2way") or RTSP path for onvif
+	Enabled      bool   `json:"enabled"`       // if false, camera is loaded but skipped for speak/broadcast
+	VisionPrompt string `json:"vision_prompt"` // default prompt for vision/describe; empty = generic
 }
 
 // MQTTConfig holds connection details for the MQTT broker.
@@ -254,7 +255,7 @@ func seedDefaultPresets(db *sql.DB) {
 // loadCameras loads camera configurations from SQLite.
 func loadCameras(db *sql.DB, cfg *Config) {
 	rows, err := db.Query(
-		`SELECT name, type, ip, user, pass, channel, stream, enabled FROM cameras`,
+		`SELECT name, type, ip, user, pass, channel, stream, enabled, vision_prompt FROM cameras`,
 	)
 	if err != nil {
 		return
@@ -265,7 +266,7 @@ func loadCameras(db *sql.DB, cfg *Config) {
 		var cam CameraConfig
 		var name string
 		var enabled int
-		if err := rows.Scan(&name, &cam.Type, &cam.IP, &cam.User, &cam.Pass, &cam.Channel, &cam.Stream, &enabled); err != nil {
+		if err := rows.Scan(&name, &cam.Type, &cam.IP, &cam.User, &cam.Pass, &cam.Channel, &cam.Stream, &enabled, &cam.VisionPrompt); err != nil {
 			continue
 		}
 		cam.Enabled = enabled == 1
@@ -389,13 +390,13 @@ func SaveCamera(db *sql.DB, name string, cam CameraConfig) error {
 		enabled = 1
 	}
 	_, err := db.Exec(
-		`INSERT INTO cameras (name, type, ip, user, pass, channel, stream, enabled)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO cameras (name, type, ip, user, pass, channel, stream, enabled, vision_prompt)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(name) DO UPDATE SET
 		   type = excluded.type, ip = excluded.ip, user = excluded.user,
 		   pass = excluded.pass, channel = excluded.channel, stream = excluded.stream,
-		   enabled = excluded.enabled`,
-		name, cam.Type, cam.IP, cam.User, cam.Pass, cam.Channel, cam.Stream, enabled,
+		   enabled = excluded.enabled, vision_prompt = excluded.vision_prompt`,
+		name, cam.Type, cam.IP, cam.User, cam.Pass, cam.Channel, cam.Stream, enabled, cam.VisionPrompt,
 	)
 	if err != nil {
 		return fmt.Errorf("saving camera %s: %w", name, err)

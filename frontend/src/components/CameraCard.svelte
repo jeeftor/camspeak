@@ -18,7 +18,9 @@
   let statusType = $state('ok')
   let snapshot = $state('')
   let description = $state('')
-  let visionPrompt = $state('')
+  // Pre-fill from saved camera default; user can override per-session
+  const savedPrompt = camera.vision_prompt ?? ''
+  let visionPrompt = $state(savedPrompt)
   let showPrompt = $state(false)
   let isDragOver = $state(false)
   let statusTimeout

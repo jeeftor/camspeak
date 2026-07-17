@@ -161,9 +161,11 @@ func New(
 	api.GET("/config/rules", h.ListRules)
 	api.POST("/config/rules", h.CreateRule)
 
-	// MQTT status + live event browser
+	// MQTT status + live event browser + dynamic subscriptions
 	api.GET("/mqtt/status", h.MQTTStatus)
 	api.GET("/mqtt/events", h.MQTTEvents)
+	api.GET("/mqtt/topics", h.MQTTTopics)
+	api.POST("/mqtt/subscribe", h.MQTTSubscribe)
 
 	// MCP endpoint
 	mcpServer := buildMCPServer(h)

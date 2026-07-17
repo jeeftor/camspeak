@@ -50,14 +50,15 @@ CREATE TABLE IF NOT EXISTS tts_presets (
 );
 
 CREATE TABLE IF NOT EXISTS cameras (
-    name    TEXT PRIMARY KEY,
-    type    TEXT NOT NULL,
-    ip      TEXT NOT NULL,
-    user    TEXT DEFAULT '',
-    pass    TEXT DEFAULT '',
-    channel INTEGER DEFAULT 1,
-    stream  TEXT DEFAULT '',
-    enabled INTEGER DEFAULT 0
+    name          TEXT PRIMARY KEY,
+    type          TEXT NOT NULL,
+    ip            TEXT NOT NULL,
+    user          TEXT DEFAULT '',
+    pass          TEXT DEFAULT '',
+    channel       INTEGER DEFAULT 1,
+    stream        TEXT DEFAULT '',
+    enabled       INTEGER DEFAULT 0,
+    vision_prompt TEXT DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS rules (
@@ -125,5 +126,10 @@ func migrate(db *sql.DB) {
 	var enabledCol int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cameras') WHERE name='enabled'`).Scan(&enabledCol); err == nil && enabledCol == 0 {
 		_, _ = db.Exec(`ALTER TABLE cameras ADD COLUMN enabled INTEGER DEFAULT 0`)
+	}
+	// Add 'vision_prompt' column to cameras if missing (added in v1.8.0).
+	var vpCol int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cameras') WHERE name='vision_prompt'`).Scan(&vpCol); err == nil && vpCol == 0 {
+		_, _ = db.Exec(`ALTER TABLE cameras ADD COLUMN vision_prompt TEXT DEFAULT ''`)
 	}
 }

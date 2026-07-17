@@ -86,6 +86,21 @@ func (s *Subscriber) Broker() string { return s.cfg.Broker }
 // SetMessageHook registers a callback invoked for every received MQTT message.
 func (s *Subscriber) SetMessageHook(fn MsgHook) { s.msgHook = fn }
 
+// SubscribeTopic dynamically subscribes to an additional topic at runtime.
+// Safe to call after Start(); no-op if not connected.
+func (s *Subscriber) SubscribeTopic(topic string) error {
+	if s.client == nil || !s.client.IsConnected() {
+		return fmt.Errorf("MQTT not connected")
+	}
+	token := s.client.Subscribe(topic, 1, s.handleMessage)
+	token.Wait()
+	if err := token.Error(); err != nil {
+		return fmt.Errorf("subscribing to %s: %w", topic, err)
+	}
+	s.log.Info("subscribed (dynamic)", "topic", topic)
+	return nil
+}
+
 // Stop disconnects from the broker.
 func (s *Subscriber) Stop() {
 	if s.client != nil && s.client.IsConnected() {

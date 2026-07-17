@@ -32,9 +32,10 @@ type Handlers struct {
 	tts          *tts.Client
 	vision       *vision.Client
 	events       *eventBus
-	mqttMsgBus   *mqttMsgBus
-	mqttBroker   string
-	mqttStatusFn func() string
+	mqttMsgBus      *mqttMsgBus
+	mqttBroker      string
+	mqttStatusFn    func() string
+	mqttSubscribeFn func(string) error
 	db           *sql.DB
 	tmpDir       string
 	log          *clog.Logger
@@ -500,10 +501,11 @@ func (h *Handlers) Cameras(c echo.Context) error {
 			continue
 		}
 		out = append(out, map[string]any{
-			"name":   name,
-			"type":   cfg.Type,
-			"ip":     cfg.IP,
-			"online": status[name],
+			"name":          name,
+			"type":          cfg.Type,
+			"ip":            cfg.IP,
+			"online":        status[name],
+			"vision_prompt": cfg.VisionPrompt,
 		})
 	}
 

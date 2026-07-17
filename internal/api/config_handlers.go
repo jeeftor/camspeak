@@ -100,12 +100,13 @@ func (h *Handlers) ListCamerasConfig(c echo.Context) error {
 	cameras := make([]map[string]interface{}, 0, len(h.cfg.Cameras))
 	for name, cam := range h.cfg.Cameras {
 		cameras = append(cameras, map[string]interface{}{
-			"name":    name,
-			"type":    cam.Type,
-			"ip":      cam.IP,
-			"channel": cam.Channel,
-			"stream":  cam.Stream,
-			"enabled": cam.Enabled,
+			"name":          name,
+			"type":          cam.Type,
+			"ip":            cam.IP,
+			"channel":       cam.Channel,
+			"stream":        cam.Stream,
+			"enabled":       cam.Enabled,
+			"vision_prompt": cam.VisionPrompt,
 		})
 	}
 	return c.JSON(http.StatusOK, cameras)
@@ -114,14 +115,15 @@ func (h *Handlers) ListCamerasConfig(c echo.Context) error {
 // CreateCamera handles POST /api/config/cameras — adds or updates a camera.
 func (h *Handlers) CreateCamera(c echo.Context) error {
 	var req struct {
-		Name    string `json:"name"`
-		Type    string `json:"type"`
-		IP      string `json:"ip"`
-		User    string `json:"user"`
-		Pass    string `json:"pass"`
-		Channel int    `json:"channel"`
-		Stream  string `json:"stream"`
-		Enabled *bool  `json:"enabled"` // pointer so we can distinguish unset from false
+		Name         string `json:"name"`
+		Type         string `json:"type"`
+		IP           string `json:"ip"`
+		User         string `json:"user"`
+		Pass         string `json:"pass"`
+		Channel      int    `json:"channel"`
+		Stream       string `json:"stream"`
+		Enabled      *bool  `json:"enabled"` // pointer so we can distinguish unset from false
+		VisionPrompt string `json:"vision_prompt"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid JSON body")
@@ -142,14 +144,22 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 	} else if existing, ok := h.cfg.Cameras[req.Name]; ok {
 		enabled = existing.Enabled
 	}
+	// Preserve existing vision_prompt if not provided
+	visionPrompt := req.VisionPrompt
+	if visionPrompt == "" {
+		if existing, ok := h.cfg.Cameras[req.Name]; ok {
+			visionPrompt = existing.VisionPrompt
+		}
+	}
 	cam := config.CameraConfig{
-		Type:    req.Type,
-		IP:      req.IP,
-		User:    req.User,
-		Pass:    req.Pass,
-		Channel: req.Channel,
-		Stream:  req.Stream,
-		Enabled: enabled,
+		Type:         req.Type,
+		IP:           req.IP,
+		User:         req.User,
+		Pass:         req.Pass,
+		Channel:      req.Channel,
+		Stream:       req.Stream,
+		Enabled:      enabled,
+		VisionPrompt: visionPrompt,
 	}
 	if err := config.SaveCamera(h.db, req.Name, cam); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -166,12 +176,13 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 	}
 	h.log.Info("camera saved", "name", req.Name, "type", req.Type, "enabled", enabled)
 	return c.JSON(http.StatusCreated, map[string]interface{}{
-		"name":    req.Name,
-		"type":    req.Type,
-		"ip":      req.IP,
-		"channel": req.Channel,
-		"stream":  req.Stream,
-		"enabled": enabled,
+		"name":          req.Name,
+		"type":          req.Type,
+		"ip":            req.IP,
+		"channel":       req.Channel,
+		"stream":        req.Stream,
+		"enabled":       enabled,
+		"vision_prompt": visionPrompt,
 	})
 }
 

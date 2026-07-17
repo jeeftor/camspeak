@@ -1,7 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte'
-  import { Play, Loader2, Wifi, WifiOff, Radio, ChevronDown, ChevronUp, Trash2 } from 'lucide-svelte'
-  // Wifi/WifiOff used in template directly (not via svelte:component)
+  import { Play, Loader2, Wifi, WifiOff, Radio, ChevronDown, ChevronUp, Trash2, ChevronRight } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Select } from '$lib/components/ui/select'
@@ -13,13 +12,21 @@
   let error = $state('')
 
   // MQTT status
-  let mqttStatus = $state('unknown') // not_configured | connected | disconnected | unknown
+  let mqttStatus = $state('unknown')
   let mqttBroker = $state('')
 
   // Live MQTT browser
   let mqttMessages = $state([])
   let mqttBrowsing = $state(false)
   let es = null
+
+  // Topic tree state
+  // topicMap: { [fullTopic]: { count, lastPayload, lastAt } }
+  let topicMap = $state({})
+  // expandedNodes: Set of topic-path prefixes that are expanded (e.g. "frigate", "frigate/backyard")
+  let expandedNodes = $state(new Set(['frigate']))
+  // selectedTopic: filter message feed to this topic (null = all)
+  let selectedTopic = $state(null)
 
   // Rule form
   let ruleTopic = $state('frigate/events')
@@ -33,35 +40,28 @@
   let formOpen = $state(false)
 
   // Accurate Frigate MQTT topics (from docs.frigate.video/integrations/mqtt)
-  // Global topics
   const topicSuggestions = [
-    // --- Global ---
-    'frigate/events',            // tracked object lifecycle: new/update/end
-    'frigate/reviews',           // review item lifecycle: new/update/end
-    'frigate/tracked_object_update', // AI enrichment: description/face/lpr
-    'frigate/available',         // "online" / "offline"
-    'frigate/stats',             // stats snapshot (matches /api/stats)
-    'frigate/camera_activity',   // camera feature/activity overview
-    // --- Per-camera: use real camera name or + wildcard ---
-    'frigate/+/motion',          // motion state: ON / OFF
-    'frigate/+/person',          // person count (integer)
-    'frigate/+/car',             // car count (integer)
-    'frigate/+/dog',             // dog count (integer)
-    'frigate/+/cat',             // cat count (integer)
-    'frigate/+/person/active',   // active (non-stationary) person count
-    'frigate/+/car/active',      // active car count
-    'frigate/+/review_status',   // NONE / DETECTION / ALERT
-    'frigate/+/status/detect',   // detection service: online/offline/disabled
-    'frigate/+/status/record',   // recording service: online/offline/disabled
-    'frigate/+/audio/+',         // audio detection (bark/scream/etc): ON/OFF
-    'frigate/+/classification/+',// state classification (open/closed/on/off)
-    // --- Catch-all for browsing ---
+    'frigate/events',
+    'frigate/reviews',
+    'frigate/tracked_object_update',
+    'frigate/available',
+    'frigate/stats',
+    'frigate/camera_activity',
+    'frigate/+/motion',
+    'frigate/+/person',
+    'frigate/+/car',
+    'frigate/+/dog',
+    'frigate/+/cat',
+    'frigate/+/person/active',
+    'frigate/+/car/active',
+    'frigate/+/review_status',
+    'frigate/+/status/detect',
+    'frigate/+/status/record',
+    'frigate/+/audio/+',
+    'frigate/+/classification/+',
     'frigate/#',
   ]
 
-  // Filter templates for frigate/events — uses dot-notation for nested fields
-  // Frigate event payload: { type, before: {...}, after: { label, camera, score,
-  //   stationary, entered_zones, current_zones, ... } }
   const filterTemplates = [
     { label: 'New event',          filter: { type: 'new' } },
     { label: 'New — person',       filter: { type: 'new', 'after.label': 'person' } },
@@ -73,7 +73,6 @@
     { label: 'Alert review',       filter: { type: 'new', severity: 'alert' } },
   ]
 
-  // Rule templates — one-click to populate the form
   const ruleTemplates = [
     {
       label: 'Person detected',
@@ -119,6 +118,76 @@
     },
   ]
 
+  // --- Topic tree builder (ported from mqtt-viewer/build-tree.ts) ---
+  // Builds a nested tree from the flat topicMap keyed by full topic strings.
+  // Returns a flat array of rows with indentation levels for rendering.
+
+  /**
+   * @typedef {{ level: number, segment: string, fullPath: string, count: number, lastPayload: string, hasChildren: boolean, isExpanded: boolean }} TreeRow
+   */
+
+  function buildTopicTree(topicMap, expandedNodes) {
+    // Build nested structure: nested[segment] = { children: {}, count, fullPath, lastPayload }
+    const nested = {}
+    for (const [topic, info] of Object.entries(topicMap)) {
+      const parts = topic.split('/')
+      let node = nested
+      let path = ''
+      for (let i = 0; i < parts.length; i++) {
+        const seg = parts[i]
+        path = path ? path + '/' + seg : seg
+        if (!node[seg]) {
+          node[seg] = { children: {}, count: 0, fullPath: path, lastPayload: '' }
+        }
+        if (i === parts.length - 1) {
+          node[seg].count = info.count
+          node[seg].lastPayload = info.lastPayload
+        }
+        node = node[seg].children
+      }
+    }
+
+    // Flatten to rows with level
+    const rows = []
+    function walk(node, level) {
+      const keys = Object.keys(node).sort()
+      for (const seg of keys) {
+        const n = node[seg]
+        const hasChildren = Object.keys(n.children).length > 0
+        const isExpanded = expandedNodes.has(n.fullPath)
+        rows.push({
+          level,
+          segment: seg,
+          fullPath: n.fullPath,
+          count: n.count,
+          lastPayload: n.lastPayload,
+          hasChildren,
+          isExpanded,
+        })
+        if (isExpanded && hasChildren) {
+          walk(n.children, level + 1)
+        }
+      }
+    }
+    walk(nested, 0)
+    return rows
+  }
+
+  let treeRows = $derived(buildTopicTree(topicMap, expandedNodes))
+
+  // Combined datalist: hardcoded + seen
+  let allTopicSuggestions = $derived([
+    ...topicSuggestions,
+    ...Object.keys(topicMap).filter(t => !topicSuggestions.includes(t)),
+  ])
+
+  // Filtered messages
+  let filteredMessages = $derived(
+    selectedTopic
+      ? mqttMessages.filter(m => m.topic === selectedTopic)
+      : mqttMessages
+  )
+
   async function load() {
     loading = true
     try {
@@ -145,22 +214,87 @@
     if (es) { es.close(); es = null }
   })
 
+  async function startBrowsing() {
+    mqttMessages = []
+    topicMap = {}
+
+    // Open SSE stream
+    es = new EventSource('/api/mqtt/events')
+    es.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data)
+        const payload = msg.payload ? JSON.stringify(msg.payload) : (msg.raw ?? '')
+        // Update topicMap
+        topicMap = {
+          ...topicMap,
+          [msg.topic]: {
+            count: (topicMap[msg.topic]?.count ?? 0) + 1,
+            lastPayload: payload,
+            lastAt: msg.at,
+          }
+        }
+        mqttMessages = [{ ...msg, id: Date.now() + Math.random() }, ...mqttMessages].slice(0, 200)
+      } catch {}
+    }
+    es.onerror = () => {}
+    mqttBrowsing = true
+
+    // Auto-subscribe to frigate/# for discovery (best-effort)
+    if (mqttStatus === 'connected') {
+      try {
+        await fetch('/api/mqtt/subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ topic: 'frigate/#' }),
+        })
+      } catch {}
+    }
+
+    // Also load any topics already accumulated server-side
+    try {
+      const res = await fetch('/api/mqtt/topics')
+      const seenTopics = await res.json()
+      if (Array.isArray(seenTopics)) {
+        const newMap = { ...topicMap }
+        for (const st of seenTopics) {
+          if (!newMap[st.topic]) {
+            newMap[st.topic] = {
+              count: st.count,
+              lastPayload: st.payload ? JSON.stringify(st.payload) : (st.raw ?? ''),
+              lastAt: st.at,
+            }
+          }
+        }
+        topicMap = newMap
+      }
+    } catch {}
+  }
+
+  function stopBrowsing() {
+    es?.close(); es = null
+    mqttBrowsing = false
+  }
+
   function toggleBrowser() {
     if (mqttBrowsing) {
-      es?.close(); es = null
-      mqttBrowsing = false
+      stopBrowsing()
     } else {
-      mqttMessages = []
-      es = new EventSource('/api/mqtt/events')
-      es.onmessage = (e) => {
-        try {
-          const msg = JSON.parse(e.data)
-          mqttMessages = [{ ...msg, id: Date.now() + Math.random() }, ...mqttMessages].slice(0, 100)
-        } catch {}
-      }
-      es.onerror = () => {}
-      mqttBrowsing = true
+      startBrowsing()
     }
+  }
+
+  function toggleNode(fullPath) {
+    const next = new Set(expandedNodes)
+    if (next.has(fullPath)) {
+      next.delete(fullPath)
+    } else {
+      next.add(fullPath)
+    }
+    expandedNodes = next
+  }
+
+  function selectTopic(fullPath) {
+    selectedTopic = selectedTopic === fullPath ? null : fullPath
   }
 
   function applyTemplate(tmpl) {
@@ -238,15 +372,22 @@
   }
 
   let sc = $derived(statusConfig[mqttStatus] ?? statusConfig.unknown)
-  // (icon rendered inline in template to avoid deprecated svelte:component)
+
+  function fmtPayload(msg) {
+    if (msg.payload) {
+      try { return JSON.stringify(msg.payload, null, 0) }
+      catch {}
+    }
+    return msg.raw ?? ''
+  }
 </script>
 
 <!-- datalist for topic autocomplete -->
 <datalist id="mqtt-topics">
-  {#each topicSuggestions as t}<option value={t}></option>{/each}
+  {#each allTopicSuggestions as t}<option value={t}></option>{/each}
 </datalist>
 
-<div class="flex flex-col gap-6 max-w-3xl">
+<div class="flex flex-col gap-6 max-w-4xl">
   <!-- Header + MQTT status -->
   <div class="flex items-start justify-between gap-4 flex-wrap">
     <div>
@@ -278,6 +419,7 @@
 
     <!-- Live MQTT browser -->
     <div class="rounded-lg border bg-card overflow-hidden">
+      <!-- Header bar -->
       <button
         class="flex w-full items-center justify-between px-4 py-3 hover:bg-muted/30 transition-colors"
         onclick={toggleBrowser}
@@ -292,37 +434,107 @@
         {#if mqttBrowsing}
           <span class="text-xs text-muted-foreground">click to stop</span>
         {:else}
-          <span class="text-xs text-muted-foreground">click to start watching</span>
+          <span class="text-xs text-muted-foreground">click to start — auto-subscribes to frigate/#</span>
         {/if}
       </button>
 
       {#if mqttBrowsing}
         <div class="border-t">
-          <div class="flex items-center justify-between px-4 py-2 bg-muted/20">
-            <span class="text-xs text-muted-foreground">{mqttMessages.length} messages received</span>
-            <button class="text-xs text-muted-foreground hover:text-foreground"
-              onclick={() => mqttMessages = []}>
+          <!-- Toolbar -->
+          <div class="flex items-center justify-between px-4 py-2 bg-muted/20 gap-3 flex-wrap">
+            <div class="flex items-center gap-3 text-xs text-muted-foreground">
+              <span>{mqttMessages.length} messages</span>
+              <span>·</span>
+              <span>{Object.keys(topicMap).length} topics seen</span>
+              {#if selectedTopic}
+                <span>·</span>
+                <span>
+                  filtering: <code class="bg-muted px-1 rounded text-foreground">{selectedTopic}</code>
+                  <button class="ml-1 hover:text-foreground" onclick={() => selectedTopic = null}>×</button>
+                </span>
+              {/if}
+            </div>
+            <button class="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+              onclick={() => { mqttMessages = []; topicMap = {}; selectedTopic = null }}>
               <Trash2 class="h-3.5 w-3.5 inline" /> clear
             </button>
           </div>
-          <div class="max-h-64 overflow-y-auto font-mono text-xs">
-            {#if mqttMessages.length === 0}
-              <p class="px-4 py-3 text-muted-foreground italic">Waiting for MQTT messages…</p>
-            {:else}
-              {#each mqttMessages as msg (msg.id)}
-                <div class="flex gap-3 border-b border-border/50 px-4 py-2 hover:bg-muted/20 animate-in fade-in duration-150">
-                  <span class="text-muted-foreground flex-shrink-0">{fmt(msg.at)}</span>
-                  <span class="text-primary flex-shrink-0">{msg.topic}</span>
-                  <span class="text-foreground/70 truncate">
-                    {#if msg.payload}
-                      {JSON.stringify(msg.payload)}
-                    {:else}
-                      {msg.raw ?? ''}
+
+          <!-- Split layout: tree left, feed right -->
+          <!-- On mobile: stacked (flex-col). On sm+: side by side (flex-row) -->
+          <div class="flex flex-col sm:flex-row" style="min-height: 280px; max-height: 420px;">
+
+            <!-- Topic tree pane -->
+            <div class="sm:w-56 sm:min-w-56 border-b sm:border-b-0 sm:border-r overflow-y-auto bg-background/50">
+              <div class="px-2 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide border-b">
+                Topics
+              </div>
+              {#if treeRows.length === 0}
+                <p class="px-3 py-3 text-xs text-muted-foreground italic">Waiting for messages…</p>
+              {:else}
+                <div class="py-1">
+                  {#each treeRows as row (row.fullPath)}
+                    <div
+                      class="flex items-center gap-0.5 px-1 py-0.5 cursor-pointer select-none
+                             hover:bg-muted/40 transition-colors
+                             {selectedTopic === row.fullPath ? 'bg-primary/10 text-primary' : ''}"
+                      style="padding-left: {4 + row.level * 14}px"
+                    >
+                      <!-- Expand toggle -->
+                      <button
+                        class="w-4 h-4 flex items-center justify-center flex-shrink-0 text-muted-foreground hover:text-foreground"
+                        onclick={(e) => { e.stopPropagation(); row.hasChildren && toggleNode(row.fullPath) }}
+                      >
+                        {#if row.hasChildren}
+                          <ChevronRight class="h-3 w-3 {row.isExpanded ? 'rotate-90' : ''} transition-transform" />
+                        {/if}
+                      </button>
+                      <!-- Row content -->
+                      <button
+                        class="flex-1 flex items-center gap-1 min-w-0 text-left"
+                        onclick={() => !row.hasChildren && selectTopic(row.fullPath)}
+                        title={row.fullPath}
+                      >
+                        <span class="font-mono text-xs truncate {row.hasChildren ? 'font-medium' : ''}">{row.segment}</span>
+                        {#if row.count > 0}
+                          <span class="text-[10px] text-muted-foreground flex-shrink-0">({row.count})</span>
+                        {/if}
+                      </button>
+                    </div>
+                    {#if !row.hasChildren && row.lastPayload}
+                      <!-- Last value preview — subtle, truncated -->
+                      <button
+                        class="w-full text-left px-2 py-0.5 text-[10px] font-mono text-muted-foreground truncate hover:text-foreground"
+                        style="padding-left: {22 + row.level * 14}px"
+                        onclick={() => selectTopic(row.fullPath)}
+                        title={row.lastPayload}
+                      >
+                        {row.lastPayload}
+                      </button>
                     {/if}
-                  </span>
+                  {/each}
                 </div>
-              {/each}
-            {/if}
+              {/if}
+            </div>
+
+            <!-- Message feed pane -->
+            <div class="flex-1 overflow-y-auto font-mono text-xs">
+              {#if filteredMessages.length === 0}
+                <p class="px-4 py-3 text-muted-foreground italic">
+                  {selectedTopic ? `No messages on ${selectedTopic} yet` : 'Waiting for MQTT messages…'}
+                </p>
+              {:else}
+                {#each filteredMessages as msg (msg.id)}
+                  <div class="flex gap-3 border-b border-border/50 px-4 py-2 hover:bg-muted/20 animate-in fade-in duration-150">
+                    <span class="text-muted-foreground flex-shrink-0 w-16">{fmt(msg.at)}</span>
+                    <span class="text-primary flex-shrink-0 truncate max-w-32" title={msg.topic}>{msg.topic}</span>
+                    <span class="text-foreground/70 truncate">
+                      {fmtPayload(msg)}
+                    </span>
+                  </div>
+                {/each}
+              {/if}
+            </div>
           </div>
         </div>
       {/if}
@@ -457,7 +669,6 @@
       </summary>
       <div class="border-t px-4 py-3 text-xs text-muted-foreground flex flex-col gap-4">
 
-        <!-- frigate/events -->
         <div>
           <p class="font-semibold text-foreground mb-1">frigate/events — object lifecycle</p>
           <p class="mb-1.5">Published on every tracked object create/update/end. Most useful for TTS rules.</p>
@@ -489,7 +700,6 @@
           </div>
         </div>
 
-        <!-- frigate/reviews -->
         <div>
           <p class="font-semibold text-foreground mb-1">frigate/reviews — review items</p>
           <pre class="bg-background border rounded p-3 overflow-x-auto text-foreground/80">{`{
@@ -503,7 +713,6 @@
           <p class="mt-1">Filter: <code class="bg-muted px-1 rounded">{`{"type":"new","after.severity":"alert"}`}</code></p>
         </div>
 
-        <!-- Per-camera count topics -->
         <div>
           <p class="font-semibold text-foreground mb-1">frigate/&lt;camera&gt;/&lt;label&gt; — object count</p>
           <p>Payload is a plain integer (e.g. <code class="bg-muted px-1 rounded">2</code>). No filter needed — fires every time the count changes.</p>
@@ -511,25 +720,22 @@
           <p class="mt-0.5">Add <code class="bg-muted px-1 rounded">/active</code> for non-stationary count only.</p>
         </div>
 
-        <!-- Motion -->
         <div>
           <p class="font-semibold text-foreground mb-1">frigate/&lt;camera&gt;/motion — motion state</p>
           <p>Payload: <code class="bg-muted px-1 rounded">ON</code> or <code class="bg-muted px-1 rounded">OFF</code>. Includes the configured <code class="bg-muted px-1 rounded">mqtt_off_delay</code> buffer.</p>
         </div>
 
-        <!-- Audio -->
         <div>
           <p class="font-semibold text-foreground mb-1">frigate/&lt;camera&gt;/audio/&lt;type&gt; — audio detection</p>
           <p>Types: bark · scream · speech · yell · glass_breaking · etc. Payload: <code class="bg-muted px-1 rounded">ON</code> / <code class="bg-muted px-1 rounded">OFF</code>.</p>
           <p class="mt-0.5">Example topic: <code class="bg-muted px-1 rounded">frigate/backyard/audio/bark</code></p>
         </div>
 
-        <!-- Setup note -->
         <div class="rounded-md bg-muted/40 border px-3 py-2">
           <p class="font-medium text-foreground mb-0.5">Setup</p>
           <p>Set the same MQTT broker in Frigate (<code class="bg-muted px-1 rounded">mqtt.host</code>) and camspeak
             (<code class="bg-muted px-1 rounded">CAMSPEAK_MQTT_BROKER=tcp://192.168.1.x:1883</code>).
-            camspeak only subscribes to topics that have active rules — use the Live Browser above to verify messages are arriving.
+            Opening the Live Browser automatically subscribes to <code class="bg-muted px-1 rounded">frigate/#</code> for full topic discovery.
           </p>
         </div>
       </div>

@@ -34,6 +34,7 @@
   let camChannel = $state(1)
   let camStream = $state('')
   let camEnabled = $state(false)
+  let camVisionPrompt = $state('')
   let camStatus = $state('')
 
   // Test status
@@ -135,12 +136,12 @@
         body: JSON.stringify({
           name: camName, type: camType, ip: camIP,
           user: camUser, pass: camPass, channel: parseInt(camChannel) || 1,
-          stream: camStream, enabled: camEnabled,
+          stream: camStream, enabled: camEnabled, vision_prompt: camVisionPrompt,
         }),
       })
       if (!res.ok) throw new Error(await res.text())
       camStatus = '✓ Saved'
-      camName = ''; camIP = ''; camUser = ''; camPass = ''; camChannel = 1; camStream = ''
+      camName = ''; camIP = ''; camUser = ''; camPass = ''; camChannel = 1; camStream = ''; camVisionPrompt = ''
       loadConfig()
       onRefresh?.()
     } catch (e) {
@@ -188,6 +189,7 @@
     camChannel = cam.channel || 1
     camStream = cam.stream || ''
     camEnabled = cam.enabled ?? false
+    camVisionPrompt = cam.vision_prompt ?? ''
   }
 
   async function toggleCamera(cam) {
@@ -378,6 +380,18 @@
             </label>
             {/if}
           </div>
+          <label class="flex flex-col gap-1 text-xs text-muted-foreground col-span-2 mt-1">
+            Vision Prompt (optional default for Describe)
+            <textarea
+              bind:value={camVisionPrompt}
+              rows="2"
+              placeholder="Describe what you see. Focus on people, vehicles, and animals."
+              class="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm
+                     placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1
+                     focus-visible:ring-ring disabled:opacity-50 resize-none"
+            ></textarea>
+            <span class="text-[11px] opacity-60">Used when clicking Describe on this camera. Can be overridden per-session in the camera card.</span>
+          </label>
           <label class="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
             <input type="checkbox" bind:checked={camEnabled} class="h-4 w-4 cursor-pointer rounded border-input accent-primary" />
             Enabled (camera will receive speak/broadcast)
