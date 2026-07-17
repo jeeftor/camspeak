@@ -1,6 +1,6 @@
 <script>
   import { onDestroy } from 'svelte'
-  import { Eye, Bell, Play, Loader2, MessageSquare, FileAudio, X } from 'lucide-svelte'
+  import { Eye, Bell, Play, Loader2, FileAudio, X } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Card } from '$lib/components/ui/card'
@@ -25,7 +25,6 @@
   // Pre-fill from saved camera default; user can override per-session
   const savedPrompt = camera.vision_prompt ?? ''
   let visionPrompt = $state(savedPrompt)
-  let showPrompt = $state(false)
   let isDragOver = $state(false)
   let statusTimeout
 
@@ -215,19 +214,19 @@
     {isDragOver ? 'border-primary border-dashed bg-primary/5 scale-[1.01]' : 'hover:border-primary/50'}">
 
     <!-- Camera header -->
-    <div class="flex items-center justify-between">
+    <div class="flex items-center justify-between gap-2">
       <div class="flex items-center gap-2 min-w-0">
         <span class="h-2.5 w-2.5 rounded-full flex-shrink-0 {camera.online
           ? 'bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.5)]'
           : 'bg-muted-foreground/40'}"></span>
-        <span class="font-semibold truncate">{camera.name}</span>
+        <span class="font-semibold">{camera.name}</span>
         <Badge variant="secondary" class="text-xs flex-shrink-0">{camera.type}</Badge>
       </div>
       <div class="flex gap-1 flex-shrink-0">
         <Button
           variant="outline" size="icon"
           onclick={describe} disabled={busy}
-          title="Describe (vision)" aria-label="Describe"
+          title="Describe — snapshot → vision → TTS → speak" aria-label="Describe"
           class="h-8 w-8"
         >
           {#if busy && status.toLowerCase().includes('describ')}
@@ -236,44 +235,16 @@
             <Eye class="h-4 w-4" />
           {/if}
         </Button>
-        <CopyButton
-          text={buildCurl('POST', '/api/describe', { camera: camera.name, gain, ...(visionPrompt ? { prompt: visionPrompt } : {}) })}
-          label="Copy curl for describe"
-          class="h-8 w-8"
-        />
-        <Button
-          variant={showPrompt ? 'default' : 'outline'} size="icon"
-          onclick={() => showPrompt = !showPrompt}
-          title="Custom vision prompt" aria-label="Vision prompt"
-          class="h-8 w-8"
-        >
-          <MessageSquare class="h-4 w-4" />
-        </Button>
         <Button
           variant="outline" size="icon"
           onclick={beep} disabled={busy}
-          title="Test beep" aria-label="Test beep"
+          title="Test beep (800 Hz)" aria-label="Test beep"
           class="h-8 w-8"
         >
           <Bell class="h-4 w-4" />
         </Button>
-        <CopyButton
-          text={buildCurl('POST', '/api/beep', { camera: camera.name })}
-          label="Copy curl for beep"
-          class="h-8 w-8"
-        />
       </div>
     </div>
-
-    <!-- Vision prompt (collapsible) -->
-    {#if showPrompt}
-      <Input
-        bind:value={visionPrompt}
-        placeholder="Custom vision prompt — e.g. How many deer do you see?"
-        class="text-xs"
-        disabled={busy}
-      />
-    {/if}
 
     <!-- TTS row -->
     <div class="flex gap-1.5">
@@ -285,12 +256,12 @@
         class="flex-1 text-sm min-w-0"
       />
       <VoiceSelect bind:value={voice} {voices} {busy} class="w-[100px] flex-shrink-0" />
-      <Button size="sm" onclick={speak} disabled={busy || !text} aria-label="Speak" class="flex-shrink-0">
+      <Button size="sm" onclick={speak} disabled={busy || !text} aria-label="Speak" title="Send TTS to camera" class="flex-shrink-0">
         <Play class="h-4 w-4" />
       </Button>
       <CopyButton
         text={buildCurl('POST', '/api/speak', { camera: camera.name, text, voice: voice || undefined, gain })}
-        disabled={!text} label="Copy curl command"
+        disabled={!text} label="Copy curl — speak endpoint"
         class="flex-shrink-0"
       />
     </div>
@@ -308,14 +279,9 @@
             <option value={p.name}>{p.category}/{p.name}</option>
           {/each}
         </select>
-        <Button size="sm" onclick={play} disabled={busy || !preset} aria-label="Play preset" class="flex-shrink-0">
+        <Button size="sm" onclick={play} disabled={busy || !preset} aria-label="Play preset" title="Play preset on camera" class="flex-shrink-0">
           <Play class="h-4 w-4" />
         </Button>
-        <CopyButton
-          text={buildCurl('POST', '/api/play', { camera: camera.name, preset, category: presets.find(x => x.name === preset)?.category, gain })}
-          disabled={!preset} label="Copy curl command"
-          class="flex-shrink-0"
-        />
       </div>
     {/if}
 
@@ -328,14 +294,9 @@
         disabled={busy}
         class="flex-1 text-sm min-w-0"
       />
-      <Button size="sm" onclick={playUrl} disabled={busy || !url} aria-label="Play URL" class="flex-shrink-0">
+      <Button size="sm" onclick={playUrl} disabled={busy || !url} aria-label="Play URL" title="Download and play audio from URL" class="flex-shrink-0">
         <Play class="h-4 w-4" />
       </Button>
-      <CopyButton
-        text={buildCurl('POST', '/api/play-url', { camera: camera.name, url, gain })}
-        disabled={!url} label="Copy curl command"
-        class="flex-shrink-0"
-      />
     </div>
 
     <!-- Drag overlay hint -->
@@ -360,29 +321,58 @@
         <Button
           variant="outline" size="icon"
           onclick={clearSnapshot} disabled={busy}
-          title="Clear" aria-label="Clear snapshot"
+          title="Clear snapshot and description" aria-label="Clear"
           class="absolute top-2 right-2 h-7 w-7 bg-background/80 backdrop-blur"
         >
           <X class="h-4 w-4" />
         </Button>
         {#if description}
-          <div class="flex items-start gap-2 p-2 bg-muted/30">
-            <p class="text-xs text-muted-foreground flex-1">{description}</p>
-            <Button
-              variant="outline" size="icon"
-              onclick={replayDescription} disabled={busy}
-              title="Re-play description" aria-label="Re-play"
-              class="h-6 w-6 flex-shrink-0"
-            >
-              <Play class="h-3 w-3" />
-            </Button>
-            <CopyButton
-              text={buildCurl('POST', '/api/speak', { camera: camera.name, text: description, voice: voice || undefined, gain })}
-              label="Copy curl for re-play"
-              class="h-6 w-6 flex-shrink-0"
-            />
+          <div class="flex flex-col gap-2 p-2 bg-muted/30">
+            <p class="text-xs text-muted-foreground">{description}</p>
+            <div class="flex items-center gap-1.5">
+              <Button
+                variant="outline" size="icon"
+                onclick={replayDescription} disabled={busy}
+                title="Re-play description via TTS" aria-label="Re-play"
+                class="h-7 w-7 flex-shrink-0"
+              >
+                <Play class="h-3.5 w-3.5" />
+              </Button>
+              <CopyButton
+                text={buildCurl('POST', '/api/speak', { camera: camera.name, text: description, voice: voice || undefined, gain })}
+                label="Copy curl — re-play description as TTS"
+                class="h-7 w-7 flex-shrink-0"
+              />
+              <CopyButton
+                text={buildCurl('POST', '/api/describe', { camera: camera.name, gain, ...(visionPrompt ? { prompt: visionPrompt } : {}) })}
+                label="Copy curl — describe endpoint"
+                class="h-7 w-7 flex-shrink-0"
+              />
+            </div>
           </div>
         {/if}
+        <!-- Inline vision prompt with re-describe -->
+        <div class="flex gap-1.5 p-2 border-t bg-muted/20">
+          <Input
+            bind:value={visionPrompt}
+            placeholder="Custom vision prompt — re-describe with this prompt…"
+            class="flex-1 text-xs min-w-0"
+            disabled={busy}
+            onkeydown={e => e.key === 'Enter' && describe()}
+          />
+          <Button
+            variant="secondary" size="sm"
+            onclick={describe} disabled={busy}
+            title="Re-describe with this prompt" class="flex-shrink-0 text-xs"
+          >
+            {#if busy && status.toLowerCase().includes('describ')}
+              <Loader2 class="h-3.5 w-3.5 animate-spin" />
+            {:else}
+              <Eye class="h-3.5 w-3.5" />
+            {/if}
+            Re-describe
+          </Button>
+        </div>
       </div>
     {/if}
   </Card>
