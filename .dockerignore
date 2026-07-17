@@ -10,3 +10,5 @@ data/
 !.env.example
 camspeak
 /tmp/
+.DS_Store
+*.log

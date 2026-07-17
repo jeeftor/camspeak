@@ -15,7 +15,7 @@ run: ## Run the server locally
 	go run main.go serve
 
 frontend: ## Build the frontend assets
-	cd frontend && bun install && bun run build
+	cd frontend && bun install --frozen-lockfile && bun run build
 
 test: ## Run the test suite
 	gotestsum --format testdox ./...

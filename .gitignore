@@ -10,3 +10,5 @@ frontend/node_modules/
 .env.*
 !.env.example
 frontend/.svelte-kit
+.DS_Store
+*.log

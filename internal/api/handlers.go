@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"slices"
 	"sync"
@@ -134,6 +135,12 @@ func (h *Handlers) PlayURL(c echo.Context) error {
 	}
 
 	// Download to temp file
+	// Validate URL scheme to prevent SSRF (only http/https allowed)
+	parsedURL, err := neturl.Parse(req.URL)
+	if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
+		return echo.NewHTTPError(http.StatusBadRequest, "url must be http or https")
+	}
+
 	resp, err := http.Get(req.URL)
 	if err != nil {
 		h.log.Error("play-url: download failed", "camera", req.Camera, "url", req.URL, "err", err)
@@ -150,13 +157,16 @@ func (h *Handlers) PlayURL(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	defer os.Remove(tmp.Name())
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
 
 	if _, err := io.Copy(tmp, resp.Body); err != nil {
 		tmp.Close()
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("saving download: %s", err))
 	}
-	tmp.Close()
+	if err := tmp.Close(); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("closing temp file: %s", err))
+	}
 
 	// Transcode to raw
 	raw, err := os.CreateTemp(h.tmpDir, "camspeak_url_*.raw")
@@ -166,7 +176,7 @@ func (h *Handlers) PlayURL(c echo.Context) error {
 	rawName := raw.Name()
 	raw.Close()
 
-	if err := transcodeFileToRawGain(tmp.Name(), rawName, req.Gain); err != nil {
+	if err := transcodeFileToRawGain(tmpName, rawName, req.Gain); err != nil {
 		os.Remove(rawName)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}

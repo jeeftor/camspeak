@@ -1,4 +1,5 @@
 <script>
+  import { onMount, onDestroy } from 'svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Card } from '$lib/components/ui/card'
@@ -15,6 +16,10 @@
   let status = $state('')
   let snapshot = $state('')
   let description = $state('')
+
+  onDestroy(() => {
+    if (snapshot) URL.revokeObjectURL(snapshot)
+  })
 
   async function post(path, body) {
     const res = await fetch(path, {
@@ -86,6 +91,7 @@
 
   async function describe() {
     busy = true; status = '👁 fetching snapshot…'
+    if (snapshot) URL.revokeObjectURL(snapshot)
     snapshot = ''; description = ''
     try {
       // Fetch snapshot from Frigate directly for instant display

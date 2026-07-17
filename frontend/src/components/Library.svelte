@@ -1,4 +1,5 @@
 <script>
+  import { onDestroy } from 'svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Select } from '$lib/components/ui/select'
@@ -14,7 +15,13 @@
   let genBusy = $state(false)
   let genStatus = $state('')
   let genAudio = $state(null)      // holds the generated WAV blob URL
+  let genAudioEl = $state(null)    // HTML5 Audio element
   let genPlaying = $state(false)
+
+  onDestroy(() => {
+    if (genAudio) URL.revokeObjectURL(genAudio)
+    if (genAudioEl) { genAudioEl.pause(); genAudioEl = null }
+  })
 
   let uploadName = $state('')
   let uploadCategory = $state('uploads')
