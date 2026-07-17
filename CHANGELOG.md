@@ -5,6 +5,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v1.10.2] — 2026-07-17
+
+### Fixed
+- **Camera name truncation** — removed `truncate` class so the full name displays
+- **Copy button cleanup** — removed copy-curl from beep, preset, and play-url actions; kept only on TTS row and description area
+- **Vision prompt moved inline** — the custom prompt input now appears in the snapshot/description area with a "Re-describe" button, instead of a header toggle
+- **Tooltips** — all buttons now have descriptive `title` attributes
+
+---
+
 ## [v1.10.1] — 2026-07-17
 
 ### Fixed
