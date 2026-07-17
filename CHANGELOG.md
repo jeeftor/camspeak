@@ -5,6 +5,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v1.10.3] — 2026-07-17
+
+### Added
+- **Hover preview on curl copy buttons** — mouse over any curl copy button (desktop only) to see a tooltip with the full curl command, syntax-highlighted and word-wrapped. On mobile/touch, no tooltip — just normal copy behavior.
+- **CurlCode syntax highlighter** — colors `curl` keyword, flags (`-X`, `-H`, `-d`), HTTP methods, URLs, JSON keys/values, and line continuations. Theme-aware.
+
+---
+
 ## [v1.10.2] — 2026-07-17
 
 ### Fixed
