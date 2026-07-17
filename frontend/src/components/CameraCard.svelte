@@ -13,6 +13,8 @@
   let gain = $state(3.0)
   let busy = $state(false)
   let status = $state('')
+  let snapshot = $state('')
+  let description = $state('')
 
   async function post(path, body) {
     const res = await fetch(path, {
@@ -84,6 +86,7 @@
 
   async function describe() {
     busy = true; status = '👁 analyzing…'
+    snapshot = ''; description = ''
     try {
       const res = await fetch('/api/describe', {
         method: 'POST',
@@ -92,12 +95,14 @@
       })
       if (!res.ok) throw new Error(await res.text())
       const data = await res.json()
-      status = '👁 ' + (data.description || '').slice(0, 60)
+      snapshot = data.image || ''
+      description = data.description || ''
+      status = '✓ described'
     } catch (e) {
       status = '✗ ' + e.message
     } finally {
       busy = false
-      setTimeout(() => (status = ''), 8000)
+      setTimeout(() => (status = ''), 3000)
     }
   }
 </script>
@@ -162,4 +167,13 @@
   </div>
 
   {#if status}<div class="text-sm text-primary">{status}</div>{/if}
+
+  {#if snapshot}
+    <div class="rounded-lg border border-primary/30 overflow-hidden">
+      <img src={snapshot} alt="Camera snapshot" class="w-full" />
+      {#if description}
+        <p class="p-2 text-xs text-muted-foreground bg-muted/30">{description}</p>
+      {/if}
+    </div>
+  {/if}
 </Card>

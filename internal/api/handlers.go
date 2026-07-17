@@ -2,6 +2,7 @@ package api
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -309,7 +310,12 @@ func (h *Handlers) Describe(c echo.Context) error {
 	h.log.Info("describe: done", "camera", req.Camera, "elapsed", time.Since(start))
 	h.events.publish(event{Camera: req.Camera, Action: "describe", Text: description, At: time.Now()})
 
-	return c.JSON(http.StatusOK, map[string]string{"status": "ok", "description": description})
+	snapB64 := base64.StdEncoding.EncodeToString(imageBytes)
+	return c.JSON(http.StatusOK, map[string]string{
+		"status":      "ok",
+		"description": description,
+		"image":       "data:image/jpeg;base64," + snapB64,
+	})
 }
 
 // Broadcast handles POST /api/broadcast — TTS or preset → all cameras in parallel.
