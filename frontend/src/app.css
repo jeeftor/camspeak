@@ -44,6 +44,13 @@
   --input: 240 5.9% 90%;
   --ring: 262 83% 58%;
   --radius: 0.5rem;
+  /* Syntax highlighting (light) */
+  --syntax-key: 262 83% 45%;
+  --syntax-string: 142 55% 32%;
+  --syntax-number: 32 85% 42%;
+  --syntax-boolean: 280 60% 45%;
+  --syntax-comment: 240 3.8% 46.1%;
+  --syntax-punctuation: 240 3.8% 46.1%;
 }
 
 .dark {
@@ -64,6 +71,13 @@
   --border: 240 3.7% 15.9%;
   --input: 240 3.7% 15.9%;
   --ring: 262 83% 58%;
+  /* Syntax highlighting (dark) */
+  --syntax-key: 262 83% 72%;
+  --syntax-string: 142 55% 62%;
+  --syntax-number: 32 85% 62%;
+  --syntax-boolean: 280 60% 72%;
+  --syntax-comment: 240 5% 64.9%;
+  --syntax-punctuation: 240 5% 64.9%;
 }
 
 @layer base {
