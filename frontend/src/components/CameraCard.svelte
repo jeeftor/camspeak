@@ -37,8 +37,10 @@
   function setStatus(msg, type = 'ok') {
     status = msg
     statusType = type
-    clearTimeout(statusTimeout)
-    statusTimeout = setTimeout(() => (status = ''), 4000)
+    if (!busy) {
+      clearTimeout(statusTimeout)
+      statusTimeout = setTimeout(() => (status = ''), 4000)
+    }
   }
 
   async function speak() {
@@ -100,26 +102,30 @@
     if (snapshot) URL.revokeObjectURL(snapshot)
     snapshot = ''; description = ''
     try {
+      // Step 1: Capture snapshot
+      setStatus('Capturing screenshot…')
       const snapRes = await fetch(`/api/snapshot/${camera.name}`)
       if (!snapRes.ok) throw new Error('snapshot fetch failed')
       const snapBlob = await snapRes.blob()
       snapshot = URL.createObjectURL(snapBlob)
-      setStatus('analyzing…')
 
-      const res = await fetch('/api/describe', {
+      // Step 2: Load vision model + process
+      setStatus('Loading vision model…')
+      const res = await fetch('/api/vision', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ camera: camera.name, gain }),
+        body: JSON.stringify({ camera: camera.name }),
       })
       if (!res.ok) throw new Error(await res.text())
+      setStatus('Processing vision…')
       const data = await res.json()
       description = data.description || ''
       text = description
-      setStatus('✓ described — loaded for replay')
     } catch (e) {
       setStatus('✗ ' + e.message, 'err')
     } finally {
       busy = false
+      if (description) setStatus('✓ described — loaded for replay')
     }
   }
 </script>

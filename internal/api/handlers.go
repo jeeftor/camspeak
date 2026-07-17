@@ -262,6 +262,56 @@ func (h *Handlers) Snapshot(c echo.Context) error {
 	return c.Stream(http.StatusOK, "image/jpeg", resp.Body)
 }
 
+// Vision handles POST /api/vision — Frigate snapshot → vision model → returns description only.
+// No TTS, no camera send. Useful for cameras without speakers.
+func (h *Handlers) Vision(c echo.Context) error {
+	var req struct {
+		Camera string `json:"camera"`
+		Prompt string `json:"prompt"`
+	}
+	if err := c.Bind(&req); err != nil || req.Camera == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "camera required")
+	}
+	if h.cfg.FrigateURL == "" {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "frigate URL not configured")
+	}
+	if h.vision == nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "vision model not configured")
+	}
+
+	// Fetch snapshot from Frigate
+	snapURL := fmt.Sprintf("%s/api/%s/latest.jpg", h.cfg.FrigateURL, req.Camera)
+	snapReq, err := http.NewRequestWithContext(c.Request().Context(), http.MethodGet, snapURL, nil)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	snapResp, err := (&http.Client{Timeout: 30 * time.Second}).Do(snapReq)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("frigate snapshot: %s", err))
+	}
+	defer snapResp.Body.Close()
+	if snapResp.StatusCode != 200 {
+		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("frigate returned HTTP %d", snapResp.StatusCode))
+	}
+
+	imageBytes, err := io.ReadAll(snapResp.Body)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("reading snapshot: %s", err))
+	}
+
+	// Send to vision model
+	description, err := h.vision.Describe(imageBytes, "image/jpeg", req.Prompt)
+	if err != nil {
+		h.log.Error("vision: failed", "camera", req.Camera, "err", err)
+		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("vision: %s", err))
+	}
+
+	h.log.Info("vision: done", "camera", req.Camera, "text", description)
+	h.events.publish(event{Camera: req.Camera, Action: "describe", Text: description, At: time.Now()})
+
+	return c.JSON(http.StatusOK, map[string]string{"description": description})
+}
+
 // Describe handles POST /api/describe — Frigate snapshot → vision model → TTS → camera.
 func (h *Handlers) Describe(c echo.Context) error {
 	var req struct {
