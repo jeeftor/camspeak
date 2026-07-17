@@ -2,6 +2,7 @@ package api
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -220,6 +221,32 @@ func (h *Handlers) Beep(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// Snapshot handles GET /api/snapshot/:camera — proxies Frigate snapshot as JPEG.
+func (h *Handlers) Snapshot(c echo.Context) error {
+	camera := c.Param("camera")
+	if camera == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "camera required")
+	}
+	if h.cfg.FrigateURL == "" {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "frigate URL not configured")
+	}
+
+	snapURL := fmt.Sprintf("%s/api/%s/latest.jpg", h.cfg.FrigateURL, camera)
+	resp, err := http.Get(snapURL)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("frigate returned HTTP %d", resp.StatusCode))
+	}
+
+	c.Response().Header().Set("Content-Type", "image/jpeg")
+	c.Response().Header().Set("Cache-Control", "no-cache")
+	return c.Stream(http.StatusOK, "image/jpeg", resp.Body)
+}
+
 // Describe handles POST /api/describe — Frigate snapshot → vision model → TTS → camera.
 func (h *Handlers) Describe(c echo.Context) error {
 	var req struct {
@@ -309,7 +336,12 @@ func (h *Handlers) Describe(c echo.Context) error {
 	h.log.Info("describe: done", "camera", req.Camera, "elapsed", time.Since(start))
 	h.events.publish(event{Camera: req.Camera, Action: "describe", Text: description, At: time.Now()})
 
-	return c.JSON(http.StatusOK, map[string]string{"status": "ok", "description": description})
+	snapB64 := base64.StdEncoding.EncodeToString(imageBytes)
+	return c.JSON(http.StatusOK, map[string]string{
+		"status":      "ok",
+		"description": description,
+		"image":       "data:image/jpeg;base64," + snapB64,
+	})
 }
 
 // Broadcast handles POST /api/broadcast — TTS or preset → all cameras in parallel.
