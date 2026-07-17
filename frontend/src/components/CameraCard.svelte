@@ -85,9 +85,17 @@
   }
 
   async function describe() {
-    busy = true; status = '👁 analyzing…'
+    busy = true; status = '👁 fetching snapshot…'
     snapshot = ''; description = ''
     try {
+      // Fetch snapshot from Frigate directly for instant display
+      const snapRes = await fetch(`/api/snapshot/${camera.name}`)
+      if (!snapRes.ok) throw new Error('snapshot fetch failed')
+      const snapBlob = await snapRes.blob()
+      snapshot = URL.createObjectURL(snapBlob)
+      status = '👁 analyzing…'
+
+      // Now run the full describe pipeline (vision → TTS → camera)
       const res = await fetch('/api/describe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -95,9 +103,9 @@
       })
       if (!res.ok) throw new Error(await res.text())
       const data = await res.json()
-      snapshot = data.image || ''
       description = data.description || ''
-      status = '✓ described'
+      text = description  // load into TTS box for replay
+      status = '✓ described — text loaded for replay'
     } catch (e) {
       status = '✗ ' + e.message
     } finally {
