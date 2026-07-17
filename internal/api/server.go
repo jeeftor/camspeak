@@ -88,9 +88,9 @@ func New(
 	e.Use(middleware.Recover())
 	e.Use(rateLimitMiddleware)
 	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
-		LogStatus: true,
-		LogMethod: true,
-		LogURI:    true,
+		LogStatus:  true,
+		LogMethod:  true,
+		LogURI:     true,
 		LogLatency: true,
 		Skipper: func(c echo.Context) bool {
 			// Skip health checks and SSE streams
@@ -149,6 +149,8 @@ func New(
 
 	// Config routes
 	api.GET("/config", h.GetConfig)
+	api.GET("/config/vision", h.GetVisionConfig)
+	api.PUT("/config/vision", h.UpdateVisionConfig)
 	api.GET("/config/tts", h.ListTTSPresets)
 	api.POST("/config/tts", h.CreateTTSPreset)
 	api.PUT("/config/tts/:name", h.UpdateTTSPreset)

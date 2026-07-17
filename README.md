@@ -123,6 +123,10 @@ A `.env` file (gitignored) is loaded by godotenv at startup for local dev. Copy
 | `CAMSPEAK_MQTT_BROKER` | MQTT broker URL (empty disables MQTT) | (none) |
 | `CAMSPEAK_MQTT_USER` | MQTT username | (none) |
 | `CAMSPEAK_MQTT_PASS` | MQTT password | (none) |
+| `CAMSPEAK_VISION_URL` | Vision LLM endpoint (OpenAI-compatible chat completions) | (none) |
+| `CAMSPEAK_VISION_MODEL` | Vision model name | (none) |
+| `CAMSPEAK_VISION_API_KEY` | Vision API key (cloud providers only) | (none) |
+| `CAMSPEAK_VISION_PROMPT` | Global default vision prompt (fallback for Describe/Vision) | (hardcoded default) |
 | `CAM_<NAME>_IP` | Override IP for a discovered camera | (from DB) |
 | `CAM_<NAME>_USER` | Override username for a discovered camera | (from DB) |
 | `CAM_<NAME>_PASS` | Override password for a discovered camera | (from DB) |
@@ -225,6 +229,8 @@ All routes are under `/api`. The server listens on port `8585` by default.
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/api/config` | Current runtime configuration |
+| `GET` | `/api/config/vision` | Get vision endpoint config (URL, model, API key, default prompt) |
+| `PUT` | `/api/config/vision` | Update vision endpoint config |
 | `GET` | `/api/config/tts` | List all TTS presets |
 | `POST` | `/api/config/tts` | Create a TTS preset |
 | `PUT` | `/api/config/tts/:name` | Update a TTS preset |

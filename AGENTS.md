@@ -53,6 +53,10 @@ Multiple TTS endpoints can be configured (klipbord-style presets). The active pr
 | `CAMSPEAK_TTS_VOICE` | Default TTS voice | (from active preset) |
 | `CAMSPEAK_MQTT_BROKER` | MQTT broker URL | (none — MQTT disabled) |
 | `CAMSPEAK_MQTT_USER` / `CAMSPEAK_MQTT_PASS` | MQTT credentials | (none) |
+| `CAMSPEAK_VISION_URL` | Vision LLM endpoint (OpenAI-compatible) | (none) |
+| `CAMSPEAK_VISION_MODEL` | Vision model name | (none) |
+| `CAMSPEAK_VISION_API_KEY` | Vision API key | (none) |
+| `CAMSPEAK_VISION_PROMPT` | Global default vision prompt | (hardcoded default) |
 | `CAM_<NAME>_IP` / `CAM_<NAME>_USER` / `CAM_<NAME>_PASS` | Per-camera credential overrides | (from DB) |
 
 ### .env file
@@ -89,6 +93,7 @@ Copy `.env.example` to `.env` for local dev. Loaded by godotenv at startup. Giti
 
 ### REST API
 - `GET /api/config` — current runtime config
+- `GET/PUT /api/config/vision` — vision endpoint config (URL, model, API key, default prompt)
 - `GET/POST /api/config/tts` — list/create TTS presets
 - `PUT/DELETE /api/config/tts/:name` — update/delete TTS preset
 - `POST /api/config/tts/:name/activate` — set active TTS preset

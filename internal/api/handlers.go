@@ -25,20 +25,20 @@ import (
 
 // Handlers holds all route handler dependencies.
 type Handlers struct {
-	cfg          *config.Config
-	cfgMu        sync.Mutex
-	reg          *cameras.Registry
-	store        *library.Store
-	tts          *tts.Client
-	vision       *vision.Client
-	events       *eventBus
+	cfg             *config.Config
+	cfgMu           sync.Mutex
+	reg             *cameras.Registry
+	store           *library.Store
+	tts             *tts.Client
+	vision          *vision.Client
+	events          *eventBus
 	mqttMsgBus      *mqttMsgBus
 	mqttBroker      string
 	mqttStatusFn    func() string
 	mqttSubscribeFn func(string) error
-	db           *sql.DB
-	tmpDir       string
-	log          *clog.Logger
+	db              *sql.DB
+	tmpDir          string
+	log             *clog.Logger
 }
 
 // speakReq is the body for POST /api/speak.
@@ -82,7 +82,17 @@ func (h *Handlers) Speak(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "camera and text required")
 	}
 
-	h.log.Info("speak: request", "camera", req.Camera, "text_len", len(req.Text), "voice", req.Voice, "gain", req.Gain)
+	h.log.Info(
+		"speak: request",
+		"camera",
+		req.Camera,
+		"text_len",
+		len(req.Text),
+		"voice",
+		req.Voice,
+		"gain",
+		req.Gain,
+	)
 	start := time.Now()
 
 	err = h.speakText(req.Camera, req.Text, req.Voice, req.Gain)
@@ -103,12 +113,32 @@ func (h *Handlers) Play(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "camera and preset required")
 	}
 
-	h.log.Info("play: request", "camera", req.Camera, "preset", req.Preset, "category", req.Category, "gain", req.Gain)
+	h.log.Info(
+		"play: request",
+		"camera",
+		req.Camera,
+		"preset",
+		req.Preset,
+		"category",
+		req.Category,
+		"gain",
+		req.Gain,
+	)
 	start := time.Now()
 
 	err = h.playPreset(req.Camera, req.Category, req.Preset, req.Gain)
 	if err != nil {
-		h.log.Error("play: failed", "camera", req.Camera, "preset", req.Preset, "elapsed", time.Since(start), "err", err)
+		h.log.Error(
+			"play: failed",
+			"camera",
+			req.Camera,
+			"preset",
+			req.Preset,
+			"elapsed",
+			time.Since(start),
+			"err",
+			err,
+		)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
@@ -154,8 +184,19 @@ func (h *Handlers) PlayURL(c echo.Context) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		h.log.Error("play-url: download bad status", "camera", req.Camera, "url", req.URL, "status", resp.StatusCode)
-		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("download returned HTTP %d", resp.StatusCode))
+		h.log.Error(
+			"play-url: download bad status",
+			"camera",
+			req.Camera,
+			"url",
+			req.URL,
+			"status",
+			resp.StatusCode,
+		)
+		return echo.NewHTTPError(
+			http.StatusBadGateway,
+			fmt.Sprintf("download returned HTTP %d", resp.StatusCode),
+		)
 	}
 
 	tmp, err := os.CreateTemp(h.tmpDir, "camspeak_url_*")
@@ -167,10 +208,16 @@ func (h *Handlers) PlayURL(c echo.Context) error {
 
 	if _, err := io.Copy(tmp, resp.Body); err != nil {
 		tmp.Close()
-		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("saving download: %s", err))
+		return echo.NewHTTPError(
+			http.StatusInternalServerError,
+			fmt.Sprintf("saving download: %s", err),
+		)
 	}
 	if err := tmp.Close(); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("closing temp file: %s", err))
+		return echo.NewHTTPError(
+			http.StatusInternalServerError,
+			fmt.Sprintf("closing temp file: %s", err),
+		)
 	}
 
 	// Transcode to raw
@@ -190,7 +237,15 @@ func (h *Handlers) PlayURL(c echo.Context) error {
 
 	h.log.Debug("play-url: sending to camera", "camera", req.Camera, "url", req.URL)
 	if err := cam.SendRaw(rawName); err != nil {
-		h.log.Error("play-url: send failed", "camera", req.Camera, "elapsed", time.Since(start), "err", err)
+		h.log.Error(
+			"play-url: send failed",
+			"camera",
+			req.Camera,
+			"elapsed",
+			time.Since(start),
+			"err",
+			err,
+		)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
@@ -260,7 +315,10 @@ func (h *Handlers) Snapshot(c echo.Context) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("frigate returned HTTP %d", resp.StatusCode))
+		return echo.NewHTTPError(
+			http.StatusBadGateway,
+			fmt.Sprintf("frigate returned HTTP %d", resp.StatusCode),
+		)
 	}
 
 	c.Response().Header().Set("Content-Type", "image/jpeg")
@@ -268,7 +326,20 @@ func (h *Handlers) Snapshot(c echo.Context) error {
 	return c.Stream(http.StatusOK, "image/jpeg", resp.Body)
 }
 
-// Vision handles POST /api/vision — Frigate snapshot → vision model → returns description only.
+// resolveVisionPrompt picks the first non-empty prompt from the chain:
+// request → camera's vision_prompt → global VisionConfig.Prompt.
+// If all are empty, returns "" so the vision client uses its hardcoded default.
+func resolveVisionPrompt(reqPrompt string, camOk bool, camPrompt, globalPrompt string) string {
+	if reqPrompt != "" {
+		return reqPrompt
+	}
+	if camOk && camPrompt != "" {
+		return camPrompt
+	}
+	return globalPrompt
+}
+
+// Vision handles POST /api/vision — Frigate snapshot → vision model → description.
 // No TTS, no camera send. Useful for cameras without speakers.
 func (h *Handlers) Vision(c echo.Context) error {
 	var req struct {
@@ -278,15 +349,21 @@ func (h *Handlers) Vision(c echo.Context) error {
 	if err := c.Bind(&req); err != nil || req.Camera == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "camera required")
 	}
-	if h.cfg.FrigateURL == "" {
+	h.cfgMu.Lock()
+	frigateURL := h.cfg.FrigateURL
+	globalPrompt := h.cfg.Vision.Prompt
+	cam, camOk := h.cfg.Cameras[req.Camera]
+	visionClient := h.vision
+	h.cfgMu.Unlock()
+
+	if frigateURL == "" {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "frigate URL not configured")
 	}
-	if h.vision == nil {
+	if visionClient == nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "vision model not configured")
 	}
 
-	// Fetch snapshot from Frigate
-	snapURL := fmt.Sprintf("%s/api/%s/latest.jpg?h=720", h.cfg.FrigateURL, req.Camera)
+	snapURL := fmt.Sprintf("%s/api/%s/latest.jpg?h=720", frigateURL, req.Camera)
 	snapReq, err := http.NewRequestWithContext(c.Request().Context(), http.MethodGet, snapURL, nil)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -297,16 +374,22 @@ func (h *Handlers) Vision(c echo.Context) error {
 	}
 	defer snapResp.Body.Close()
 	if snapResp.StatusCode != 200 {
-		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("frigate returned HTTP %d", snapResp.StatusCode))
+		return echo.NewHTTPError(
+			http.StatusBadGateway,
+			fmt.Sprintf("frigate returned HTTP %d", snapResp.StatusCode),
+		)
 	}
 
 	imageBytes, err := io.ReadAll(snapResp.Body)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("reading snapshot: %s", err))
+		return echo.NewHTTPError(
+			http.StatusInternalServerError,
+			fmt.Sprintf("reading snapshot: %s", err),
+		)
 	}
 
-	// Send to vision model
-	description, err := h.vision.Describe(imageBytes, "image/jpeg", req.Prompt)
+	prompt := resolveVisionPrompt(req.Prompt, camOk, cam.VisionPrompt, globalPrompt)
+	description, err := visionClient.Describe(imageBytes, "image/jpeg", prompt)
 	if err != nil {
 		h.log.Error("vision: failed", "camera", req.Camera, "err", err)
 		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("vision: %s", err))
@@ -329,11 +412,18 @@ func (h *Handlers) Describe(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "camera required")
 	}
 
-	if h.cfg.FrigateURL == "" {
+	h.cfgMu.Lock()
+	frigateURL := h.cfg.FrigateURL
+	globalPrompt := h.cfg.Vision.Prompt
+	camCfg, camOk := h.cfg.Cameras[req.Camera]
+	visionClient := h.vision
+	defaultVoice := h.cfg.TTS.DefaultVoice
+	h.cfgMu.Unlock()
+
+	if frigateURL == "" {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "frigate URL not configured")
 	}
-
-	if h.vision == nil {
+	if visionClient == nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "vision model not configured")
 	}
 
@@ -341,7 +431,7 @@ func (h *Handlers) Describe(c echo.Context) error {
 	h.log.Info("describe: request", "camera", req.Camera)
 
 	// 1. Fetch snapshot from Frigate
-	snapURL := fmt.Sprintf("%s/api/%s/latest.jpg?h=720", h.cfg.FrigateURL, req.Camera)
+	snapURL := fmt.Sprintf("%s/api/%s/latest.jpg?h=720", frigateURL, req.Camera)
 	snapStart := time.Now()
 	snapReq, err := http.NewRequestWithContext(c.Request().Context(), http.MethodGet, snapURL, nil)
 	if err != nil {
@@ -356,34 +446,71 @@ func (h *Handlers) Describe(c echo.Context) error {
 	defer snapResp.Body.Close()
 
 	if snapResp.StatusCode != 200 {
-		h.log.Error("describe: snapshot bad status", "camera", req.Camera, "status", snapResp.StatusCode)
-		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("frigate returned HTTP %d", snapResp.StatusCode))
+		h.log.Error(
+			"describe: snapshot bad status",
+			"camera",
+			req.Camera,
+			"status",
+			snapResp.StatusCode,
+		)
+		return echo.NewHTTPError(
+			http.StatusBadGateway,
+			fmt.Sprintf("frigate returned HTTP %d", snapResp.StatusCode),
+		)
 	}
 
 	imageBytes, err := io.ReadAll(snapResp.Body)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("reading snapshot: %s", err))
+		return echo.NewHTTPError(
+			http.StatusInternalServerError,
+			fmt.Sprintf("reading snapshot: %s", err),
+		)
 	}
-	h.log.Debug("describe: snapshot fetched", "camera", req.Camera, "bytes", len(imageBytes), "elapsed", time.Since(snapStart))
+	h.log.Debug(
+		"describe: snapshot fetched",
+		"camera",
+		req.Camera,
+		"bytes",
+		len(imageBytes),
+		"elapsed",
+		time.Since(snapStart),
+	)
 
-	// 2. Send to vision model
+	// 2. Send to vision model (resolve prompt: request → camera → global → default)
+	prompt := resolveVisionPrompt(req.Prompt, camOk, camCfg.VisionPrompt, globalPrompt)
 	visionStart := time.Now()
-	description, err := h.vision.Describe(imageBytes, "image/jpeg", req.Prompt)
+	description, err := visionClient.Describe(imageBytes, "image/jpeg", prompt)
 	if err != nil {
 		h.log.Error("describe: vision failed", "camera", req.Camera, "err", err)
 		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("vision: %s", err))
 	}
-	h.log.Info("describe: vision result", "camera", req.Camera, "text", description, "elapsed", time.Since(visionStart))
+	h.log.Info(
+		"describe: vision result",
+		"camera",
+		req.Camera,
+		"text",
+		description,
+		"elapsed",
+		time.Since(visionStart),
+	)
 
 	// 3. TTS
-	voice := h.cfg.TTS.DefaultVoice
+	voice := defaultVoice
 	ttsStart := time.Now()
 	wav, err := h.tts.Speak(description, voice)
 	if err != nil {
 		h.log.Error("describe: TTS failed", "camera", req.Camera, "err", err)
 		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("TTS: %s", err))
 	}
-	h.log.Debug("describe: TTS generated", "camera", req.Camera, "wav_bytes", len(wav), "elapsed", time.Since(ttsStart))
+	h.log.Debug(
+		"describe: TTS generated",
+		"camera",
+		req.Camera,
+		"wav_bytes",
+		len(wav),
+		"elapsed",
+		time.Since(ttsStart),
+	)
 
 	// 4. Transcode + send to camera
 	gain := req.Gain
@@ -407,7 +534,13 @@ func (h *Handlers) Describe(c echo.Context) error {
 		h.log.Error("describe: send failed", "camera", req.Camera, "err", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	h.log.Debug("describe: camera send complete", "camera", req.Camera, "elapsed", time.Since(sendStart))
+	h.log.Debug(
+		"describe: camera send complete",
+		"camera",
+		req.Camera,
+		"elapsed",
+		time.Since(sendStart),
+	)
 
 	h.log.Info("describe: done", "camera", req.Camera, "elapsed", time.Since(start))
 	h.events.publish(event{Camera: req.Camera, Action: "describe", Text: description, At: time.Now()})
@@ -465,7 +598,15 @@ func (h *Handlers) Broadcast(c echo.Context) error {
 			defer mu.Unlock()
 
 			if err != nil {
-				h.log.Error("broadcast: camera failed", "camera", cam, "elapsed", time.Since(camStart), "err", err)
+				h.log.Error(
+					"broadcast: camera failed",
+					"camera",
+					cam,
+					"elapsed",
+					time.Since(camStart),
+					"err",
+					err,
+				)
 				errs = append(errs, fmt.Sprintf("%s: %s", cam, err))
 			} else {
 				h.log.Info("broadcast: camera done", "camera", cam, "elapsed", time.Since(camStart))
@@ -476,7 +617,15 @@ func (h *Handlers) Broadcast(c echo.Context) error {
 
 	wg.Wait()
 
-	h.log.Info("broadcast: complete", "succeeded", len(succeeded), "failed", len(errs), "elapsed", time.Since(start))
+	h.log.Info(
+		"broadcast: complete",
+		"succeeded",
+		len(succeeded),
+		"failed",
+		len(errs),
+		"elapsed",
+		time.Since(start),
+	)
 
 	if len(errs) > 0 {
 		return c.JSON(http.StatusMultiStatus, map[string]any{
@@ -731,7 +880,17 @@ func (h *Handlers) speakText(cameraName, text, voice string, gain float64) error
 	if err != nil {
 		return fmt.Errorf("TTS: %w", err)
 	}
-	h.log.Debug("speak: TTS generated", "camera", cameraName, "voice", voice, "wav_bytes", len(wav), "elapsed", time.Since(ttsStart))
+	h.log.Debug(
+		"speak: TTS generated",
+		"camera",
+		cameraName,
+		"voice",
+		voice,
+		"wav_bytes",
+		len(wav),
+		"elapsed",
+		time.Since(ttsStart),
+	)
 
 	rawPath, err := wavBytesToRaw(wav, h.tmpDir, gain)
 	if err != nil {
@@ -782,7 +941,17 @@ func (h *Handlers) playPreset(cameraName, category, presetName string, gain floa
 		}
 	}
 
-	h.log.Debug("play: sending preset", "camera", cameraName, "preset", preset.Name, "raw_bytes", preset.Size, "gain", gain)
+	h.log.Debug(
+		"play: sending preset",
+		"camera",
+		cameraName,
+		"preset",
+		preset.Name,
+		"raw_bytes",
+		preset.Size,
+		"gain",
+		gain,
+	)
 	sendStart := time.Now()
 	if err := cam.SendRaw(sendPath); err != nil {
 		return fmt.Errorf("sending to camera: %w", err)

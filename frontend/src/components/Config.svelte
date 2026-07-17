@@ -37,6 +37,13 @@
   let camVisionPrompt = $state('')
   let camStatus = $state('')
 
+  // Vision form
+  let visionURL = $state('')
+  let visionModel = $state('')
+  let visionAPIKey = $state('')
+  let visionPrompt = $state('')
+  let visionStatus = $state('')
+
   // Test status
   let testStatus = $state({})
   let configError = $state('')
@@ -44,11 +51,12 @@
   async function loadConfig() {
     loading = true
     try {
-      const [cfgRes, ttsRes, camRes, voiceRes] = await Promise.all([
+      const [cfgRes, ttsRes, camRes, voiceRes, visionRes] = await Promise.all([
         fetch('/api/config'),
         fetch('/api/config/tts'),
         fetch('/api/config/cameras'),
         fetch('/api/voices'),
+        fetch('/api/config/vision'),
       ])
       config = await cfgRes.json()
       const ttsData = await ttsRes.json()
@@ -56,6 +64,11 @@
       activeTTS = ttsData.active?.url ?? ''
       cameras = await camRes.json() ?? []
       voices = await voiceRes.json() ?? []
+      const v = await visionRes.json()
+      visionURL = v.url ?? ''
+      visionModel = v.model ?? ''
+      visionAPIKey = v.api_key ?? ''
+      visionPrompt = v.prompt ?? ''
     } catch (e) {
       console.error('loadConfig error:', e)
     } finally {
@@ -213,9 +226,34 @@
     ttsDesc = p.description
   }
 
+  // --- Vision ---
+  async function saveVision() {
+    visionStatus = ''
+    try {
+      const res = await fetch('/api/config/vision', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: visionURL,
+          model: visionModel,
+          api_key: visionAPIKey,
+          prompt: visionPrompt,
+        }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      visionStatus = '✓ Saved'
+      loadConfig()
+    } catch (e) {
+      visionStatus = '✗ ' + e.message
+    } finally {
+      setTimeout(() => visionStatus = '', 4000)
+    }
+  }
+
   const configTabs = [
     { id: 'tts', label: 'TTS Presets' },
     { id: 'cameras', label: 'Cameras' },
+    { id: 'vision', label: 'Vision' },
     { id: 'overview', label: 'Overview' },
   ]
 </script>
@@ -401,6 +439,49 @@
           </Button>
           {#if camStatus}<span class="ml-2 text-sm text-primary">{camStatus}</span>{/if}
         </details>
+      </section>
+
+    <!-- Vision -->
+    {:else if tab === 'vision'}
+      <section class="rounded-lg border bg-card p-5">
+        <h3 class="mb-1 text-base font-semibold text-primary">Vision Model</h3>
+        <p class="mb-4 text-sm text-muted-foreground">
+          OpenAI-compatible vision endpoint for the Describe and Vision endpoints.
+          The default prompt is used when neither the request nor the camera specifies one.
+        </p>
+        <div class="grid grid-cols-2 gap-2.5 max-sm:grid-cols-1">
+          <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+            Endpoint URL
+            <Input bind:value={visionURL} placeholder="http://192.168.1.91:8080/v1/chat/completions" />
+          </label>
+          <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+            Model
+            <Input bind:value={visionModel} placeholder="llama3.2-vision" />
+          </label>
+          <label class="flex flex-col gap-1 text-xs text-muted-foreground col-span-2">
+            API Key (optional)
+            <Input bind:value={visionAPIKey} type="password" placeholder="sk-..." />
+          </label>
+        </div>
+        <label class="flex flex-col gap-1 text-xs text-muted-foreground col-span-2 mt-3">
+          Default Vision Prompt
+          <textarea
+            bind:value={visionPrompt}
+            rows="3"
+            placeholder="Describe what you see in one or two sentences. Be concise and factual."
+            class="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm
+                   placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1
+                   focus-visible:ring-ring disabled:opacity-50 resize-none"
+          ></textarea>
+          <span class="text-[11px] opacity-60">
+            Fallback chain: request prompt → camera's vision_prompt → this global default → hardcoded default.
+            Leave empty to use the hardcoded default.
+          </span>
+        </label>
+        <Button onclick={saveVision} class="mt-3">
+          Save Vision Config
+        </Button>
+        {#if visionStatus}<span class="ml-2 text-sm text-primary">{visionStatus}</span>{/if}
       </section>
 
     <!-- Overview -->
