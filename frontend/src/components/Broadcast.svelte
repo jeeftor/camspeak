@@ -1,8 +1,10 @@
 <script>
   import { onDestroy } from 'svelte'
-  import { Radio, Volume2, Loader2 } from 'lucide-svelte'
+  import { Radio, Loader2 } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
+  import VoiceSelect from '$lib/components/VoiceSelect.svelte'
+  import GainSlider from '$lib/components/GainSlider.svelte'
 
   let { voices = [], presets = [] } = $props()
 
@@ -88,10 +90,7 @@
       </label>
       <label class="flex flex-col gap-1.5 text-sm text-muted-foreground">
         Voice
-        <select bind:value={voice} disabled={busy} class="rounded-md border border-input bg-transparent px-3 py-2 text-sm disabled:opacity-50">
-          <option value="">default voice</option>
-          {#each voices as v}<option>{v}</option>{/each}
-        </select>
+        <VoiceSelect bind:value={voice} {voices} {busy} class="rounded-md border border-input bg-transparent px-3 py-2" />
       </label>
     </div>
   {:else}
@@ -111,10 +110,10 @@
   <!-- Volume -->
   <div class="flex flex-col gap-2">
     <div class="flex items-center justify-between text-sm text-muted-foreground">
-      <span class="flex items-center gap-1.5"><Volume2 class="h-3.5 w-3.5" /> Volume</span>
+      <span>Volume</span>
       <span class="font-mono text-foreground">{gain}×</span>
     </div>
-    <input type="range" min="1" max="10" step="0.5" bind:value={gain} disabled={busy} class="w-full accent-primary" />
+    <GainSlider bind:value={gain} {busy} />
   </div>
 
   <!-- Action -->

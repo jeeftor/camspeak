@@ -1,15 +1,7 @@
 <script>
-  import { Check, Copy, Home, BookOpen } from 'lucide-svelte'
-
-  let copied = $state('')
-
-  async function copy(id, text) {
-    try {
-      await navigator.clipboard.writeText(text)
-      copied = id
-      setTimeout(() => copied = '', 2000)
-    } catch {}
-  }
+  import { Home, BookOpen } from 'lucide-svelte'
+  import CopyButton from '$lib/components/CopyButton.svelte'
+  import YamlCode from '$lib/components/YamlCode.svelte'
 
   // YAML snippets — each has an id for copy-button state
   const restCommandYaml = `rest_command:
@@ -138,14 +130,10 @@ tap_action:
       <code class="bg-muted px-1 rounded text-xs">camspeak</code> if on the same Docker network).
     </p>
     <div class="relative">
-      <pre class="bg-background border rounded-md p-3 overflow-x-auto text-xs text-foreground/80">{restCommandYaml}</pre>
-      <button
-        class="absolute top-2 right-2 rounded border bg-card px-2 py-1 text-xs hover:bg-muted transition-colors flex items-center gap-1"
-        onclick={() => copy('rest', restCommandYaml)}
-        title="Copy"
-      >
-        {#if copied === 'rest'}<Check class="h-3 w-3 text-green-500" /> Copied{:else}<Copy class="h-3 w-3" /> Copy{/if}
-      </button>
+      <YamlCode code={restCommandYaml} />
+      <div class="absolute top-2 right-2">
+        <CopyButton text={restCommandYaml} label="Copy YAML" size="sm" />
+      </div>
     </div>
     <p class="text-xs text-muted-foreground">
       After editing, reload via <em>Developer Tools → YAML → Restart</em>.
@@ -172,14 +160,10 @@ tap_action:
         entities. Fires only during daytime hours.
       </p>
       <div class="relative">
-        <pre class="bg-background border rounded-md p-3 overflow-x-auto text-xs text-foreground/80">{automationYaml}</pre>
-        <button
-          class="absolute top-2 right-2 rounded border bg-card px-2 py-1 text-xs hover:bg-muted transition-colors flex items-center gap-1"
-          onclick={() => copy('auto', automationYaml)}
-          title="Copy"
-        >
-          {#if copied === 'auto'}<Check class="h-3 w-3 text-green-500" /> Copied{:else}<Copy class="h-3 w-3" /> Copy{/if}
-        </button>
+        <YamlCode code={automationYaml} />
+        <div class="absolute top-2 right-2">
+          <CopyButton text={automationYaml} label="Copy YAML" size="sm" />
+        </div>
       </div>
     </div>
 
@@ -193,14 +177,10 @@ tap_action:
         condition/template engine.
       </p>
       <div class="relative">
-        <pre class="bg-background border rounded-md p-3 overflow-x-auto text-xs text-foreground/80">{frigateAutomationYaml}</pre>
-        <button
-          class="absolute top-2 right-2 rounded border bg-card px-2 py-1 text-xs hover:bg-muted transition-colors flex items-center gap-1"
-          onclick={() => copy('frig', frigateAutomationYaml)}
-          title="Copy"
-        >
-          {#if copied === 'frig'}<Check class="h-3 w-3 text-green-500" /> Copied{:else}<Copy class="h-3 w-3" /> Copy{/if}
-        </button>
+        <YamlCode code={frigateAutomationYaml} />
+        <div class="absolute top-2 right-2">
+          <CopyButton text={frigateAutomationYaml} label="Copy YAML" size="sm" />
+        </div>
       </div>
     </div>
 
@@ -213,14 +193,10 @@ tap_action:
         like <code class="bg-muted px-1 rounded">{`{"camera":"backyard","text":"Hello"}`}</code>.
       </p>
       <div class="relative">
-        <pre class="bg-background border rounded-md p-3 overflow-x-auto text-xs text-foreground/80">{webhookYaml}</pre>
-        <button
-          class="absolute top-2 right-2 rounded border bg-card px-2 py-1 text-xs hover:bg-muted transition-colors flex items-center gap-1"
-          onclick={() => copy('hook', webhookYaml)}
-          title="Copy"
-        >
-          {#if copied === 'hook'}<Check class="h-3 w-3 text-green-500" /> Copied{:else}<Copy class="h-3 w-3" /> Copy{/if}
-        </button>
+        <YamlCode code={webhookYaml} />
+        <div class="absolute top-2 right-2">
+          <CopyButton text={webhookYaml} label="Copy YAML" size="sm" />
+        </div>
       </div>
     </div>
   </div>
@@ -236,14 +212,10 @@ tap_action:
       <em>Manual</em> card.
     </p>
     <div class="relative">
-      <pre class="bg-background border rounded-md p-3 overflow-x-auto text-xs text-foreground/80">{dashboardYaml}</pre>
-      <button
-        class="absolute top-2 right-2 rounded border bg-card px-2 py-1 text-xs hover:bg-muted transition-colors flex items-center gap-1"
-        onclick={() => copy('dash', dashboardYaml)}
-        title="Copy"
-      >
-        {#if copied === 'dash'}<Check class="h-3 w-3 text-green-500" /> Copied{:else}<Copy class="h-3 w-3" /> Copy{/if}
-      </button>
+      <YamlCode code={dashboardYaml} />
+      <div class="absolute top-2 right-2">
+        <CopyButton text={dashboardYaml} label="Copy YAML" size="sm" />
+      </div>
     </div>
   </div>
 

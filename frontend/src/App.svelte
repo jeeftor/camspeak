@@ -22,6 +22,34 @@
   let showUrlEditor = $state(false)
   let urlEditValue = $state('')
 
+  // --- Hash-based SPA routing ---
+  const validTabs = ['cameras', 'library', 'events', 'broadcast', 'frigate', 'ha', 'config', 'rest', 'mcp']
+
+  function tabFromHash() {
+    const h = window.location.hash.replace(/^#\/?/, '')
+    return validTabs.includes(h) ? h : 'cameras'
+  }
+
+  function setHash(t) {
+    if (window.location.hash !== `#/${t}`) {
+      window.location.hash = `/${t}`
+    }
+  }
+
+  // Sync tab → hash on change
+  $effect(() => {
+    setHash(tab)
+  })
+
+  // Sync hash → tab on back/forward
+  onMount(() => {
+    tab = tabFromHash()
+    const onHashChange = () => { tab = tabFromHash() }
+    window.addEventListener('hashchange', onHashChange)
+    loadAll()
+    return () => window.removeEventListener('hashchange', onHashChange)
+  })
+
   async function loadAll() {
     loading = true
     loadError = ''
@@ -43,8 +71,6 @@
       loading = false
     }
   }
-
-  onMount(loadAll)
 
   const tabs = [
     { id: 'cameras',   label: 'Cameras' },
