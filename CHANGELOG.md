@@ -5,7 +5,26 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [Unreleased] — v1.8.0
+## [v1.9.0] — 2026-07-17
+
+### Added
+- **Home Assistant integration** — new "Home Assistant" tab with copy-paste-ready YAML snippets for `rest_command` setup, Frigate-triggered automations, webhook triggers, and dashboard buttons; corresponding README section
+- **Vision config UI** — new "Vision" sub-tab in Config for endpoint URL, model, API key, and a global default prompt; persisted to SQLite with `CAMSPEAK_VISION_*` env overrides
+- **`GET/PUT /api/config/vision`** — read and update vision endpoint config at runtime (PUT rebuilds the vision client)
+- **`CAMSPEAK_VISION_PROMPT`** env var for the global default vision prompt
+- **Syntax highlighting** on the Frigate MQTT reference payloads (dependency-free tokenizer, theme-aware)
+- **Dependabot** config for `github-actions` ecosystem (weekly, grouped by org)
+- **Clear button** (X) on the camera snapshot/description overlay
+
+### Changed
+- **Describe (eye) button now auto-plays TTS** — calls `/api/describe` (snapshot → vision → TTS → speak on camera) instead of `/api/vision`; no longer populates the TTS input box with the description
+- **Replay button** on the vision result — play icon next to the description re-speaks it via `/api/speak` without re-running the vision model
+- **Vision prompt fallback chain fixed** — request prompt → camera's `vision_prompt` → global default → hardcoded (previously the camera's prompt was ignored by the REST API)
+- **CI actions bumped to Node 24** — `actions/checkout@v5`, `actions/setup-go@v6`, `actions/cache@v5`
+
+---
+
+## [v1.8.0] — 2025-07-16
 
 ### Added
 - **MQTT topic tree browser** — live split-panel UI: topic tree on the left (collapsible, with message counts and last-value preview), message feed on the right; click any leaf topic to filter the feed
