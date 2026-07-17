@@ -262,6 +262,66 @@ transport, allowing LLM agents to control camera audio.
 Optional parameters: `voice` (TTS voice) and `category` (preset category) where
 applicable.
 
+## Home Assistant
+
+camspeak works with Home Assistant via the built-in `rest_command` platform —
+no custom integration or HACS install needed. Define REST commands that call
+camspeak's API, then trigger them from automations, dashboards, or webhooks.
+
+### Setup
+
+Add to `configuration.yaml` (replace `CAMSPEAK_IP` with your camspeak host):
+
+```yaml
+rest_command:
+  camspeak_speak:
+    url: http://CAMSPEAK_IP:8585/api/speak
+    method: POST
+    content_type: application/json
+    payload: '{"camera":"{{ camera }}","text":"{{ text }}","voice":"{{ voice }}"}'
+
+  camspeak_broadcast:
+    url: http://CAMSPEAK_IP:8585/api/broadcast
+    method: POST
+    content_type: application/json
+    payload: '{"text":"{{ text }}","voice":"{{ voice }}"}'
+
+  camspeak_play_preset:
+    url: http://CAMSPEAK_IP:8585/api/play
+    method: POST
+    content_type: application/json
+    payload: '{"camera":"{{ camera }}","preset":"{{ preset }}"}'
+```
+
+### Example automation
+
+```yaml
+automation:
+  - alias: "Backyard person detected"
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.backyard_person
+        to: "on"
+    condition:
+      - condition: time
+        after: "06:00:00"
+        before: "22:00:00"
+    action:
+      - service: rest_command.camspeak_speak
+        data:
+          camera: backyard
+          text: "Person detected in the backyard"
+          voice: af_sky
+```
+
+This gives you HA's full condition/template engine (time windows, presence
+detection, multi-sensor logic) for triggering announcements. The built-in MQTT
+rule engine (Frigate tab) still works alongside this for standalone setups
+without Home Assistant.
+
+See the **Home Assistant** tab in the UI for copy-paste-ready snippets including
+webhook triggers and dashboard buttons.
+
 ## Development
 
 ### Make targets
