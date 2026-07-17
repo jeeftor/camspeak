@@ -31,3 +31,14 @@ repos:
     rev: v8.24.2
     hooks:
       - id: gitleaks
+
+  # Go tests — run on pre-push to keep commits fast
+  - repo: local
+    hooks:
+      - id: gotest
+        name: go test
+        entry: gotestsum --format testdox ./...
+        language: system
+        types: [go]
+        pass_filenames: false
+        stages: [pre-push]

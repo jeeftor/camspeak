@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	clog "github.com/charmbracelet/log"
 	"github.com/joho/godotenv"
 )
 
@@ -234,7 +235,7 @@ func seedDefaultPresets(db *sql.DB) {
 		if p.IsActive {
 			isActive = 1
 		}
-		_, _ = db.Exec(
+		if _, err := db.Exec(
 			`INSERT INTO tts_presets (name, endpoint, model, api_key, default_voice, description, is_active)
 			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 			p.Name,
@@ -244,7 +245,9 @@ func seedDefaultPresets(db *sql.DB) {
 			p.DefaultVoice,
 			p.Description,
 			isActive,
-		)
+		); err != nil {
+			clog.Error("config: seeding default TTS preset failed", "name", p.Name, "err", err)
+		}
 	}
 }
 
@@ -440,7 +443,9 @@ func SaveTTSPreset(db *sql.DB, p TTSPreset) error {
 	if p.IsActive {
 		isActive = 1
 		// Deactivate all other presets
-		_, _ = db.Exec(`UPDATE tts_presets SET is_active = 0`)
+		if _, err := db.Exec(`UPDATE tts_presets SET is_active = 0`); err != nil {
+			return fmt.Errorf("deactivating presets: %w", err)
+		}
 	}
 	_, err := db.Exec(
 		`INSERT INTO tts_presets (name, endpoint, model, api_key, default_voice, description, is_active)

@@ -26,6 +26,7 @@ import (
 // Handlers holds all route handler dependencies.
 type Handlers struct {
 	cfg    *config.Config
+	cfgMu  sync.Mutex
 	reg    *cameras.Registry
 	store  *library.Store
 	tts    *tts.Client
@@ -242,7 +243,11 @@ func (h *Handlers) Snapshot(c echo.Context) error {
 	}
 
 	snapURL := fmt.Sprintf("%s/api/%s/latest.jpg", h.cfg.FrigateURL, camera)
-	resp, err := http.Get(snapURL)
+	req, err := http.NewRequestWithContext(c.Request().Context(), http.MethodGet, snapURL, nil)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
 	}
@@ -282,7 +287,12 @@ func (h *Handlers) Describe(c echo.Context) error {
 	// 1. Fetch snapshot from Frigate
 	snapURL := fmt.Sprintf("%s/api/%s/latest.jpg", h.cfg.FrigateURL, req.Camera)
 	snapStart := time.Now()
-	snapResp, err := http.Get(snapURL)
+	snapReq, err := http.NewRequestWithContext(c.Request().Context(), http.MethodGet, snapURL, nil)
+	if err != nil {
+		h.log.Error("describe: build snapshot request failed", "camera", req.Camera, "err", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	snapResp, err := (&http.Client{Timeout: 30 * time.Second}).Do(snapReq)
 	if err != nil {
 		h.log.Error("describe: snapshot failed", "camera", req.Camera, "err", err)
 		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("frigate snapshot: %s", err))
@@ -613,7 +623,11 @@ func (h *Handlers) Events(c echo.Context) error {
 	// Send recent history on connect
 	if recent, err := h.events.recentEvents(50); err == nil {
 		for _, v := range slices.Backward(recent) {
-			data, _ := json.Marshal(v)
+			data, err := json.Marshal(v)
+			if err != nil {
+				h.log.Error("events: marshal recent failed", "err", err)
+				continue
+			}
 			fmt.Fprintf(c.Response(), "data: %s\n\n", data)
 		}
 
@@ -626,7 +640,11 @@ func (h *Handlers) Events(c echo.Context) error {
 	for {
 		select {
 		case ev := <-ch:
-			data, _ := json.Marshal(ev)
+			data, err := json.Marshal(ev)
+			if err != nil {
+				h.log.Error("events: marshal event failed", "err", err)
+				continue
+			}
 			fmt.Fprintf(c.Response(), "data: %s\n\n", data)
 			c.Response().Flush()
 		case <-c.Request().Context().Done():

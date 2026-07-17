@@ -75,7 +75,11 @@ func (h *Handlers) ActivateTTSPreset(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 	// Reload the active TTS config into the running config
-	presets, _ := config.ListTTSPresets(h.db)
+	presets, err := config.ListTTSPresets(h.db)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	h.cfgMu.Lock()
 	for _, p := range presets {
 		if p.IsActive {
 			h.cfg.TTS = config.TTSConfig{
@@ -87,6 +91,7 @@ func (h *Handlers) ActivateTTSPreset(c echo.Context) error {
 			break
 		}
 	}
+	h.cfgMu.Unlock()
 	return c.JSON(http.StatusOK, map[string]string{"active": name})
 }
 
@@ -224,7 +229,10 @@ func (h *Handlers) CreateRule(c echo.Context) error {
 		r.Topic = "frigate/events"
 	}
 	// Serialize filter and cameras for SQLite
-	filterJSON, _ := json.Marshal(r.Filter)
+	filterJSON, err := json.Marshal(r.Filter)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
 	camerasCSV := strings.Join(r.Cameras, ",")
 	enabled := 1
 	if !r.Enabled {
@@ -238,7 +246,10 @@ func (h *Handlers) CreateRule(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	id, _ := result.LastInsertId()
+	id, err := result.LastInsertId()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
 	r.ID = int(id)
 	return c.JSON(http.StatusCreated, r)
 }

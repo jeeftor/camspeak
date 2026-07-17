@@ -105,7 +105,10 @@ func (c *Go2rtcClient) SendRaw(rawFile string) error {
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 512))
+	if err != nil {
+		c.log.Warn("go2rtc: reading response body failed", "err", err)
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("go2rtc returned HTTP %d: %s", resp.StatusCode, body)

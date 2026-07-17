@@ -12,19 +12,29 @@
   let voices = $state([])
   let presets = $state([])
   let version = $state('')
+  let loading = $state(false)
+  let loadError = $state('')
 
   async function loadAll() {
-    const [camRes, voiceRes, presetRes, healthRes] = await Promise.all([
-      fetch('/api/cameras'),
-      fetch('/api/voices'),
-      fetch('/api/library'),
-      fetch('/api/health'),
-    ])
-    cameras = await camRes.json() ?? []
-    voices = await voiceRes.json() ?? []
-    presets = await presetRes.json() ?? []
-    const health = await healthRes.json() ?? {}
-    version = health.version ?? ''
+    loading = true
+    loadError = ''
+    try {
+      const [camRes, voiceRes, presetRes, healthRes] = await Promise.all([
+        fetch('/api/cameras'),
+        fetch('/api/voices'),
+        fetch('/api/library'),
+        fetch('/api/health'),
+      ])
+      cameras = await camRes.json() ?? []
+      voices = await voiceRes.json() ?? []
+      presets = await presetRes.json() ?? []
+      const health = await healthRes.json() ?? {}
+      version = health.version ?? ''
+    } catch (e) {
+      loadError = 'Failed to load data: ' + e.message
+    } finally {
+      loading = false
+    }
   }
 
   onMount(loadAll)
@@ -59,7 +69,11 @@
   <BroadcastBar {voices} {presets} />
 
   <main class="mx-auto w-full max-w-6xl flex-1 p-6">
-    {#if tab === 'cameras'}
+    {#if loading && cameras.length === 0 && presets.length === 0}
+      <p class="italic text-muted-foreground">Loading…</p>
+    {:else if loadError}
+      <p class="text-sm text-destructive">{loadError}</p>
+    {:else if tab === 'cameras'}
       <CameraGrid {cameras} {voices} {presets} onRefresh={loadAll} />
     {:else if tab === 'library'}
       <Library {presets} {voices} onRefresh={loadAll} />

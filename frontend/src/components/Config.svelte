@@ -48,6 +48,7 @@
 
   // Test status
   let testStatus = $state({})
+  let configError = $state('')
 
   async function loadConfig() {
     loading = true
@@ -100,14 +101,24 @@
   }
 
   async function activateTTS(name) {
-    await fetch(`/api/config/tts/${name}/activate`, { method: 'POST' })
-    loadConfig()
+    try {
+      const res = await fetch(`/api/config/tts/${name}/activate`, { method: 'POST' })
+      if (!res.ok) throw new Error(await res.text())
+      loadConfig()
+    } catch (e) {
+      configError = '✗ ' + e.message
+    }
   }
 
   async function deleteTTS(name) {
     if (!confirm(`Delete TTS preset "${name}"?`)) return
-    await fetch(`/api/config/tts/${name}`, { method: 'DELETE' })
-    loadConfig()
+    try {
+      const res = await fetch(`/api/config/tts/${name}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error(await res.text())
+      loadConfig()
+    } catch (e) {
+      configError = '✗ ' + e.message
+    }
   }
 
   async function testTTS() {
@@ -153,9 +164,14 @@
 
   async function deleteCamera(name) {
     if (!confirm(`Delete camera "${name}"?`)) return
-    await fetch(`/api/config/cameras/${name}`, { method: 'DELETE' })
-    loadConfig()
-    onRefresh?.()
+    try {
+      const res = await fetch(`/api/config/cameras/${name}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error(await res.text())
+      loadConfig()
+      onRefresh?.()
+    } catch (e) {
+      configError = '✗ ' + e.message
+    }
   }
 
   async function testCamera(name) {
@@ -276,6 +292,7 @@
   <p class="italic text-muted-foreground">Loading config…</p>
 {:else}
   <div class="flex flex-col gap-4">
+    {#if configError}<p class="text-sm text-destructive">{configError}</p>{/if}
     <div class="flex gap-1">
       {#each configTabs as t}
         <Button
@@ -307,11 +324,11 @@
                 <span class="text-sm text-muted-foreground">{p.default_voice}</span>
               </div>
               <div class="flex shrink-0 gap-1">
-                <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => editTTS(p)} title="Edit">✎</Button>
+                <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => editTTS(p)} title="Edit" aria-label="Edit TTS preset">✎</Button>
                 {#if !p.is_active}
-                  <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => activateTTS(p.name)} title="Activate">●</Button>
+                  <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => activateTTS(p.name)} title="Activate" aria-label="Activate TTS preset">●</Button>
                 {/if}
-                <Button variant="outline" size="sm" class="h-7 px-2 hover:border-destructive hover:text-destructive" onclick={() => deleteTTS(p.name)} title="Delete">✕</Button>
+                <Button variant="outline" size="sm" class="h-7 px-2 hover:border-destructive hover:text-destructive" onclick={() => deleteTTS(p.name)} title="Delete" aria-label="Delete TTS preset">✕</Button>
               </div>
             </div>
           {/each}
@@ -381,9 +398,9 @@
               </div>
               <div class="flex shrink-0 items-center gap-1">
                 {#if testStatus[cam.name]}<span class="mr-1 text-sm text-primary">{testStatus[cam.name]}</span>{/if}
-                <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => testCamera(cam.name)} title="Test beep" disabled={!cam.enabled}>🔔</Button>
-                <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => editCamera(cam)} title="Edit">✎</Button>
-                <Button variant="outline" size="sm" class="h-7 px-2 hover:border-destructive hover:text-destructive" onclick={() => deleteCamera(cam.name)} title="Delete">✕</Button>
+                <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => testCamera(cam.name)} title="Test beep" aria-label="Test beep" disabled={!cam.enabled}>🔔</Button>
+                <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => editCamera(cam)} title="Edit" aria-label="Edit camera">✎</Button>
+                <Button variant="outline" size="sm" class="h-7 px-2 hover:border-destructive hover:text-destructive" onclick={() => deleteCamera(cam.name)} title="Delete" aria-label="Delete camera">✕</Button>
               </div>
             </div>
           {/each}
@@ -462,7 +479,7 @@
               </div>
               <div class="flex shrink-0 items-center gap-1">
                 {#if testStatus['rule_' + r.id]}<span class="mr-1 text-sm text-primary">{testStatus['rule_' + r.id]}</span>{/if}
-                <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => testRule(r)} title="Test speak">▶</Button>
+                <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => testRule(r)} title="Test speak" aria-label="Test rule">▶</Button>
               </div>
             </div>
           {/each}

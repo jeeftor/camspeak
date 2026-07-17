@@ -12,3 +12,5 @@ camspeak
 /tmp/
 .DS_Store
 *.log
+coverage/
+*.test

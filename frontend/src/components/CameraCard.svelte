@@ -16,9 +16,11 @@
   let status = $state('')
   let snapshot = $state('')
   let description = $state('')
+  let statusTimeout
 
   onDestroy(() => {
     if (snapshot) URL.revokeObjectURL(snapshot)
+    clearTimeout(statusTimeout)
   })
 
   async function post(path, body) {
@@ -40,14 +42,14 @@
       status = '✗ ' + e.message
     } finally {
       busy = false
-      setTimeout(() => (status = ''), 3000)
+      clearTimeout(statusTimeout); statusTimeout = setTimeout(() => (status = ''), 3000)
     }
   }
 
   async function play() {
     if (!preset) {
       status = '⚠ select a preset first'
-      setTimeout(() => (status = ''), 3000)
+      clearTimeout(statusTimeout); statusTimeout = setTimeout(() => (status = ''), 3000)
       return
     }
     busy = true; status = ''
@@ -58,7 +60,7 @@
       status = '✗ ' + e.message
     } finally {
       busy = false
-      setTimeout(() => (status = ''), 3000)
+      clearTimeout(statusTimeout); statusTimeout = setTimeout(() => (status = ''), 3000)
     }
   }
 
@@ -72,7 +74,7 @@
       status = '✗ ' + e.message
     } finally {
       busy = false
-      setTimeout(() => (status = ''), 3000)
+      clearTimeout(statusTimeout); statusTimeout = setTimeout(() => (status = ''), 3000)
     }
   }
 
@@ -85,7 +87,7 @@
       status = '✗ ' + e.message
     } finally {
       busy = false
-      setTimeout(() => (status = ''), 3000)
+      clearTimeout(statusTimeout); statusTimeout = setTimeout(() => (status = ''), 3000)
     }
   }
 
@@ -116,7 +118,7 @@
       status = '✗ ' + e.message
     } finally {
       busy = false
-      setTimeout(() => (status = ''), 3000)
+      clearTimeout(statusTimeout); statusTimeout = setTimeout(() => (status = ''), 3000)
     }
   }
 </script>
@@ -129,8 +131,8 @@
       <Badge variant="secondary" class="text-xs">{camera.type}</Badge>
     </div>
     <div class="flex gap-1">
-      <Button variant="outline" size="icon" onclick={describe} disabled={busy} title="Describe & speak" class="h-7 w-7">👁</Button>
-      <Button variant="outline" size="icon" onclick={beep} disabled={busy} title="Test beep" class="h-7 w-7">🔔</Button>
+      <Button variant="outline" size="icon" onclick={describe} disabled={busy} title="Describe & speak" aria-label="Describe & speak" class="h-7 w-7">👁</Button>
+      <Button variant="outline" size="icon" onclick={beep} disabled={busy} title="Test beep" aria-label="Test beep" class="h-7 w-7">🔔</Button>
     </div>
   </div>
 
@@ -148,7 +150,7 @@
         <option>{v}</option>
       {/each}
     </select>
-    <Button size="sm" onclick={speak} disabled={busy || !text}>▶</Button>
+    <Button size="sm" onclick={speak} disabled={busy || !text} aria-label="Speak">▶</Button>
   </div>
 
   <div class="flex items-center gap-2 px-1">
@@ -165,7 +167,7 @@
           <option value={p.name}>{p.category}/{p.name}</option>
         {/each}
       </select>
-      <Button size="sm" onclick={play} disabled={busy || !preset}>▶</Button>
+      <Button size="sm" onclick={play} disabled={busy || !preset} aria-label="Play preset">▶</Button>
     </div>
   {/if}
 
@@ -177,7 +179,7 @@
       disabled={busy}
       class="flex-1 text-sm"
     />
-    <Button size="sm" onclick={playUrl} disabled={busy || !url}>▶</Button>
+    <Button size="sm" onclick={playUrl} disabled={busy || !url} aria-label="Play URL">▶</Button>
   </div>
 
   {#if status}<div class="text-sm text-primary">{status}</div>{/if}

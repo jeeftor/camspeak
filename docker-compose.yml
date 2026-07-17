@@ -17,6 +17,8 @@ services:
       - CAMSPEAK_MQTT_BROKER=${CAMSPEAK_MQTT_BROKER:-}
       - CAMSPEAK_MQTT_USER=${CAMSPEAK_MQTT_USER:-}
       - CAMSPEAK_MQTT_PASS=${CAMSPEAK_MQTT_PASS:-}
+      # - CAMSPEAK_PORT=8585
+      # - CAMSPEAK_TTS_API_KEY=${CAMSPEAK_TTS_API_KEY:-}
     volumes:
       - ${CONFIG_DIR:-./config}/camspeak:/config
     ports:

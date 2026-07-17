@@ -14,6 +14,7 @@
   let genVoice = $state('')
   let genBusy = $state(false)
   let genStatus = $state('')
+  let genTimeout
   let genAudio = $state(null)      // holds the generated WAV blob URL
   let genAudioEl = $state(null)    // HTML5 Audio element
   let genPlaying = $state(false)
@@ -21,6 +22,9 @@
   onDestroy(() => {
     if (genAudio) URL.revokeObjectURL(genAudio)
     if (genAudioEl) { genAudioEl.pause(); genAudioEl = null }
+    clearTimeout(genTimeout)
+    clearTimeout(statusTimeout)
+    clearTimeout(uploadTimeout)
   })
 
   let uploadName = $state('')
@@ -28,6 +32,9 @@
   let uploadFile = $state(null)
   let uploadBusy = $state(false)
   let uploadStatus = $state('')
+  let libError = $state('')
+  let statusTimeout
+  let uploadTimeout
 
   // Group presets by category
   let grouped = $derived(
@@ -62,7 +69,7 @@
       genStatus = '✗ ' + e.message
     } finally {
       genBusy = false
-      setTimeout(() => (genStatus = ''), 4000)
+      clearTimeout(genTimeout); genTimeout = setTimeout(() => (genStatus = ''), 4000)
     }
   }
 
@@ -96,7 +103,7 @@
       genStatus = '✗ ' + e.message
     } finally {
       genBusy = false
-      setTimeout(() => (genStatus = ''), 4000)
+      clearTimeout(statusTimeout); statusTimeout = setTimeout(() => (genStatus = ''), 4000)
     }
   }
 
@@ -117,14 +124,19 @@
       uploadStatus = '✗ ' + e.message
     } finally {
       uploadBusy = false
-      setTimeout(() => (uploadStatus = ''), 4000)
+      clearTimeout(uploadTimeout); uploadTimeout = setTimeout(() => (uploadStatus = ''), 4000)
     }
   }
 
   async function deletePreset(category, name) {
     if (!confirm(`Delete ${category}/${name}?`)) return
-    await fetch(`/api/library/${category}/${name}`, { method: 'DELETE' })
-    onRefresh()
+    try {
+      const res = await fetch(`/api/library/${category}/${name}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error(await res.text())
+      onRefresh()
+    } catch (e) {
+      libError = '✗ ' + e.message
+    }
   }
 
   let currentAudio = $state(null)
@@ -165,6 +177,7 @@
 </script>
 
 <div class="flex flex-col gap-4">
+  {#if libError}<p class="text-sm text-destructive">{libError}</p>{/if}
   <div class="flex gap-1">
     {#each libTabs as t}
       <Button
@@ -193,10 +206,10 @@
                   {#if p.text}<span class="truncate text-sm italic text-muted-foreground">"{p.text}"</span>{/if}
                 </div>
                 <div class="flex shrink-0 gap-1">
-                  <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => preview(p.category, p.name)} title="Preview">
+                  <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => preview(p.category, p.name)} title="Preview" aria-label="Preview preset">
                     {playingKey === `${p.category}/${p.name}` ? '⏸' : '▶'}
                   </Button>
-                  <Button variant="outline" size="sm" class="h-7 px-2 hover:border-destructive hover:text-destructive" onclick={() => deletePreset(p.category, p.name)} title="Delete">✕</Button>
+                  <Button variant="outline" size="sm" class="h-7 px-2 hover:border-destructive hover:text-destructive" onclick={() => deletePreset(p.category, p.name)} title="Delete" aria-label="Delete preset">✕</Button>
                 </div>
               </div>
             {/each}

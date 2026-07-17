@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"time"
 
+	clog "github.com/charmbracelet/log"
+
 	"github.com/jeeftor/camspeak/internal/db"
 )
 
@@ -247,7 +249,9 @@ func (s *Store) Delete(category, name string) error {
 		return fmt.Errorf("deleting preset metadata: %w", err)
 	}
 
-	os.Remove(preset.RawPath)
+	if err := os.Remove(preset.RawPath); err != nil {
+		clog.Warn("library: failed to remove raw file", "path", preset.RawPath, "err", err)
+	}
 
 	return nil
 }

@@ -8,11 +8,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 
 	clog "github.com/charmbracelet/log"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/mark3labs/mcp-go/server"
+	"golang.org/x/time/rate"
 
 	"github.com/jeeftor/camspeak/internal/cameras"
 	"github.com/jeeftor/camspeak/internal/config"
@@ -83,6 +85,7 @@ func New(
 	e.HideBanner = true
 	e.HidePort = true
 	e.Use(middleware.Recover())
+	e.Use(rateLimitMiddleware)
 	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
 		LogStatus: true,
 		LogMethod: true,
@@ -103,10 +106,14 @@ func New(
 			return nil
 		},
 	}))
+	corsOrigin := os.Getenv("CAMSPEAK_CORS_ORIGIN")
+	if corsOrigin == "" {
+		corsOrigin = "*"
+	}
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		// LAN-only service — allow all origins so the SPA works from any
 		// host:port the browser uses (localhost, 127.0.0.1, LAN IP, etc.)
-		AllowOrigins: []string{"*"},
+		AllowOrigins: []string{corsOrigin},
 		AllowMethods: []string{
 			http.MethodGet,
 			http.MethodPost,
@@ -124,6 +131,7 @@ func New(
 	api.POST("/play", h.Play)
 	api.POST("/play-url", h.PlayURL)
 	api.POST("/beep", h.Beep)
+	api.GET("/snapshot/:camera", h.Snapshot)
 	api.POST("/describe", h.Describe)
 	api.POST("/broadcast", h.Broadcast)
 	api.GET("/cameras", h.Cameras)
@@ -206,4 +214,30 @@ func (s *Server) Start(addr string) error {
 // Stop gracefully shuts down the server.
 func (s *Server) Stop() error {
 	return s.echo.Close()
+}
+
+// rateLimitMiddleware limits each client IP to 10 requests per second with a
+// burst of 20. Excess requests receive HTTP 429.
+func rateLimitMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
+	var (
+		mu       sync.Mutex
+		limiters = make(map[string]*rate.Limiter)
+	)
+	getLimiter := func(ip string) *rate.Limiter {
+		mu.Lock()
+		defer mu.Unlock()
+		l, ok := limiters[ip]
+		if !ok {
+			l = rate.NewLimiter(rate.Limit(10), 20)
+			limiters[ip] = l
+		}
+		return l
+	}
+	return func(c echo.Context) error {
+		ip := c.RealIP()
+		if !getLimiter(ip).Allow() {
+			return echo.NewHTTPError(http.StatusTooManyRequests, "rate limit exceeded")
+		}
+		return next(c)
+	}
 }

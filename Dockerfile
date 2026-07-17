@@ -31,5 +31,10 @@ ENV CAMSPEAK_DATA_DIR=/config
 EXPOSE 8585
 VOLUME ["/config"]
 
+# NOTE: This container runs as root so it can write to the /config volume,
+# which is bind-mounted from the host (typically owned by root).
+# For hardened deployments, run with: --security-opt no-new-privileges:true
+# and chown the host volume to a non-root UID.
+
 ENTRYPOINT ["/app/camspeak"]
 CMD ["serve"]
