@@ -5,6 +5,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v1.10.4] — 2026-07-17
+
+### Fixed
+- **Restored copy-curl buttons** on preset row and play-from-URL row (with hover preview)
+
+### Changed
+- **Vision prompt popup** — replaced the inline prompt input with a popup widget triggered by the MessageSquare button in the camera header. Popup has a textarea, Reset / Apply & Describe / Done buttons. The header button is highlighted when a custom prompt is active.
+
+---
+
 ## [v1.10.3] — 2026-07-17
 
 ### Added
