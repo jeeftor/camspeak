@@ -262,6 +262,7 @@
       <CopyButton
         text={buildCurl('POST', '/api/speak', { camera: camera.name, text, voice: voice || undefined, gain })}
         disabled={!text} label="Copy curl — speak endpoint"
+        preview={!!text} previewType="curl"
         class="flex-shrink-0"
       />
     </div>
@@ -341,11 +342,13 @@
               <CopyButton
                 text={buildCurl('POST', '/api/speak', { camera: camera.name, text: description, voice: voice || undefined, gain })}
                 label="Copy curl — re-play description as TTS"
+                preview previewType="curl"
                 class="h-7 w-7 flex-shrink-0"
               />
               <CopyButton
                 text={buildCurl('POST', '/api/describe', { camera: camera.name, gain, ...(visionPrompt ? { prompt: visionPrompt } : {}) })}
                 label="Copy curl — describe endpoint"
+                preview previewType="curl"
                 class="h-7 w-7 flex-shrink-0"
               />
             </div>
