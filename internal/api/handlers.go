@@ -25,16 +25,19 @@ import (
 
 // Handlers holds all route handler dependencies.
 type Handlers struct {
-	cfg    *config.Config
-	cfgMu  sync.Mutex
-	reg    *cameras.Registry
-	store  *library.Store
-	tts    *tts.Client
-	vision *vision.Client
-	events *eventBus
-	db     *sql.DB
-	tmpDir string
-	log    *clog.Logger
+	cfg          *config.Config
+	cfgMu        sync.Mutex
+	reg          *cameras.Registry
+	store        *library.Store
+	tts          *tts.Client
+	vision       *vision.Client
+	events       *eventBus
+	mqttMsgBus   *mqttMsgBus
+	mqttBroker   string
+	mqttStatusFn func() string
+	db           *sql.DB
+	tmpDir       string
+	log          *clog.Logger
 }
 
 // speakReq is the body for POST /api/speak.
@@ -242,7 +245,9 @@ func (h *Handlers) Snapshot(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "frigate URL not configured")
 	}
 
-	snapURL := fmt.Sprintf("%s/api/%s/latest.jpg", h.cfg.FrigateURL, camera)
+	// ?h=720 forces Frigate to run the frame through its image pipeline (PIL resize),
+	// which normalises the JPEG encoding and avoids raw-stream distortion artifacts.
+	snapURL := fmt.Sprintf("%s/api/%s/latest.jpg?h=720", h.cfg.FrigateURL, camera)
 	req, err := http.NewRequestWithContext(c.Request().Context(), http.MethodGet, snapURL, nil)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -280,7 +285,7 @@ func (h *Handlers) Vision(c echo.Context) error {
 	}
 
 	// Fetch snapshot from Frigate
-	snapURL := fmt.Sprintf("%s/api/%s/latest.jpg", h.cfg.FrigateURL, req.Camera)
+	snapURL := fmt.Sprintf("%s/api/%s/latest.jpg?h=720", h.cfg.FrigateURL, req.Camera)
 	snapReq, err := http.NewRequestWithContext(c.Request().Context(), http.MethodGet, snapURL, nil)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -335,7 +340,7 @@ func (h *Handlers) Describe(c echo.Context) error {
 	h.log.Info("describe: request", "camera", req.Camera)
 
 	// 1. Fetch snapshot from Frigate
-	snapURL := fmt.Sprintf("%s/api/%s/latest.jpg", h.cfg.FrigateURL, req.Camera)
+	snapURL := fmt.Sprintf("%s/api/%s/latest.jpg?h=720", h.cfg.FrigateURL, req.Camera)
 	snapStart := time.Now()
 	snapReq, err := http.NewRequestWithContext(c.Request().Context(), http.MethodGet, snapURL, nil)
 	if err != nil {

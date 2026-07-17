@@ -16,13 +16,17 @@ import (
 // SpeakFunc is called when a rule matches. It handles TTS or preset playback.
 type SpeakFunc func(cameras []string, text, preset, voice string)
 
+// MsgHook is called for every received MQTT message before rule matching.
+type MsgHook func(topic string, payload []byte)
+
 // Subscriber listens to MQTT and triggers SpeakFunc on rule matches.
 type Subscriber struct {
-	cfg    config.MQTTConfig
-	rules  []config.Rule
-	speak  SpeakFunc
-	client paho.Client
-	log    *clog.Logger
+	cfg     config.MQTTConfig
+	rules   []config.Rule
+	speak   SpeakFunc
+	msgHook MsgHook
+	client  paho.Client
+	log     *clog.Logger
 }
 
 // New creates a Subscriber. Call Start() to connect.
@@ -65,6 +69,23 @@ func (s *Subscriber) Start() error {
 	return nil
 }
 
+// Status returns the MQTT connection state: "not_configured", "connected", or "disconnected".
+func (s *Subscriber) Status() string {
+	if s.cfg.Broker == "" {
+		return "not_configured"
+	}
+	if s.client != nil && s.client.IsConnected() {
+		return "connected"
+	}
+	return "disconnected"
+}
+
+// Broker returns the configured broker URL (empty if not configured).
+func (s *Subscriber) Broker() string { return s.cfg.Broker }
+
+// SetMessageHook registers a callback invoked for every received MQTT message.
+func (s *Subscriber) SetMessageHook(fn MsgHook) { s.msgHook = fn }
+
 // Stop disconnects from the broker.
 func (s *Subscriber) Stop() {
 	if s.client != nil && s.client.IsConnected() {
@@ -85,9 +106,12 @@ func (s *Subscriber) subscribeAll(c paho.Client) {
 }
 
 func (s *Subscriber) handleMessage(_ paho.Client, msg paho.Message) {
+	if s.msgHook != nil {
+		s.msgHook(msg.Topic(), msg.Payload())
+	}
+
 	var payload map[string]any
-	err := json.Unmarshal(msg.Payload(), &payload)
-	if err != nil {
+	if err := json.Unmarshal(msg.Payload(), &payload); err != nil {
 		return
 	}
 

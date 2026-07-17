@@ -70,15 +70,16 @@ func New(
 	}
 
 	h := &Handlers{
-		cfg:    cfg,
-		reg:    reg,
-		store:  store,
-		tts:    ttsClient,
-		vision: vision.NewClient(cfg.Vision.URL, cfg.Vision.Model, cfg.Vision.APIKey),
-		events: newEventBus(store.DB()),
-		db:     database,
-		tmpDir: tmpDir,
-		log:    clog.NewWithOptions(os.Stderr, clog.Options{Prefix: "api", Level: apiLogLevel}),
+		cfg:        cfg,
+		reg:        reg,
+		store:      store,
+		tts:        ttsClient,
+		vision:     vision.NewClient(cfg.Vision.URL, cfg.Vision.Model, cfg.Vision.APIKey),
+		events:     newEventBus(store.DB()),
+		mqttMsgBus: newMQTTMsgBus(),
+		db:         database,
+		tmpDir:     tmpDir,
+		log:        clog.NewWithOptions(os.Stderr, clog.Options{Prefix: "api", Level: apiLogLevel}),
 	}
 
 	e := echo.New()
@@ -159,6 +160,10 @@ func New(
 	api.DELETE("/config/cameras/:name", h.DeleteCameraConfig)
 	api.GET("/config/rules", h.ListRules)
 	api.POST("/config/rules", h.CreateRule)
+
+	// MQTT status + live event browser
+	api.GET("/mqtt/status", h.MQTTStatus)
+	api.GET("/mqtt/events", h.MQTTEvents)
 
 	// MCP endpoint
 	mcpServer := buildMCPServer(h)
