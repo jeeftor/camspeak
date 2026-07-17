@@ -1,5 +1,6 @@
 <script>
   import { onDestroy } from 'svelte'
+  import { Sparkles, Save, Upload, Play, Pause, X, Loader2 } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Select } from '$lib/components/ui/select'
@@ -15,8 +16,8 @@
   let genBusy = $state(false)
   let genStatus = $state('')
   let genTimeout
-  let genAudio = $state(null)      // holds the generated WAV blob URL
-  let genAudioEl = $state(null)    // HTML5 Audio element
+  let genAudio = $state(null)
+  let genAudioEl = $state(null)
   let genPlaying = $state(false)
 
   onDestroy(() => {
@@ -36,7 +37,6 @@
   let statusTimeout
   let uploadTimeout
 
-  // Group presets by category
   let grouped = $derived(
     presets.reduce((acc, p) => {
       ;(acc[p.category] ??= []).push(p)
@@ -47,7 +47,6 @@
   async function generate() {
     if (!genText) return
     genBusy = true; genStatus = ''
-    // Clear previous audio
     if (genAudio) { URL.revokeObjectURL(genAudio); genAudio = null }
     genPlaying = false
     try {
@@ -60,7 +59,6 @@
       const blob = await res.blob()
       genAudio = URL.createObjectURL(blob)
       genStatus = '✓ Playing…'
-      // Autoplay immediately
       genAudioEl = new Audio(genAudio)
       genAudioEl.onended = () => { genPlaying = false }
       genAudioEl.play()
@@ -75,13 +73,8 @@
 
   function togglePreview() {
     if (!genAudio || !genAudioEl) return
-    if (genPlaying) {
-      genAudioEl.pause()
-      genPlaying = false
-    } else {
-      genAudioEl.play()
-      genPlaying = true
-    }
+    if (genPlaying) { genAudioEl.pause(); genPlaying = false }
+    else { genAudioEl.play(); genPlaying = true }
   }
 
   async function save() {
@@ -144,27 +137,16 @@
 
   function preview(category, name) {
     const key = `${category}/${name}`
-    // If already playing this, stop it
     if (playingKey === key && currentAudio) {
       currentAudio.pause()
       currentAudio = null
       playingKey = ''
       return
     }
-    // Stop any existing audio
-    if (currentAudio) {
-      currentAudio.pause()
-    }
-    // Play in-browser via HTML5 audio
+    if (currentAudio) currentAudio.pause()
     currentAudio = new Audio(`/api/library/${category}/${name}/preview`)
-    currentAudio.onended = () => {
-      playingKey = ''
-      currentAudio = null
-    }
-    currentAudio.onerror = () => {
-      playingKey = ''
-      currentAudio = null
-    }
+    currentAudio.onended = () => { playingKey = ''; currentAudio = null }
+    currentAudio.onerror = () => { playingKey = ''; currentAudio = null }
     currentAudio.play()
     playingKey = key
   }
@@ -181,7 +163,7 @@
   <div class="flex gap-1">
     {#each libTabs as t}
       <Button
-        variant={tab === t.id ? 'default' : 'outline'}
+        variant={tab === t.id ? 'default' : 'ghost'}
         size="sm"
         onclick={() => tab = t.id}
       >
@@ -196,7 +178,7 @@
     {:else}
       {#each Object.entries(grouped) as [cat, items]}
         <div class="mb-4">
-          <h3 class="mb-2 text-xs uppercase tracking-widest text-muted-foreground">{cat}</h3>
+          <h3 class="mb-2 text-sm font-semibold text-muted-foreground">{cat}</h3>
           <div class="flex flex-col gap-1.5">
             {#each items as p}
               <div class="flex items-center justify-between rounded-lg border bg-card px-3 py-2">
@@ -206,10 +188,12 @@
                   {#if p.text}<span class="truncate text-sm italic text-muted-foreground">"{p.text}"</span>{/if}
                 </div>
                 <div class="flex shrink-0 gap-1">
-                  <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => preview(p.category, p.name)} title="Preview" aria-label="Preview preset">
-                    {playingKey === `${p.category}/${p.name}` ? '⏸' : '▶'}
+                  <Button variant="outline" size="icon" class="h-8 w-8" onclick={() => preview(p.category, p.name)} title="Preview" aria-label="Preview preset">
+                    {#if playingKey === `${p.category}/${p.name}`}<Pause class="h-4 w-4" />{:else}<Play class="h-4 w-4" />{/if}
                   </Button>
-                  <Button variant="outline" size="sm" class="h-7 px-2 hover:border-destructive hover:text-destructive" onclick={() => deletePreset(p.category, p.name)} title="Delete" aria-label="Delete preset">✕</Button>
+                  <Button variant="outline" size="icon" class="h-8 w-8 hover:border-destructive hover:text-destructive" onclick={() => deletePreset(p.category, p.name)} title="Delete" aria-label="Delete preset">
+                    <X class="h-4 w-4" />
+                  </Button>
                 </div>
               </div>
             {/each}
@@ -236,11 +220,12 @@
       </label>
       <div class="flex gap-2">
         <Button onclick={generate} disabled={genBusy || !genText}>
-          {genBusy ? 'Generating…' : '✨ Generate & Preview'}
+          {#if genBusy}<Loader2 class="h-4 w-4 animate-spin" />{:else}<Sparkles class="h-4 w-4" />{/if}
+          Generate & Preview
         </Button>
         {#if genAudio}
           <Button variant="outline" onclick={togglePreview}>
-            {genPlaying ? '⏸' : '▶'}
+            {#if genPlaying}<Pause class="h-4 w-4" />{:else}<Play class="h-4 w-4" />{/if}
           </Button>
         {/if}
       </div>
@@ -256,7 +241,8 @@
             <Input bind:value={genCategory} placeholder="alerts" />
           </label>
           <Button variant="secondary" onclick={save} disabled={genBusy || !genName} class="mt-2 w-fit">
-            {genBusy ? 'Saving…' : '💾 Save'}
+            <Save class="h-4 w-4" />
+            Save
           </Button>
         </div>
       {/if}
@@ -285,7 +271,8 @@
         />
       </label>
       <Button onclick={upload} disabled={uploadBusy || !uploadName || !uploadFile} class="w-fit">
-        {uploadBusy ? 'Uploading…' : '⬆ Upload'}
+        {#if uploadBusy}<Loader2 class="h-4 w-4 animate-spin" />{:else}<Upload class="h-4 w-4" />{/if}
+        Upload
       </Button>
       {#if uploadStatus}<p class="text-sm text-primary">{uploadStatus}</p>{/if}
     </div>

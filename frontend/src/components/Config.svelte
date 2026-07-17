@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte'
+  import { Bell, Play, Pencil, X, Check, Loader2 } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Select } from '$lib/components/ui/select'
@@ -289,14 +290,14 @@
 </script>
 
 {#if loading}
-  <p class="italic text-muted-foreground">Loading config…</p>
+  <p class="flex items-center gap-2 text-muted-foreground"><Loader2 class="h-4 w-4 animate-spin" /> Loading config…</p>
 {:else}
   <div class="flex flex-col gap-4">
     {#if configError}<p class="text-sm text-destructive">{configError}</p>{/if}
     <div class="flex gap-1">
       {#each configTabs as t}
         <Button
-          variant={tab === t.id ? 'default' : 'outline'}
+          variant={tab === t.id ? 'default' : 'ghost'}
           size="sm"
           onclick={() => tab = t.id}
         >
@@ -324,11 +325,11 @@
                 <span class="text-sm text-muted-foreground">{p.default_voice}</span>
               </div>
               <div class="flex shrink-0 gap-1">
-                <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => editTTS(p)} title="Edit" aria-label="Edit TTS preset">✎</Button>
+                <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => editTTS(p)} title="Edit" aria-label="Edit TTS preset"><Pencil class="h-4 w-4" /></Button>
                 {#if !p.is_active}
-                  <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => activateTTS(p.name)} title="Activate" aria-label="Activate TTS preset">●</Button>
+                  <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => activateTTS(p.name)} title="Activate" aria-label="Activate TTS preset"><Check class="h-4 w-4" /></Button>
                 {/if}
-                <Button variant="outline" size="sm" class="h-7 px-2 hover:border-destructive hover:text-destructive" onclick={() => deleteTTS(p.name)} title="Delete" aria-label="Delete TTS preset">✕</Button>
+                <Button variant="outline" size="sm" class="h-7 px-2 hover:border-destructive hover:text-destructive" onclick={() => deleteTTS(p.name)} title="Delete" aria-label="Delete TTS preset"><X class="h-4 w-4" /></Button>
               </div>
             </div>
           {/each}
@@ -398,9 +399,9 @@
               </div>
               <div class="flex shrink-0 items-center gap-1">
                 {#if testStatus[cam.name]}<span class="mr-1 text-sm text-primary">{testStatus[cam.name]}</span>{/if}
-                <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => testCamera(cam.name)} title="Test beep" aria-label="Test beep" disabled={!cam.enabled}>🔔</Button>
-                <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => editCamera(cam)} title="Edit" aria-label="Edit camera">✎</Button>
-                <Button variant="outline" size="sm" class="h-7 px-2 hover:border-destructive hover:text-destructive" onclick={() => deleteCamera(cam.name)} title="Delete" aria-label="Delete camera">✕</Button>
+                <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => testCamera(cam.name)} title="Test beep" aria-label="Test beep" disabled={!cam.enabled}><Bell class="h-4 w-4" /></Button>
+                <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => editCamera(cam)} title="Edit" aria-label="Edit camera"><Pencil class="h-4 w-4" /></Button>
+                <Button variant="outline" size="sm" class="h-7 px-2 hover:border-destructive hover:text-destructive" onclick={() => deleteCamera(cam.name)} title="Delete" aria-label="Delete camera"><X class="h-4 w-4" /></Button>
               </div>
             </div>
           {/each}
@@ -479,7 +480,7 @@
               </div>
               <div class="flex shrink-0 items-center gap-1">
                 {#if testStatus['rule_' + r.id]}<span class="mr-1 text-sm text-primary">{testStatus['rule_' + r.id]}</span>{/if}
-                <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => testRule(r)} title="Test speak" aria-label="Test rule">▶</Button>
+                <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => testRule(r)} title="Test speak" aria-label="Test rule"><Play class="h-4 w-4" /></Button>
               </div>
             </div>
           {/each}

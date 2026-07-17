@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte'
+  import { Radio, Loader2 } from 'lucide-svelte'
   import CameraGrid from './components/CameraGrid.svelte'
   import Library from './components/Library.svelte'
   import EventLog from './components/EventLog.svelte'
@@ -48,8 +49,11 @@
 </script>
 
 <div class="flex min-h-screen flex-col">
-  <header class="flex items-center gap-8 border-b px-6 py-3 bg-card">
-    <div class="text-lg font-bold tracking-wide text-primary">📢 camspeak</div>
+  <header class="flex items-center gap-6 border-b px-6 py-3 bg-card">
+    <div class="flex items-center gap-2 text-lg font-bold tracking-wide text-primary">
+      <Radio class="h-5 w-5" />
+      camspeak
+    </div>
     <nav class="flex gap-1">
       {#each tabs as t}
         <Button
@@ -66,11 +70,16 @@
     {/if}
   </header>
 
-  <BroadcastBar {voices} {presets} />
+  {#if tab === 'cameras'}
+    <BroadcastBar {voices} {presets} />
+  {/if}
 
   <main class="mx-auto w-full max-w-6xl flex-1 p-6">
     {#if loading && cameras.length === 0 && presets.length === 0}
-      <p class="italic text-muted-foreground">Loading…</p>
+      <div class="flex items-center gap-2 text-muted-foreground">
+        <Loader2 class="h-4 w-4 animate-spin" />
+        Loading…
+      </div>
     {:else if loadError}
       <p class="text-sm text-destructive">{loadError}</p>
     {:else if tab === 'cameras'}
