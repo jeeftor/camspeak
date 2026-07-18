@@ -345,13 +345,15 @@ func (s *Server) handleAnnounce(req *rtspRequest, cseq string) *rtspResponse {
 		padded := make([]byte, 32)
 		copy(padded, challengeBytes)
 
-		// Sign with RSA private key (PKCS#1 v1.5)
+		// Sign with RSA private key (PKCS#1 v1.5, raw — no hash)
+		// RAOP uses RSA_private_encrypt with PKCS1_PADDING, which is equivalent
+		// to SignPKCS1v15 with crypto.Hash(0) (no pre-hashing).
 		signed, err := rsa.SignPKCS1v15(
 			rand.Reader,
 			s.rsaKey,
-			crypto.SHA1,
+			crypto.Hash(0),
 			padded,
-		) //nolint:staticcheck // RAOP uses SHA-1
+		)
 		if err != nil {
 			s.log.Warn("ANNOUNCE: RSA sign failed", "err", err)
 			return &rtspResponse{
@@ -649,23 +651,35 @@ func (s *Server) handleTeardown(req *rtspRequest, cseq string) *rtspResponse {
 }
 
 // parseSDP extracts key SDP attributes into a map.
+// Handles multi-line values (rsaaeskey can span multiple lines where
+// continuation lines don't start with "a=").
 func parseSDP(body []byte) map[string]string {
 	sdp := make(map[string]string)
 	lines := strings.Split(string(body), "\n")
+	var lastKey string
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "a=") {
-			kv := strings.SplitN(line[2:], ":", 2)
-			if len(kv) == 2 {
-				key := strings.TrimSpace(kv[0])
-				val := strings.TrimSpace(kv[1])
-				// Handle multi-line values (rsaaeskey can span lines)
-				if existing, ok := sdp[key]; ok {
-					sdp[key] = existing + val
-				} else {
-					sdp[key] = val
+		if line == "" {
+			lastKey = ""
+			continue
+		}
+
+		// Check if this is a standard SDP attribute line (starts with "X=")
+		if len(line) > 2 && line[1] == '=' {
+			// New attribute — reset lastKey
+			if strings.HasPrefix(line, "a=") {
+				kv := strings.SplitN(line[2:], ":", 2)
+				if len(kv) == 2 {
+					lastKey = strings.TrimSpace(kv[0])
+					val := strings.TrimSpace(kv[1])
+					sdp[lastKey] = val
 				}
+			} else {
+				lastKey = ""
 			}
+		} else if lastKey != "" {
+			// Continuation line — append to previous attribute
+			sdp[lastKey] += line
 		}
 	}
 	return sdp
