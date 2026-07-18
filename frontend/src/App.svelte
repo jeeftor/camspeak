@@ -10,6 +10,7 @@
   import RestDocs from './components/RestDocs.svelte'
   import McpDocs from './components/McpDocs.svelte'
   import HomeAssistant from './components/HomeAssistant.svelte'
+  import VisionTest from './components/VisionTest.svelte'
   import { curlState, setCurlBaseUrl, resetCurlBaseUrl } from '$lib/curl.svelte'
 
   let tab = $state('cameras')
@@ -21,9 +22,10 @@
   let loadError = $state('')
   let showUrlEditor = $state(false)
   let urlEditValue = $state('')
+  let globalVisionPrompt = $state('')
 
   // --- Hash-based SPA routing ---
-  const validTabs = ['cameras', 'library', 'events', 'broadcast', 'frigate', 'ha', 'config', 'rest', 'swagger', 'mcp']
+  const validTabs = ['cameras', 'library', 'events', 'broadcast', 'frigate', 'ha', 'config', 'vision-test', 'rest', 'swagger', 'mcp']
 
   function tabFromHash() {
     const h = window.location.hash.replace(/^#\/?/, '')
@@ -54,17 +56,20 @@
     loading = true
     loadError = ''
     try {
-      const [camRes, voiceRes, presetRes, healthRes] = await Promise.all([
+      const [camRes, voiceRes, presetRes, healthRes, visionRes] = await Promise.all([
         fetch('/api/cameras'),
         fetch('/api/voices'),
         fetch('/api/library'),
         fetch('/api/health'),
+        fetch('/api/config/vision'),
       ])
       cameras = await camRes.json() ?? []
       voices = await voiceRes.json() ?? []
       presets = await presetRes.json() ?? []
       const health = await healthRes.json() ?? {}
       version = health.version ?? ''
+      const v = await visionRes.json() ?? {}
+      globalVisionPrompt = v.prompt ?? ''
     } catch (e) {
       loadError = 'Failed to load data: ' + e.message
     } finally {
@@ -73,16 +78,17 @@
   }
 
   const tabs = [
-    { id: 'cameras',   label: 'Cameras' },
-    { id: 'library',   label: 'Library' },
-    { id: 'events',    label: 'Events' },
-    { id: 'broadcast', label: 'Broadcast' },
-    { id: 'frigate',   label: 'Frigate' },
-    { id: 'ha',        label: 'Home Assistant' },
-    { id: 'config',    label: 'Config' },
-    { id: 'rest',      label: 'REST' },
-    { id: 'swagger',   label: 'Swagger' },
-    { id: 'mcp',       label: 'MCP' },
+    { id: 'cameras',     label: 'Cameras' },
+    { id: 'library',     label: 'Library' },
+    { id: 'events',      label: 'Events' },
+    { id: 'broadcast',   label: 'Broadcast' },
+    { id: 'frigate',     label: 'Frigate' },
+    { id: 'ha',          label: 'Home Assistant' },
+    { id: 'config',      label: 'Config' },
+    { id: 'vision-test', label: 'Vision Test' },
+    { id: 'rest',        label: 'REST' },
+    { id: 'swagger',     label: 'Swagger' },
+    { id: 'mcp',         label: 'MCP' },
   ]
 </script>
 
@@ -180,6 +186,8 @@
         <HomeAssistant />
       {:else if tab === 'config'}
         <Config onRefresh={loadAll} />
+      {:else if tab === 'vision-test'}
+        <VisionTest cameras={cameras} globalPrompt={globalVisionPrompt} onSavePrompt={async (p) => { globalVisionPrompt = p }} />
       {:else if tab === 'rest'}
         <RestDocs />
       {:else if tab === 'swagger'}

@@ -143,6 +143,24 @@ const openAPISpec = `{
         }
       }
     },
+    "/vision/test": {
+      "post": {
+        "tags": ["vision"],
+        "summary": "Capture snapshot (or reuse provided image) and run a vision prompt — for prompt testing/refinement",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/VisionTestRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {"description": "OK", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/VisionTestResponse"}}}},
+          "503": {"description": "Vision model or Frigate not configured"}
+        }
+      }
+    },
     "/describe": {
       "post": {
         "tags": ["vision"],
@@ -491,6 +509,21 @@ const openAPISpec = `{
         "type": "object",
         "properties": {
           "description": {"type": "string", "example": "There are 2 people in the driveway."}
+        }
+      },
+      "VisionTestRequest": {
+        "type": "object",
+        "properties": {
+          "camera": {"type": "string", "description": "Required if image is empty (to capture snapshot)", "example": "backyard"},
+          "prompt": {"type": "string", "description": "Vision prompt to test", "example": "Describe what you see in one or two sentences."},
+          "image": {"type": "string", "description": "Base64 data URI of a cached image. If provided, skips snapshot capture and reuses this image.", "example": "data:image/jpeg;base64,/9j/4AAQ..."}
+        }
+      },
+      "VisionTestResponse": {
+        "type": "object",
+        "properties": {
+          "description": {"type": "string", "example": "A white minivan parked in a driveway."},
+          "image": {"type": "string", "description": "Base64 data URI of the image used (for client-side caching and display)", "example": "data:image/jpeg;base64,/9j/4AAQ..."}
         }
       },
       "DescribeRequest": {
