@@ -1,4 +1,6 @@
 <script>
+  import JsonCode from '$lib/components/JsonCode.svelte'
+
   let expanded = $state({})
   function toggle(id) { expanded[id] = !expanded[id] }
   let copied = $state(false)
@@ -102,14 +104,14 @@
       Add camspeak as an MCP server in your AI tool's config (e.g. Claude Desktop,
       <code class="font-mono text-xs bg-muted px-1 rounded">claude_desktop_config.json</code>):
     </p>
-    <pre class="text-xs bg-background rounded-md border p-3 overflow-x-auto text-foreground/80">{JSON.stringify({
+    <JsonCode code={JSON.stringify({
   mcpServers: {
     camspeak: {
       url: mcpUrl,
       transport: 'http-stream',
     }
   }
-}, null, 2)}</pre>
+}, null, 2)} class="text-xs" />
     <div class="flex items-center gap-3">
       <div class="flex items-center gap-2 rounded-md border bg-muted px-3 py-1.5 font-mono text-sm flex-1 truncate">
         {mcpUrl}
@@ -164,7 +166,7 @@
             {#if Object.keys(tool.example).length > 0}
               <div>
                 <p class="text-xs font-semibold text-muted-foreground mb-1">Example call</p>
-                <pre class="text-xs bg-background rounded-md border p-3 overflow-x-auto text-foreground/80">{JSON.stringify(tool.example, null, 2)}</pre>
+                <JsonCode code={JSON.stringify(tool.example, null, 2)} class="text-xs" />
               </div>
             {/if}
           </div>
