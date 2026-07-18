@@ -238,15 +238,21 @@ type rtspResponse struct {
 }
 
 func readRTSPRequest(r *bufio.Reader) (*rtspRequest, error) {
+	// Peek at what's coming — helps debug iOS AirPlay protocol issues
+	peeked, _ := r.Peek(128)
 	// Read request line
 	line, err := r.ReadString('\n')
 	if err != nil {
 		return nil, err
 	}
 	line = strings.TrimSpace(line)
+	if line == "" {
+		// Log raw bytes for debugging — iOS may send HTTP or binary
+		return nil, fmt.Errorf("empty request line (raw peek: %x)", peeked)
+	}
 	parts := strings.SplitN(line, " ", 3)
 	if len(parts) < 3 {
-		return nil, fmt.Errorf("malformed RTSP request: %q", line)
+		return nil, fmt.Errorf("malformed RTSP request: %q (raw peek: %x)", line, peeked)
 	}
 
 	req := &rtspRequest{
@@ -324,7 +330,7 @@ func (s *Server) handleRequest(req *rtspRequest) *rtspResponse {
 			reason: "OK",
 			headers: map[string]string{
 				"CSeq":   cseq,
-				"Public": "ANNOUNCE, SETUP, RECORD, PAUSE, FLUSH, TEARDOWN, OPTIONS, GET_PARAMETER, SET_PARAMETER",
+				"Public": "ANNOUNCE, SETUP, RECORD, PAUSE, FLUSH, TEARDOWN, OPTIONS, GET_PARAMETER, SET_PARAMETER, POST",
 			},
 		}
 
@@ -348,6 +354,13 @@ func (s *Server) handleRequest(req *rtspRequest) *rtspResponse {
 		return &rtspResponse{status: 200, reason: "OK", headers: map[string]string{"CSeq": cseq}}
 
 	case "GET_PARAMETER":
+		return &rtspResponse{status: 200, reason: "OK", headers: map[string]string{"CSeq": cseq}}
+
+	case "POST":
+		// POST /command and /feedback are control endpoints used by iOS
+		// for metadata, volume, and playback feedback. Accept them with 200
+		// so iOS proceeds with the RTSP ANNOUNCE/SETUP/RECORD flow.
+		s.log.Debug("POST control endpoint", "uri", req.uri, "body_len", len(req.body))
 		return &rtspResponse{status: 200, reason: "OK", headers: map[string]string{"CSeq": cseq}}
 
 	default:
