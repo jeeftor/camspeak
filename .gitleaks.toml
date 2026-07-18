@@ -1,0 +1,7 @@
+title = "camspeak gitleaks config"
+
+[allowlist]
+  description = "Allow the AirPort Express RSA private key used for RAOP authentication"
+  paths = [
+    '''internal/airplay/rsa_key\.go''',
+  ]

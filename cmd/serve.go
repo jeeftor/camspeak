@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
+	"github.com/jeeftor/camspeak/internal/airplay"
 	"github.com/jeeftor/camspeak/internal/api"
 	"github.com/jeeftor/camspeak/internal/cameras"
 	"github.com/jeeftor/camspeak/internal/config"
@@ -100,6 +101,35 @@ func runServe(cmd *cobra.Command, args []string) error {
 		appLog.Info("camera", "name", name, "type", cam.Type, "ip", cam.IP, "enabled", cam.Enabled)
 	}
 
+	// Start AirPlay receivers for each camera if enabled
+	var airplayServers []*airplay.Server
+	if cfg.AirPlay.Enabled {
+		appLog.Info("AirPlay enabled — starting receivers for all cameras")
+		port := cfg.AirPlay.BasePort
+		for name, cam := range cfg.Cameras {
+			if !cam.Enabled {
+				continue
+			}
+			speaker, err := reg.Get(name)
+			if err != nil {
+				appLog.Warn("AirPlay: skipping camera", "name", name, "err", err)
+				continue
+			}
+			apServer, err := airplay.NewServer(name, port, speaker)
+			if err != nil {
+				appLog.Warn("AirPlay: failed to create server", "name", name, "err", err)
+				continue
+			}
+			if err := apServer.Start(); err != nil {
+				appLog.Warn("AirPlay: failed to start server", "name", name, "err", err)
+				continue
+			}
+			airplayServers = append(airplayServers, apServer)
+			port++
+		}
+		appLog.Info("AirPlay receivers started", "count", len(airplayServers))
+	}
+
 	srv := api.New(cfg, reg, store, ttsClient, database)
 
 	// Wire MQTT → API handlers
@@ -120,6 +150,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	go func() {
 		<-quit
 		appLog.Info("shutting down")
+		for _, ap := range airplayServers {
+			ap.Stop()
+		}
 		srv.Stop() //nolint:errcheck
 	}()
 
@@ -141,5 +174,12 @@ func printBanner(cfg *config.Config) {
 	fmt.Println(infoStyle.Render(fmt.Sprintf("  UI  -> http://localhost:%d", cfg.Port)))
 	fmt.Println(infoStyle.Render(fmt.Sprintf("  MCP -> http://localhost:%d/mcp", cfg.Port)))
 	fmt.Println(infoStyle.Render("  TTS -> " + cfg.TTS.URL))
+	if cfg.AirPlay.Enabled {
+		fmt.Println(
+			infoStyle.Render(
+				fmt.Sprintf("  AirPlay -> enabled (base port %d)", cfg.AirPlay.BasePort),
+			),
+		)
+	}
 	fmt.Println()
 }

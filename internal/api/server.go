@@ -168,6 +168,10 @@ func New(
 	api.GET("/config/rules", h.ListRules)
 	api.POST("/config/rules", h.CreateRule)
 
+	// AirPlay config
+	api.GET("/config/airplay", h.GetAirPlayConfig)
+	api.PUT("/config/airplay", h.UpdateAirPlayConfig)
+
 	// MQTT status + live event browser + dynamic subscriptions
 	api.GET("/mqtt/status", h.MQTTStatus)
 	api.GET("/mqtt/events", h.MQTTEvents)

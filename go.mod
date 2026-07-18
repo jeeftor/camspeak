@@ -3,11 +3,13 @@ module github.com/jeeftor/camspeak
 go 1.26.3
 
 require (
+	github.com/alicebob/alac v0.0.0-20251224094718-0cfeed25bc2f
 	github.com/bluenviron/gortsplib/v4 v4.15.0
 	github.com/bluenviron/mediacommon/v2 v2.9.1
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/log v1.0.0
 	github.com/eclipse/paho.mqtt.golang v1.5.1
+	github.com/grandcat/zeroconf v1.0.0
 	github.com/icholy/digest v1.1.0
 	github.com/joho/godotenv v1.5.1
 	github.com/labstack/echo/v4 v4.15.4
@@ -19,6 +21,7 @@ require (
 
 require (
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
+	github.com/cenkalti/backoff v2.2.1+incompatible // indirect
 	github.com/charmbracelet/colorprofile v0.2.3-0.20250311203215-f60798e515dc // indirect
 	github.com/charmbracelet/x/ansi v0.8.0 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.13-0.20250311204145-2c3ea96c31dd // indirect
@@ -34,6 +37,7 @@ require (
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
+	github.com/miekg/dns v1.1.27 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/pion/logging v0.2.3 // indirect

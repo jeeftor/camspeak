@@ -92,12 +92,21 @@ type Config struct {
 	FrigateURL  string                  `json:"frigate_url,omitempty"`
 	Go2rtcURL   string                  `json:"go2rtc_url,omitempty"`
 	AdvertiseIP string                  `json:"advertise_ip,omitempty"`
+	AirPlay     AirPlayConfig           `json:"airplay"`
+}
+
+// AirPlayConfig controls the RAOP (AirPlay v1) receiver feature.
+// When enabled, each camera appears as a separate AirPlay target in the iOS picker.
+type AirPlayConfig struct {
+	Enabled  bool `json:"enabled"`   // if true, start AirPlay receivers for all cameras
+	BasePort int  `json:"base_port"` // starting port for RAOP listeners (default 5000)
 }
 
 // Defaults.
 const (
-	defaultPort    = 8585
-	defaultLibrary = "/config/library"
+	defaultPort            = 8585
+	defaultLibrary         = "/config/library"
+	defaultAirPlayBasePort = 5000
 )
 
 // DefaultTTSPresets are created on first boot if no presets exist.
@@ -210,6 +219,18 @@ func loadPreferences(db *sql.DB, cfg *Config) {
 	}
 	if v, ok := prefs["vision_prompt"]; ok {
 		cfg.Vision.Prompt = v
+	}
+	if v, ok := prefs["airplay_enabled"]; ok {
+		cfg.AirPlay.Enabled = v == "1" || v == "true"
+	}
+	if v, ok := prefs["airplay_base_port"]; ok {
+		if p, err := strconv.Atoi(v); err == nil {
+			cfg.AirPlay.BasePort = p
+		}
+	}
+	// Default base port
+	if cfg.AirPlay.BasePort == 0 {
+		cfg.AirPlay.BasePort = defaultAirPlayBasePort
 	}
 }
 
@@ -371,6 +392,14 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("CAMSPEAK_MQTT_PASS"); v != "" {
 		cfg.MQTT.Pass = v
 	}
+	if v := os.Getenv("CAMSPEAK_AIRPLAY_ENABLED"); v != "" {
+		cfg.AirPlay.Enabled = v == "1" || v == "true" || v == "yes"
+	}
+	if v := os.Getenv("CAMSPEAK_AIRPLAY_BASE_PORT"); v != "" {
+		if p, err := strconv.Atoi(v); err == nil {
+			cfg.AirPlay.BasePort = p
+		}
+	}
 
 	// Per-camera env overrides: CAM_<NAME>_IP, CAM_<NAME>_USER, CAM_<NAME>_PASS
 	for name, cam := range cfg.Cameras {
@@ -419,7 +448,15 @@ func SaveCamera(db *sql.DB, name string, cam CameraConfig) error {
 		   type = excluded.type, ip = excluded.ip, user = excluded.user,
 		   pass = excluded.pass, channel = excluded.channel, stream = excluded.stream,
 		   enabled = excluded.enabled, vision_prompt = excluded.vision_prompt`,
-		name, cam.Type, cam.IP, cam.User, cam.Pass, cam.Channel, cam.Stream, enabled, cam.VisionPrompt,
+		name,
+		cam.Type,
+		cam.IP,
+		cam.User,
+		cam.Pass,
+		cam.Channel,
+		cam.Stream,
+		enabled,
+		cam.VisionPrompt,
 	)
 	if err != nil {
 		return fmt.Errorf("saving camera %s: %w", name, err)
@@ -478,7 +515,13 @@ func SaveTTSPreset(db *sql.DB, p TTSPreset) error {
 		   endpoint = excluded.endpoint, model = excluded.model, api_key = excluded.api_key,
 		   default_voice = excluded.default_voice, description = excluded.description,
 		   is_active = excluded.is_active`,
-		p.Name, p.Endpoint, p.Model, p.APIKey, p.DefaultVoice, p.Description, isActive,
+		p.Name,
+		p.Endpoint,
+		p.Model,
+		p.APIKey,
+		p.DefaultVoice,
+		p.Description,
+		isActive,
 	)
 	if err != nil {
 		return fmt.Errorf("saving TTS preset %s: %w", p.Name, err)

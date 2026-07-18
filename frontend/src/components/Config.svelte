@@ -45,6 +45,11 @@
   let visionPrompt = $state('')
   let visionStatus = $state('')
 
+  // AirPlay form
+  let airplayEnabled = $state(false)
+  let airplayBasePort = $state(5000)
+  let airplayStatus = $state('')
+
   // Test status
   let testStatus = $state({})
   let configError = $state('')
@@ -52,12 +57,13 @@
   async function loadConfig() {
     loading = true
     try {
-      const [cfgRes, ttsRes, camRes, voiceRes, visionRes] = await Promise.all([
+      const [cfgRes, ttsRes, camRes, voiceRes, visionRes, airplayRes] = await Promise.all([
         fetch('/api/config'),
         fetch('/api/config/tts'),
         fetch('/api/config/cameras'),
         fetch('/api/voices'),
         fetch('/api/config/vision'),
+        fetch('/api/config/airplay'),
       ])
       config = await cfgRes.json()
       const ttsData = await ttsRes.json()
@@ -70,6 +76,9 @@
       visionModel = v.model ?? ''
       visionAPIKey = v.api_key ?? ''
       visionPrompt = v.prompt ?? ''
+      const ap = await airplayRes.json()
+      airplayEnabled = ap.enabled ?? false
+      airplayBasePort = ap.base_port ?? 5000
     } catch (e) {
       console.error('loadConfig error:', e)
     } finally {
@@ -251,10 +260,33 @@
     }
   }
 
+  // --- AirPlay ---
+  async function saveAirPlay() {
+    airplayStatus = ''
+    try {
+      const res = await fetch('/api/config/airplay', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: airplayEnabled,
+          base_port: parseInt(airplayBasePort) || 5000,
+        }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      airplayStatus = '✓ Saved — restart required'
+      loadConfig()
+    } catch (e) {
+      airplayStatus = '✗ ' + e.message
+    } finally {
+      setTimeout(() => airplayStatus = '', 6000)
+    }
+  }
+
   const configTabs = [
     { id: 'tts', label: 'TTS Presets' },
     { id: 'cameras', label: 'Cameras' },
     { id: 'vision', label: 'Vision' },
+    { id: 'airplay', label: 'AirPlay' },
     { id: 'overview', label: 'Overview' },
   ]
 </script>
@@ -483,6 +515,37 @@
           Save Vision Config
         </Button>
         {#if visionStatus}<span class="ml-2 text-sm text-primary">{visionStatus}</span>{/if}
+      </section>
+
+    <!-- AirPlay -->
+    {:else if tab === 'airplay'}
+      <section class="rounded-lg border bg-card p-5">
+        <h3 class="mb-1 text-base font-semibold text-primary">AirPlay Receivers</h3>
+        <p class="mb-4 text-sm text-muted-foreground">
+          When enabled, each camera appears as a separate AirPlay target in the iOS AirPlay picker.
+          AirPlay audio from your iPhone is decoded and sent to the camera speaker.
+          Uses classic AirPlay v1 (RAOP) — compatible with iOS 18+ and iOS 26.
+        </p>
+        <label class="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            bind:checked={airplayEnabled}
+            class="h-4 w-4 cursor-pointer rounded border-input accent-primary"
+          />
+          Enable AirPlay receivers for all cameras
+        </label>
+        <label class="mt-3 flex flex-col gap-1 text-xs text-muted-foreground" style="max-width: 200px">
+          Base Port (each camera gets next sequential port)
+          <Input bind:value={airplayBasePort} type="number" min="1024" max="65535" />
+        </label>
+        <p class="mt-2 text-xs text-muted-foreground">
+          Example: with base port 5000 and 3 cameras, they'll listen on ports 5000, 5001, 5002.
+          Each camera name appears in the iOS AirPlay picker.
+        </p>
+        <Button onclick={saveAirPlay} class="mt-3">
+          Save AirPlay Config
+        </Button>
+        {#if airplayStatus}<span class="ml-2 text-sm text-primary">{airplayStatus}</span>{/if}
       </section>
 
     <!-- Overview -->
