@@ -39,7 +39,8 @@ type Server struct {
 	speaker     Speaker
 	log         *clog.Logger
 	listener    net.Listener
-	zeroconf    *zeroconf.Server
+	zeroconf    *zeroconf.Server // RAOP _raop._tcp
+	airplayZC   *zeroconf.Server // AirPlay _airplay._tcp
 
 	// Active session
 	sessionMu sync.Mutex
@@ -149,6 +150,37 @@ func (s *Server) Start() error {
 	}
 	s.zeroconf = zc
 
+	// Also register _airplay._tcp — modern iOS requires both _raop._tcp
+	// and _airplay._tcp to show the device in the AirPlay picker.
+	// Minimal TXT records for audio-only AirPlay v1.
+	airplayText := []string{
+		"deviceid=" + formatMAC(s.hwAddr),
+		"features=0x5A7FFEE6,0x0",
+		"flags=0x4",
+		"model=camspeak",
+		"pw=false",
+		"protovers=1.1",
+		"srcvers=366.0",
+		"vv=2",
+	}
+	var airplayZC *zeroconf.Server
+	if s.advertiseIP != "" {
+		airplayZC, err = zeroconf.RegisterProxy(
+			s.name, "_airplay._tcp", "local.",
+			s.port, s.name, []string{s.advertiseIP}, airplayText, nil,
+		)
+	} else {
+		airplayZC, err = zeroconf.Register(
+			s.name, "_airplay._tcp", "local.", s.port, airplayText, nil,
+		)
+	}
+	if err != nil {
+		ln.Close()
+		s.zeroconf.Shutdown()
+		return fmt.Errorf("airplay mDNS registration: %w", err)
+	}
+	s.airplayZC = airplayZC
+
 	s.log.Info("AirPlay receiver started", "port", s.port, "mDNS", raopName)
 
 	go s.acceptLoop()
@@ -158,6 +190,9 @@ func (s *Server) Start() error {
 
 // Stop shuts down the RAOP server.
 func (s *Server) Stop() {
+	if s.airplayZC != nil {
+		s.airplayZC.Shutdown()
+	}
 	if s.zeroconf != nil {
 		s.zeroconf.Shutdown()
 	}
@@ -764,6 +799,15 @@ func padBase64(s string) string {
 		s += strings.Repeat("=", 4-r)
 	}
 	return s
+}
+
+// formatMAC converts a hex MAC string "AABBCCDDEEFF" to "AA:BB:CC:DD:EE:FF".
+func formatMAC(hw string) string {
+	if len(hw) != 12 {
+		return hw
+	}
+	return fmt.Sprintf("%s:%s:%s:%s:%s:%s",
+		hw[0:2], hw[2:4], hw[4:6], hw[6:8], hw[8:10], hw[10:12])
 }
 
 // session holds the state of a single RAOP connection.
