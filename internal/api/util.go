@@ -125,12 +125,6 @@ func rawToWAV(rawFile, tmpDir string) (string, error) {
 	return wavName, nil
 }
 
-// transcodeFileToRaw converts any audio file to G.711ulaw 8kHz raw via ffmpeg.
-// Uses a default 3x volume boost.
-func transcodeFileToRaw(src, dst string) error {
-	return transcodeFileToRawGain(src, dst, 3.0)
-}
-
 // boostRawGain re-processes an existing G.711ulaw raw file with a volume gain.
 // Returns the path to a new temp raw file. Caller must os.Remove it.
 func boostRawGain(srcRaw, tmpDir string, gain float64) (string, error) {
