@@ -133,8 +133,7 @@ func (s *Server) Start() error {
 		"ch=2",
 		"cn=0,1", // PCM, ALAC
 		"da=true",
-		"et=0,1", // no encryption, RSA
-		"ek=1",
+		"et=0",     // no encryption — avoid FairPlay /fp-setup
 		"md=0,1,2", // text, artwork, progress
 		"pw=false",
 		"sv=false",
