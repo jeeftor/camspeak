@@ -143,7 +143,15 @@ func (h *Handlers) Play(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	h.log.Info("play: done", "camera", req.Camera, "preset", req.Preset, "elapsed", time.Since(start))
+	h.log.Info(
+		"play: done",
+		"camera",
+		req.Camera,
+		"preset",
+		req.Preset,
+		"elapsed",
+		time.Since(start),
+	)
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -309,7 +317,15 @@ func (h *Handlers) Beep(c echo.Context) error {
 	start := time.Now()
 
 	if err := cam.SendRaw(raw); err != nil {
-		h.log.Error("beep: send failed", "camera", req.Camera, "elapsed", time.Since(start), "err", err)
+		h.log.Error(
+			"beep: send failed",
+			"camera",
+			req.Camera,
+			"elapsed",
+			time.Since(start),
+			"err",
+			err,
+		)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
@@ -424,7 +440,9 @@ func (h *Handlers) Vision(c echo.Context) error {
 	}
 
 	h.log.Info("vision: done", "camera", req.Camera, "text", description)
-	h.events.publish(event{Camera: req.Camera, Action: "describe", Text: description, At: time.Now()})
+	h.events.publish(
+		event{Camera: req.Camera, Action: "describe", Text: description, At: time.Now()},
+	)
 
 	return c.JSON(http.StatusOK, map[string]string{"description": description})
 }
@@ -683,7 +701,10 @@ func (h *Handlers) Describe(c echo.Context) error {
 
 	rawPath, err := wavBytesToRaw(wav, h.tmpDir, gain)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("transcoding: %s", err))
+		return echo.NewHTTPError(
+			http.StatusInternalServerError,
+			fmt.Sprintf("transcoding: %s", err),
+		)
 	}
 	defer os.Remove(rawPath)
 
@@ -706,7 +727,9 @@ func (h *Handlers) Describe(c echo.Context) error {
 	)
 
 	h.log.Info("describe: done", "camera", req.Camera, "elapsed", time.Since(start))
-	h.events.publish(event{Camera: req.Camera, Action: "describe", Text: description, At: time.Now()})
+	h.events.publish(
+		event{Camera: req.Camera, Action: "describe", Text: description, At: time.Now()},
+	)
 
 	snapB64 := base64.StdEncoding.EncodeToString(imageBytes)
 	return c.JSON(http.StatusOK, map[string]string{
@@ -936,7 +959,10 @@ func (h *Handlers) UploadPreset(c echo.Context) error {
 	if _, err := io.Copy(tmp, src); err != nil {
 		tmp.Close()
 
-		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("reading upload: %s", err))
+		return echo.NewHTTPError(
+			http.StatusInternalServerError,
+			fmt.Sprintf("reading upload: %s", err),
+		)
 	}
 
 	tmp.Close()
@@ -957,6 +983,28 @@ func (h *Handlers) DeletePreset(c echo.Context) error {
 	}
 
 	return c.NoContent(http.StatusNoContent)
+}
+
+// RenamePreset handles PATCH /api/library/:category/:name.
+func (h *Handlers) RenamePreset(c echo.Context) error {
+	var body struct {
+		Name     string `json:"name"`
+		Category string `json:"category"`
+	}
+	if err := c.Bind(&body); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	if body.Name == "" && body.Category == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "must provide name or category")
+	}
+
+	preset, err := h.store.Rename(c.Param("category"), c.Param("name"), body.Category, body.Name)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusConflict, err.Error())
+	}
+
+	return c.JSON(http.StatusOK, preset)
 }
 
 // PreviewPreset handles GET /api/library/:category/:name/preview — streams WAV.
@@ -1066,7 +1114,13 @@ func (h *Handlers) speakText(cameraName, text, voice string, gain float64) error
 	if err := cam.SendRaw(rawPath); err != nil {
 		return fmt.Errorf("sending to camera: %w", err)
 	}
-	h.log.Debug("speak: camera send complete", "camera", cameraName, "elapsed", time.Since(sendStart))
+	h.log.Debug(
+		"speak: camera send complete",
+		"camera",
+		cameraName,
+		"elapsed",
+		time.Since(sendStart),
+	)
 
 	h.events.publish(event{Camera: cameraName, Action: "speak", Text: text, At: time.Now()})
 
@@ -1119,7 +1173,13 @@ func (h *Handlers) playPreset(cameraName, category, presetName string, gain floa
 	if err := cam.SendRaw(sendPath); err != nil {
 		return fmt.Errorf("sending to camera: %w", err)
 	}
-	h.log.Debug("play: camera send complete", "camera", cameraName, "elapsed", time.Since(sendStart))
+	h.log.Debug(
+		"play: camera send complete",
+		"camera",
+		cameraName,
+		"elapsed",
+		time.Since(sendStart),
+	)
 
 	h.events.publish(event{Camera: cameraName, Action: "play", Text: preset.Name, At: time.Now()})
 

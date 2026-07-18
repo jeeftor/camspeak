@@ -256,6 +256,61 @@ func (s *Store) Delete(category, name string) error {
 	return nil
 }
 
+// Rename moves a preset to a new name and/or category.
+// The raw audio file is moved on disk and the SQLite row is updated.
+// Returns an error if the source doesn't exist or the target already exists.
+func (s *Store) Rename(oldCategory, oldName, newCategory, newName string) (*Preset, error) {
+	preset, err := s.Get(oldCategory, oldName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Normalize: if newCategory is empty, keep old; if newName is empty, keep old
+	if newCategory == "" {
+		newCategory = oldCategory
+	}
+	if newName == "" {
+		newName = oldName
+	}
+
+	// No-op if nothing changed
+	if newCategory == oldCategory && newName == oldName {
+		return preset, nil
+	}
+
+	// Check that target doesn't already exist
+	if _, err := s.Get(newCategory, newName); err == nil {
+		return nil, fmt.Errorf("preset %s/%s already exists", newCategory, newName)
+	}
+
+	// Move the raw file
+	newDir := filepath.Join(s.dir, newCategory)
+	if err := os.MkdirAll(newDir, 0o755); err != nil {
+		return nil, fmt.Errorf("creating target category dir: %w", err)
+	}
+
+	newRawPath := s.rawPath(newCategory, newName)
+	if err := os.Rename(preset.RawPath, newRawPath); err != nil {
+		return nil, fmt.Errorf("moving raw file: %w", err)
+	}
+
+	// Update the database row
+	_, err = s.db.Exec(
+		`UPDATE presets SET name = ?, category = ?, raw_path = ? WHERE category = ? AND name = ?`,
+		newName, newCategory, newRawPath, oldCategory, oldName,
+	)
+	if err != nil {
+		// Try to move the file back on DB failure
+		_ = os.Rename(newRawPath, preset.RawPath)
+		return nil, fmt.Errorf("updating preset metadata: %w", err)
+	}
+
+	preset.Name = newName
+	preset.Category = newCategory
+	preset.RawPath = newRawPath
+	return preset, nil
+}
+
 // GetRawPath returns the path to the raw file for streaming.
 func (p *Preset) GetRawPath() string {
 	return p.RawPath

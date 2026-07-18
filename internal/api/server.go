@@ -145,6 +145,7 @@ func New(
 	api.POST("/tts/preview", h.TTSPreview)
 	api.POST("/library/upload", h.UploadPreset)
 	api.DELETE("/library/:category/:name", h.DeletePreset)
+	api.PATCH("/library/:category/:name", h.RenamePreset)
 	api.GET("/library/:category/:name/preview", h.PreviewPreset)
 	api.GET("/events", h.Events)
 	api.GET("/health", h.Health)
