@@ -5,6 +5,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v1.12.0] — 2026-07-17
+
+### Added
+- **Vision prompt presets** — save and reload named vision prompts in the Vision Test tab. Stored in SQLite (`vision_prompts` table). REST API: `GET/POST /api/config/vision-prompts`, `DELETE /api/config/vision-prompts/:name`.
+- **Image upload in Vision Test** — upload any image file (not just camera snapshots) to test vision prompts against. The `POST /api/vision/test` endpoint now accepts `multipart/form-data` with an `image` file upload in addition to the existing JSON/base64 body format.
+
+---
+
 ## [v1.11.0] — 2026-07-17
 
 ### Added
