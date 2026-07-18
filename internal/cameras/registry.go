@@ -24,9 +24,9 @@ func SetLogLevel(level clog.Level) {
 // newLogger creates a charmbracelet logger with the given prefix and global LogLevel.
 func newLogger(prefix string) *clog.Logger {
 	return clog.NewWithOptions(os.Stderr, clog.Options{
-		Prefix:           prefix,
-		ReportTimestamp:  true,
-		Level:            LogLevel,
+		Prefix:          prefix,
+		ReportTimestamp: true,
+		Level:           LogLevel,
 	})
 }
 
@@ -38,10 +38,10 @@ type Speaker interface {
 
 // Registry holds all configured cameras.
 type Registry struct {
-	cameras    map[string]Speaker
-	configs    map[string]config.CameraConfig
-	tts        *tts.Client
-	go2rtcURL  string
+	cameras     map[string]Speaker
+	configs     map[string]config.CameraConfig
+	tts         *tts.Client
+	go2rtcURL   string
 	advertiseIP string
 }
 

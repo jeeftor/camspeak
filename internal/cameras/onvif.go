@@ -6,12 +6,12 @@ import (
 	"os"
 	"time"
 
-	clog "github.com/charmbracelet/log"
 	"github.com/bluenviron/gortsplib/v4"
 	"github.com/bluenviron/gortsplib/v4/pkg/base"
 	"github.com/bluenviron/gortsplib/v4/pkg/description"
 	"github.com/bluenviron/gortsplib/v4/pkg/format"
 	"github.com/bluenviron/mediacommon/v2/pkg/codecs/g711"
+	clog "github.com/charmbracelet/log"
 )
 
 // OnvifClient plays audio on a camera via ONVIF RTSP backchannel.
@@ -89,7 +89,9 @@ func (c *OnvifClient) SendRaw(rawFile string) error {
 	// Find the G.711 backchannel
 	medi, forma := findG711BackChannel(desc)
 	if medi == nil {
-		return fmt.Errorf("no G.711 backchannel found in RTSP SDP — camera may not support two-way audio")
+		return fmt.Errorf(
+			"no G.711 backchannel found in RTSP SDP — camera may not support two-way audio",
+		)
 	}
 
 	c.log.Info("found backchannel",
@@ -216,7 +218,7 @@ func mulawToLinear(u byte) int16 {
 	exponent := (u & 0x70) >> 4
 	mantissa := u & 0x0F
 
-	sample := int16(((mantissa<<3) + 0x84) << uint(exponent))
+	sample := int16(((mantissa << 3) + 0x84) << uint(exponent))
 	sample -= 0x84
 
 	if sign == 1 {

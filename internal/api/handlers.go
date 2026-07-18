@@ -401,6 +401,100 @@ func (h *Handlers) Vision(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"description": description})
 }
 
+// VisionTest handles POST /api/vision/test — captures a snapshot (or reuses
+// a client-provided base64 image) and runs a vision prompt against it.
+// Returns both the image (base64 data URI) and the description, so the UI
+// can display the snapshot and iterate on prompts without re-capturing.
+func (h *Handlers) VisionTest(c echo.Context) error {
+	var req struct {
+		Camera string `json:"camera"`
+		Prompt string `json:"prompt"`
+		Image  string `json:"image"` // optional base64 data URI; if empty, capture from camera
+	}
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid request body")
+	}
+
+	h.cfgMu.Lock()
+	frigateURL := h.cfg.FrigateURL
+	visionClient := h.vision
+	h.cfgMu.Unlock()
+
+	if visionClient == nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "vision model not configured")
+	}
+
+	var imageBytes []byte
+	var imageDataURI string
+
+	if req.Image != "" {
+		// Client provided a cached image — decode and reuse
+		// Strip the data URI prefix if present
+		b64Data := req.Image
+		if idx := indexOf(b64Data, ','); idx > 0 && len(b64Data) > 20 && b64Data[:5] == "data:" {
+			b64Data = b64Data[idx+1:]
+		}
+		decoded, err := base64.StdEncoding.DecodeString(b64Data)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, "invalid base64 image")
+		}
+		imageBytes = decoded
+		imageDataURI = req.Image
+	} else {
+		// Capture a fresh snapshot from Frigate
+		if req.Camera == "" {
+			return echo.NewHTTPError(http.StatusBadRequest, "camera required (or provide image)")
+		}
+		if frigateURL == "" {
+			return echo.NewHTTPError(http.StatusServiceUnavailable, "frigate URL not configured")
+		}
+		snapURL := fmt.Sprintf("%s/api/%s/latest.jpg?h=720", frigateURL, req.Camera)
+		snapReq, err := http.NewRequestWithContext(c.Request().Context(), http.MethodGet, snapURL, nil)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		}
+		snapResp, err := (&http.Client{Timeout: 30 * time.Second}).Do(snapReq)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("frigate snapshot: %s", err))
+		}
+		defer snapResp.Body.Close()
+		if snapResp.StatusCode != 200 {
+			return echo.NewHTTPError(
+				http.StatusBadGateway,
+				fmt.Sprintf("frigate returned HTTP %d", snapResp.StatusCode),
+			)
+		}
+		imageBytes, err = io.ReadAll(snapResp.Body)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("reading snapshot: %s", err))
+		}
+		imageDataURI = "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(imageBytes)
+	}
+
+	description, err := visionClient.Describe(imageBytes, "image/jpeg", req.Prompt)
+	if err != nil {
+		h.log.Error("vision-test: failed", "camera", req.Camera, "err", err)
+		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("vision: %s", err))
+	}
+
+	h.log.Info("vision-test: done", "camera", req.Camera, "prompt_len", len(req.Prompt), "text", description)
+
+	return c.JSON(http.StatusOK, map[string]string{
+		"description": description,
+		"image":       imageDataURI,
+	})
+}
+
+// indexOf returns the index of the first occurrence of ch in s, or -1.
+func indexOf(s string, ch byte) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] == ch {
+			return i
+		}
+	}
+	return -1
+}
+
 // Describe handles POST /api/describe — Frigate snapshot → vision model → TTS → camera.
 func (h *Handlers) Describe(c echo.Context) error {
 	var req struct {
