@@ -238,21 +238,21 @@ type rtspResponse struct {
 }
 
 func readRTSPRequest(r *bufio.Reader) (*rtspRequest, error) {
-	// Peek at what's coming — helps debug iOS AirPlay protocol issues
-	peeked, _ := r.Peek(128)
-	// Read request line
-	line, err := r.ReadString('\n')
-	if err != nil {
-		return nil, err
-	}
-	line = strings.TrimSpace(line)
-	if line == "" {
-		// Log raw bytes for debugging — iOS may send HTTP or binary
-		return nil, fmt.Errorf("empty request line (raw peek: %x)", peeked)
+	// Read request line, skipping blank lines (iOS sends them between requests)
+	var line string
+	for {
+		l, err := r.ReadString('\n')
+		if err != nil {
+			return nil, err
+		}
+		line = strings.TrimSpace(l)
+		if line != "" {
+			break
+		}
 	}
 	parts := strings.SplitN(line, " ", 3)
 	if len(parts) < 3 {
-		return nil, fmt.Errorf("malformed RTSP request: %q (raw peek: %x)", line, peeked)
+		return nil, fmt.Errorf("malformed RTSP request: %q", line)
 	}
 
 	req := &rtspRequest{
@@ -263,15 +263,15 @@ func readRTSPRequest(r *bufio.Reader) (*rtspRequest, error) {
 
 	// Read headers
 	for {
-		line, err = r.ReadString('\n')
+		hline, err := r.ReadString('\n')
 		if err != nil {
 			return nil, err
 		}
-		line = strings.TrimSpace(line)
-		if line == "" {
+		hline = strings.TrimSpace(hline)
+		if hline == "" {
 			break
 		}
-		kv := strings.SplitN(line, ":", 2)
+		kv := strings.SplitN(hline, ":", 2)
 		if len(kv) == 2 {
 			req.headers[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
 		}
