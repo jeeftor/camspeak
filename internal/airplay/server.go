@@ -88,6 +88,13 @@ func NewServer(name string, port int, speaker Speaker) (*Server, error) {
 	}, nil
 }
 
+// SetLogLevel changes the log level for this AirPlay server.
+// Pass clog.DebugLevel for verbose protocol logging.
+func (s *Server) SetLogLevel(level clog.Level) {
+	s.log.SetLevel(level)
+	s.log.SetReportCaller(false)
+}
+
 // Start begins listening for RAOP connections and advertising via mDNS.
 func (s *Server) Start() error {
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", s.port))
@@ -161,18 +168,27 @@ func (s *Server) acceptLoop() {
 
 func (s *Server) handleConn(conn net.Conn) {
 	defer conn.Close()
+	remote := conn.RemoteAddr().String()
+	s.log.Debug("RTSP connection opened", "from", remote)
 
 	reader := bufio.NewReader(conn)
 	for {
 		req, err := readRTSPRequest(reader)
 		if err != nil {
 			if err != io.EOF {
-				s.log.Debug("RTSP read error", "err", err)
+				s.log.Debug("RTSP read error", "err", err, "from", remote)
 			}
+			s.log.Debug("RTSP connection closed", "from", remote)
 			return
 		}
 
+		s.log.Debug("RTSP request", "method", req.method, "uri", req.uri,
+			"CSeq", req.headers["CSeq"], "from", remote)
+
 		resp := s.handleRequest(req)
+		s.log.Debug("RTSP response", "status", resp.status,
+			"CSeq", resp.headers["CSeq"], "from", remote)
+
 		if err := writeRTSPResponse(conn, resp); err != nil {
 			s.log.Debug("RTSP write error", "err", err)
 			return
@@ -832,6 +848,7 @@ func (s *session) audioReceiveLoop() {
 		}
 
 		if n < 12 {
+			s.log.Debug("audio: packet too small", "len", n)
 			continue // too small for RTP header
 		}
 
@@ -843,6 +860,7 @@ func (s *session) audioReceiveLoop() {
 		// SSRC (32)
 		payloadType := buf[1] & 0x7f
 		if payloadType != 96 {
+			s.log.Debug("audio: non-audio RTP packet", "payloadType", payloadType)
 			continue // not audio
 		}
 
@@ -858,9 +876,13 @@ func (s *session) audioReceiveLoop() {
 			continue
 		}
 
+		seqNum := int(buf[2])<<8 | int(buf[3])
+		s.log.Debug("audio: RTP packet",
+			"seq", seqNum, "payloadLen", len(payload), "totalLen", n)
+
 		// Decrypt with AES-128-CBC
 		if len(payload)%16 != 0 {
-			// Pad to 16-byte boundary (shouldn't happen with ALAC)
+			s.log.Debug("audio: payload not 16-byte aligned", "len", len(payload))
 			continue
 		}
 
@@ -873,8 +895,11 @@ func (s *session) audioReceiveLoop() {
 		// Decode ALAC frame → PCM 16-bit stereo 44100Hz
 		pcm := s.decoder.Decode(decrypted)
 		if len(pcm) == 0 {
+			s.log.Debug("audio: ALAC decode returned empty", "encryptedLen", len(payload))
 			continue
 		}
+
+		s.log.Debug("audio: decoded ALAC", "pcmLen", len(pcm), "seq", seqNum)
 
 		// Feed PCM to the audio stream (which pipes to ffmpeg → G.711ulaw → camera)
 		s.stream.writePCM(pcm)

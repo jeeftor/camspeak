@@ -154,3 +154,53 @@ prek install
 - Svelte 5 + Vite + Bun
 - ffmpeg for audio transcoding (G.711ulaw 8kHz)
 - AirPlay v1 (RAOP) via grandcat/zeroconf (mDNS) + alicebob/alac (ALAC decoder), pure Go
+
+## Debugging AirPlay
+
+### Enable debug logging
+```bash
+CAMSPEAK_LOG_LEVEL=debug CAMSPEAK_AIRPLAY_ENABLED=true CAMSPEAK_AIRPLAY_BASE_PORT=5100 ./camspeak serve
+```
+Debug logs show every RTSP request/response, RTP packet seq/payload size, ALAC decode results, and audio chunk sends to camera.
+
+### Verify mDNS advertisement
+```bash
+# Browse for RAOP services (should list each camera)
+dns-sd -B _raop._tcp
+
+# Check TXT records for a specific camera
+dns-sd -L "0F6DF0EA0FEE@camera-name" _raop._tcp local
+```
+Expected TXT: `et=0,1 ek=1 cn=0,1 sr=44100 ss=16 tp=UDP am=camspeak`
+
+### Capture RTSP/RTP traffic
+```bash
+# TCP (RTSP control channel) — port 5100
+sudo tcpdump -i any -A 'tcp port 5100' -w airplay_rtsp.pcap
+
+# UDP (RTP audio + timing + control)
+sudo tcpdump -i any -A 'udp portrange 50000-65535' -w airplay_rtp.pcap
+
+# All AirPlay traffic
+sudo tcpdump -i any 'port 5100 or (udp and src <your-phone-ip>)' -w airplay.pcap
+
+# Open in Wireshark
+wireshark airplay.pcap
+```
+
+### Test RTSP handshake without iOS
+Use the Python test script or curl:
+```bash
+# OPTIONS
+echo -e "OPTIONS * RTSP/1.0\r\nCSeq: 1\r\n\r\n" | nc 127.0.0.1 5100
+
+# Check if server is listening
+lsof -i :5100
+```
+
+### Common issues
+- **Port 5000 in use on macOS**: ControlCenter uses it. Use `CAMSPEAK_AIRPLAY_BASE_PORT=5100`
+- **Camera not in AirPlay picker**: Check `dns-sd -B _raop._tcp` — if not listed, mDNS registration failed
+- **iOS connects but no audio**: Check debug logs for `audio: RTP packet` lines — if none, UDP ports may be blocked by firewall
+- **ALAC decode returns empty**: The `fmtp` parameters in SDP may not match what the ALAC decoder expects
+- **ffmpeg not found**: AirPlay audio pipeline requires ffmpeg in PATH

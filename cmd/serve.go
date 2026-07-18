@@ -120,6 +120,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 				appLog.Warn("AirPlay: failed to create server", "name", name, "err", err)
 				continue
 			}
+			apServer.SetLogLevel(level)
 			if err := apServer.Start(); err != nil {
 				appLog.Warn("AirPlay: failed to start server", "name", name, "err", err)
 				continue
