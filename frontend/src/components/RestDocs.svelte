@@ -1,4 +1,6 @@
 <script>
+  import JsonCode from '$lib/components/JsonCode.svelte'
+
   let expanded = $state({})
   function toggle(id) { expanded[id] = !expanded[id] }
 
@@ -187,12 +189,12 @@
             {#if ep.body !== null}
               <div>
                 <p class="text-xs font-semibold text-muted-foreground mb-1">Request body</p>
-                <pre class="text-xs bg-background rounded-md border p-3 overflow-x-auto text-foreground/80">{typeof ep.body === 'string' ? ep.body : JSON.stringify(ep.body, null, 2)}</pre>
+                <JsonCode code={typeof ep.body === 'string' ? ep.body : JSON.stringify(ep.body, null, 2)} class="text-xs" />
               </div>
             {/if}
             <div>
               <p class="text-xs font-semibold text-muted-foreground mb-1">Response</p>
-              <pre class="text-xs bg-background rounded-md border p-3 overflow-x-auto text-foreground/80">{typeof ep.response === 'string' ? ep.response : JSON.stringify(ep.response, null, 2)}</pre>
+              <JsonCode code={typeof ep.response === 'string' ? ep.response : JSON.stringify(ep.response, null, 2)} class="text-xs" />
             </div>
           </div>
         {/if}

@@ -5,6 +5,7 @@
   import { Input } from '$lib/components/ui/input'
   import { Select } from '$lib/components/ui/select'
   import { Badge } from '$lib/components/ui/badge'
+  import JsonCode from '$lib/components/JsonCode.svelte'
 
   let { onRefresh } = $props()
 
@@ -488,7 +489,7 @@
     {:else if tab === 'overview'}
       <section class="rounded-lg border bg-card p-5">
         <h3 class="mb-3 text-base font-semibold text-primary">Runtime Configuration</h3>
-        <pre class="max-h-[600px] overflow-auto rounded-lg border bg-background p-4 text-sm text-foreground/80">{JSON.stringify(config, null, 2)}</pre>
+        <JsonCode code={JSON.stringify(config, null, 2)} class="max-h-[600px] overflow-auto text-sm" />
       </section>
     {/if}
   </div>
