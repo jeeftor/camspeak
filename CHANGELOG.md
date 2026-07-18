@@ -5,6 +5,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v1.12.2] — 2026-07-17
+
+### Added
+- **Markdown rendering in vision prompt history** — vision models can return markdown (headers, lists, bold, code blocks, tables). Descriptions in the prompt history are now rendered as formatted markdown instead of plain text. Uses the `marked` library with theme-aware styling.
+
+---
+
 ## [v1.12.1] — 2026-07-17
 
 ### Changed
