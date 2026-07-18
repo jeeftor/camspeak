@@ -5,6 +5,22 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased]
+
+### Added
+- **AirPlay v1 (RAOP) receiver** — each camera can now appear as an AirPlay target in the iOS AirPlay picker. AirPlay audio from an iPhone/iPad/Mac is decoded (ALAC → PCM → G.711ulaw) and sent to the camera speaker in real-time.
+  - Pure Go implementation using the classic AirPlay v1 protocol (RAOP)
+  - RSA challenge-response authentication (AirPort Express key)
+  - AES-128-CBC audio decryption
+  - ALAC decoding via `alicebob/alac` (pure Go, no CGO)
+  - mDNS/Bonjour service advertisement via `grandcat/zeroconf`
+  - Compatible with iOS 18+ and iOS 26
+  - Config: `CAMSPEAK_AIRPLAY_ENABLED=true` and `CAMSPEAK_AIRPLAY_BASE_PORT=5000` env vars, or via UI Config → AirPlay tab
+  - REST API: `GET/PUT /api/config/airplay`
+  - Each camera gets its own RAOP listener on a sequential port starting from base_port
+
+---
+
 ## [v1.13.0] — 2026-07-17
 
 ### Added

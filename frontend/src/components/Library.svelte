@@ -1,6 +1,6 @@
 <script>
   import { onDestroy } from 'svelte'
-  import { Sparkles, Save, Upload, Play, Pause, X, Loader2 } from 'lucide-svelte'
+  import { Sparkles, Save, Upload, Play, Pause, X, Loader2, Pencil } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Select } from '$lib/components/ui/select'
@@ -135,6 +135,42 @@
   let currentAudio = $state(null)
   let playingKey = $state('')
 
+  // Rename state
+  let editingKey = $state('')
+  let editName = $state('')
+  let editCategory = $state('')
+  let renameStatus = $state('')
+
+  function startRename(p) {
+    const key = `${p.category}/${p.name}`
+    if (editingKey === key) {
+      editingKey = ''
+      return
+    }
+    editingKey = key
+    editName = p.name
+    editCategory = p.category
+    renameStatus = ''
+  }
+
+  async function doRename(oldCategory, oldName) {
+    renameStatus = ''
+    try {
+      const res = await fetch(`/api/library/${encodeURIComponent(oldCategory)}/${encodeURIComponent(oldName)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: editName, category: editCategory }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      editingKey = ''
+      onRefresh()
+    } catch (e) {
+      renameStatus = '✗ ' + e.message
+    } finally {
+      setTimeout(() => renameStatus = '', 4000)
+    }
+  }
+
   function preview(category, name) {
     const key = `${category}/${name}`
     if (playingKey === key && currentAudio) {
@@ -181,20 +217,43 @@
           <h3 class="mb-2 text-sm font-semibold text-muted-foreground">{cat}</h3>
           <div class="flex flex-col gap-1.5">
             {#each items as p}
-              <div class="flex items-center justify-between rounded-lg border bg-card px-3 py-2">
-                <div class="flex min-w-0 flex-1 items-center gap-2.5">
-                  <span class="font-semibold whitespace-nowrap">{p.name}</span>
-                  <span class="text-xs text-muted-foreground whitespace-nowrap">{p.duration?.toFixed(1)}s</span>
-                  {#if p.text}<span class="truncate text-sm italic text-muted-foreground">"{p.text}"</span>{/if}
+              {@const key = `${p.category}/${p.name}`}
+              <div class="rounded-lg border bg-card px-3 py-2">
+                <div class="flex items-center justify-between">
+                  <div class="flex min-w-0 flex-1 items-center gap-2.5">
+                    <span class="font-semibold whitespace-nowrap">{p.name}</span>
+                    <span class="text-xs text-muted-foreground whitespace-nowrap">{p.duration?.toFixed(1)}s</span>
+                    {#if p.text}<span class="truncate text-sm italic text-muted-foreground">"{p.text}"</span>{/if}
+                  </div>
+                  <div class="flex shrink-0 gap-1">
+                    <Button variant="outline" size="icon" class="h-8 w-8" onclick={() => preview(p.category, p.name)} title="Preview" aria-label="Preview preset">
+                      {#if playingKey === key}<Pause class="h-4 w-4" />{:else}<Play class="h-4 w-4" />{/if}
+                    </Button>
+                    <Button variant="outline" size="icon" class="h-8 w-8" onclick={() => startRename(p)} title="Rename" aria-label="Rename preset">
+                      <Pencil class="h-4 w-4" />
+                    </Button>
+                    <Button variant="outline" size="icon" class="h-8 w-8 hover:border-destructive hover:text-destructive" onclick={() => deletePreset(p.category, p.name)} title="Delete" aria-label="Delete preset">
+                      <X class="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
-                <div class="flex shrink-0 gap-1">
-                  <Button variant="outline" size="icon" class="h-8 w-8" onclick={() => preview(p.category, p.name)} title="Preview" aria-label="Preview preset">
-                    {#if playingKey === `${p.category}/${p.name}`}<Pause class="h-4 w-4" />{:else}<Play class="h-4 w-4" />{/if}
-                  </Button>
-                  <Button variant="outline" size="icon" class="h-8 w-8 hover:border-destructive hover:text-destructive" onclick={() => deletePreset(p.category, p.name)} title="Delete" aria-label="Delete preset">
-                    <X class="h-4 w-4" />
-                  </Button>
-                </div>
+                {#if editingKey === key}
+                  <div class="mt-2 flex flex-wrap items-end gap-2 border-t pt-2">
+                    <label class="flex flex-col gap-0.5 text-xs text-muted-foreground">
+                      Name
+                      <Input bind:value={editName} class="h-8 w-40" />
+                    </label>
+                    <label class="flex flex-col gap-0.5 text-xs text-muted-foreground">
+                      Category
+                      <Input bind:value={editCategory} class="h-8 w-32" />
+                    </label>
+                    <Button size="sm" class="h-8" onclick={() => doRename(p.category, p.name)} disabled={!editName || !editCategory}>
+                      Save
+                    </Button>
+                    <Button size="sm" variant="ghost" class="h-8" onclick={() => editingKey = ''}>Cancel</Button>
+                    {#if renameStatus}<span class="text-xs text-destructive">{renameStatus}</span>{/if}
+                  </div>
+                {/if}
               </div>
             {/each}
           </div>

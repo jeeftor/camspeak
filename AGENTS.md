@@ -57,6 +57,8 @@ Multiple TTS endpoints can be configured (klipbord-style presets). The active pr
 | `CAMSPEAK_VISION_MODEL` | Vision model name | (none) |
 | `CAMSPEAK_VISION_API_KEY` | Vision API key | (none) |
 | `CAMSPEAK_VISION_PROMPT` | Global default vision prompt | (hardcoded default) |
+| `CAMSPEAK_AIRPLAY_ENABLED` | Enable AirPlay v1 (RAOP) receivers for all cameras | `false` |
+| `CAMSPEAK_AIRPLAY_BASE_PORT` | Starting port for per-camera RAOP listeners | `5000` |
 | `CAM_<NAME>_IP` / `CAM_<NAME>_USER` / `CAM_<NAME>_PASS` | Per-camera credential overrides | (from DB) |
 
 ### .env file
@@ -66,6 +68,7 @@ Copy `.env.example` to `.env` for local dev. Loaded by godotenv at startup. Giti
 
 - `cmd/` — Cobra CLI commands (`serve`, `speak`, `beep`, `list`, `discover`)
 - `internal/api/` — Echo HTTP server, REST handlers, MCP endpoint, SSE events, config API
+- `internal/airplay/` — RAOP (AirPlay v1) receiver: mDNS advertisement, RTSP server, RSA auth, AES decryption, ALAC decoding, audio pipeline to camera speakers
 - `internal/cameras/` — Camera speaker clients (Hikvision ISAPI, Reolink, go2rtc stream-to-camera, ONVIF RTSP backchannel via gortsplib)
 - `internal/config/` — SQLite-based config loading with env var overrides
 - `internal/db/` — SQLite database initialization (modernc.org/sqlite, pure Go)
@@ -100,6 +103,7 @@ Copy `.env.example` to `.env` for local dev. Loaded by godotenv at startup. Giti
 - `GET/POST /api/config/cameras` — list/add cameras
 - `DELETE /api/config/cameras/:name` — remove camera
 - `GET/POST /api/config/rules` — list/create MQTT rules
+- `GET/PUT /api/config/airplay` — get/update AirPlay receiver config
 - `GET /api/health` — health check with version
 - `GET /api/openapi.json` — OpenAPI 3.0 spec
 - `GET /swagger` — Swagger UI (interactive API explorer, CDN-hosted)
@@ -110,6 +114,8 @@ Copy `.env.example` to `.env` for local dev. Loaded by godotenv at startup. Giti
 - `POST /api/stop` — stop audio on a camera (or all cameras if body empty)
 - `POST /api/broadcast` — broadcast to all cameras
 - `GET/POST /api/library` — preset management
+- `PATCH /api/library/:category/:name` — rename preset
+- `DELETE /api/library/:category/:name` — delete preset
 - `ANY /mcp` — MCP endpoint
 
 ## Docker
@@ -147,3 +153,4 @@ prek install
 - SQLite via modernc.org/sqlite (pure Go, no CGO)
 - Svelte 5 + Vite + Bun
 - ffmpeg for audio transcoding (G.711ulaw 8kHz)
+- AirPlay v1 (RAOP) via grandcat/zeroconf (mDNS) + alicebob/alac (ALAC decoder), pure Go

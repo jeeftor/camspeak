@@ -145,6 +145,7 @@ func New(
 	api.POST("/tts/preview", h.TTSPreview)
 	api.POST("/library/upload", h.UploadPreset)
 	api.DELETE("/library/:category/:name", h.DeletePreset)
+	api.PATCH("/library/:category/:name", h.RenamePreset)
 	api.GET("/library/:category/:name/preview", h.PreviewPreset)
 	api.GET("/events", h.Events)
 	api.GET("/health", h.Health)
@@ -167,6 +168,10 @@ func New(
 	api.DELETE("/config/cameras/:name", h.DeleteCameraConfig)
 	api.GET("/config/rules", h.ListRules)
 	api.POST("/config/rules", h.CreateRule)
+
+	// AirPlay config
+	api.GET("/config/airplay", h.GetAirPlayConfig)
+	api.PUT("/config/airplay", h.UpdateAirPlayConfig)
 
 	// MQTT status + live event browser + dynamic subscriptions
 	api.GET("/mqtt/status", h.MQTTStatus)

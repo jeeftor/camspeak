@@ -39,6 +39,9 @@ can trigger spoken announcements when Frigate publishes detection events.
   control.
 - **Multi-arch Docker** — `linux/amd64` and `linux/arm64` images published to
   GHCR.
+- **AirPlay v1 receiver** — each camera appears as an AirPlay target in the iOS
+  picker. AirPlay audio from your iPhone is decoded and sent to the camera
+  speaker. Pure Go, no CGO, compatible with iOS 18+ and iOS 26.
 - **Pure Go** — SQLite via `modernc.org/sqlite`, no CGO required.
 
 ## Quick start with Docker

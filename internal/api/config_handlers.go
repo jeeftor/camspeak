@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -339,4 +340,48 @@ func (h *Handlers) CreateRule(c echo.Context) error {
 	}
 	r.ID = int(id)
 	return c.JSON(http.StatusCreated, r)
+}
+
+// GetAirPlayConfig handles GET /api/config/airplay — returns AirPlay config.
+func (h *Handlers) GetAirPlayConfig(c echo.Context) error {
+	h.cfgMu.Lock()
+	defer h.cfgMu.Unlock()
+	return c.JSON(http.StatusOK, h.cfg.AirPlay)
+}
+
+// UpdateAirPlayConfig handles PUT /api/config/airplay — updates AirPlay config.
+// Note: changing these settings requires a server restart to take effect
+// (AirPlay receivers are started at boot time).
+func (h *Handlers) UpdateAirPlayConfig(c echo.Context) error {
+	var req config.AirPlayConfig
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid JSON body")
+	}
+
+	enabled := "0"
+	if req.Enabled {
+		enabled = "1"
+	}
+	if req.BasePort == 0 {
+		req.BasePort = 5000
+	}
+
+	if err := config.SetPreference(h.db, "airplay_enabled", enabled); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if err := config.SetPreference(h.db, "airplay_base_port",
+		fmt.Sprintf("%d", req.BasePort)); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	h.cfgMu.Lock()
+	h.cfg.AirPlay = req
+	h.cfgMu.Unlock()
+
+	h.log.Info("AirPlay config updated", "enabled", req.Enabled, "basePort", req.BasePort)
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"enabled":   req.Enabled,
+		"base_port": req.BasePort,
+		"note":      "restart required for changes to take effect",
+	})
 }

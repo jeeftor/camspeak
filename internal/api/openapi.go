@@ -281,6 +281,19 @@ const openAPISpec = `{
         "responses": {
           "200": {"description": "OK"}
         }
+      },
+      "patch": {
+        "tags": ["library"],
+        "summary": "Rename a preset (change name and/or category)",
+        "parameters": [
+          {"name": "category", "in": "path", "required": true, "schema": {"type": "string"}},
+          {"name": "name", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "properties": {"name": {"type": "string"}, "category": {"type": "string"}}}}}},
+        "responses": {
+          "200": {"description": "Updated preset"},
+          "409": {"description": "Target name already exists"}
+        }
       }
     },
     "/library/{category}/{name}/preview": {
@@ -478,6 +491,19 @@ const openAPISpec = `{
         "summary": "Create an MQTT rule",
         "requestBody": {"required": true, "content": {"application/json": {}}},
         "responses": {"200": {"description": "OK"}}
+      }
+    },
+    "/config/airplay": {
+      "get": {
+        "tags": ["config"],
+        "summary": "Get AirPlay receiver configuration",
+        "responses": {"200": {"description": "AirPlay config with enabled flag and base_port"}}
+      },
+      "put": {
+        "tags": ["config"],
+        "summary": "Update AirPlay receiver configuration (requires restart)",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "base_port": {"type": "integer"}}}}}},
+        "responses": {"200": {"description": "Updated — restart required for changes to take effect"}}
       }
     },
     "/mqtt/status": {
