@@ -6,6 +6,7 @@ import (
 	"crypto"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha1"
@@ -36,6 +37,9 @@ type Server struct {
 	hwAddr      string // fake MAC address for mDNS registration
 	advertiseIP string // IP to advertise in mDNS (empty = auto-detect all interfaces)
 	rsaKey      *rsa.PrivateKey
+	edPriv      ed25519.PrivateKey // Ed25519 key for AirPlay pairing
+	pkHex       string             // Ed25519 public key in hex (for pk= TXT record)
+	piUUID      string             // Pairing identity UUID (for pi= TXT record)
 	speaker     Speaker
 	log         *clog.Logger
 	listener    net.Listener
@@ -74,12 +78,29 @@ func NewServer(name string, port int, advertiseIP string, speaker Speaker) (*Ser
 		h[0], h[1], h[2], h[3], h[4], h[5],
 	)
 
+	// Generate Ed25519 key pair for AirPlay pairing (pk= in mDNS).
+	// Derive deterministically from camera name so it's stable across restarts.
+	edSeed := sha256.Sum256([]byte("ed25519:" + name))
+	edPriv := ed25519.NewKeyFromSeed(edSeed[:])
+	edPub := edPriv.Public().(ed25519.PublicKey)
+	pkHex := fmt.Sprintf("%x", edPub)
+	piUUID := fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		binary.BigEndian.Uint32(h[0:4]),
+		binary.BigEndian.Uint16(h[4:6]),
+		binary.BigEndian.Uint16(h[6:8]),
+		binary.BigEndian.Uint16(h[8:10]),
+		h[10:16],
+	)
+
 	return &Server{
 		name:        name,
 		port:        port,
 		hwAddr:      hwAddr,
 		advertiseIP: advertiseIP,
 		rsaKey:      key,
+		edPriv:      edPriv,
+		pkHex:       pkHex,
+		piUUID:      piUUID,
 		speaker:     speaker,
 		log: clog.NewWithOptions(os.Stderr, clog.Options{
 			Prefix:          fmt.Sprintf("airplay[%s]", name),
@@ -124,6 +145,9 @@ func (s *Server) Start() error {
 		"vs=366.0",
 		"am=camspeak",
 		"sf=0x4",
+		"ft=0x5A7FFEE6,0x0",
+		"pk=" + s.pkHex,
+		"vv=2",
 	}
 
 	var zc *zeroconf.Server
@@ -162,6 +186,9 @@ func (s *Server) Start() error {
 		"protovers=1.1",
 		"srcvers=366.0",
 		"vv=2",
+		"pk=" + s.pkHex,
+		"pi=" + s.piUUID,
+		"gid=" + s.piUUID,
 	}
 	var airplayZC *zeroconf.Server
 	if s.advertiseIP != "" {
