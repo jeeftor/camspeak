@@ -34,6 +34,7 @@ func newLogger(prefix string) *clog.Logger {
 type Speaker interface {
 	SendRaw(rawFile string) error
 	Ping() bool
+	Stop() error
 }
 
 // Registry holds all configured cameras.
@@ -145,6 +146,22 @@ func (r *Registry) Status() map[string]bool {
 	}
 
 	return out
+}
+
+// Stop stops audio playback on a specific camera.
+func (r *Registry) Stop(name string) error {
+	cam, ok := r.cameras[name]
+	if !ok {
+		return fmt.Errorf("camera %q not found", name)
+	}
+	return cam.Stop()
+}
+
+// StopAll stops audio playback on all cameras.
+func (r *Registry) StopAll() {
+	for _, cam := range r.cameras {
+		_ = cam.Stop()
+	}
 }
 
 // FFmpegAvailable checks that ffmpeg is on PATH (required for transcoding).

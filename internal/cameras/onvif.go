@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/bluenviron/gortsplib/v4"
@@ -22,6 +23,10 @@ type OnvifClient struct {
 	rtspURL string // e.g. "rtsp://user:pass@192.168.1.195:554/stream0"
 	ip      string // camera IP (for ping)
 	log     *clog.Logger
+
+	// Active stream tracking for Stop()
+	activeMu  sync.Mutex
+	activeCli *gortsplib.Client // active RTSP client
 }
 
 // NewOnvifClient creates a client that uses ONVIF RTSP backchannel.
@@ -78,7 +83,18 @@ func (c *OnvifClient) SendRaw(rawFile string) error {
 	if err := client.Start2(); err != nil {
 		return fmt.Errorf("connecting to RTSP server: %w", err)
 	}
-	defer client.Close()
+
+	// Track active client for Stop()
+	c.activeMu.Lock()
+	c.activeCli = &client
+	c.activeMu.Unlock()
+
+	defer func() {
+		client.Close()
+		c.activeMu.Lock()
+		c.activeCli = nil
+		c.activeMu.Unlock()
+	}()
 
 	// Describe to get the SDP (with backchannel tracks)
 	desc, _, err := client.Describe(u)
@@ -183,6 +199,26 @@ func (c *OnvifClient) SendRaw(rawFile string) error {
 	}
 
 	c.log.Info("audio sent", "samples", sentSamples, "duration_ms", sentSamples/8)
+
+	return nil
+}
+
+// Stop immediately stops audio playback by closing the active RTSP client.
+func (c *OnvifClient) Stop() error {
+	c.activeMu.Lock()
+	cli := c.activeCli
+	c.activeMu.Unlock()
+
+	if cli == nil {
+		return nil // nothing playing
+	}
+
+	c.log.Info("stop: stopping audio", "ip", c.ip)
+	cli.Close()
+
+	c.activeMu.Lock()
+	c.activeCli = nil
+	c.activeMu.Unlock()
 
 	return nil
 }

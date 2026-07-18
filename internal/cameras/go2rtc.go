@@ -1,6 +1,7 @@
 package cameras
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -8,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	clog "github.com/charmbracelet/log"
@@ -25,6 +27,10 @@ type Go2rtcClient struct {
 	ip          string // camera IP (for ping)
 	advertiseIP string // IP that go2rtc can reach camspeak on (for Docker, set to host IP)
 	log         *clog.Logger
+
+	// Active stream tracking for Stop()
+	activeMu   sync.Mutex
+	cancelFunc context.CancelFunc // cancels the active go2rtc API call
 }
 
 // NewGo2rtcClient creates a client that uses go2rtc's stream-to-camera API.
@@ -99,7 +105,28 @@ func (c *Go2rtcClient) SendRaw(rawFile string) error {
 	// Timeout = playback duration + 10s grace (go2rtc needs time to connect + transcode)
 	timeout := time.Duration(info.Size()/8000+10) * time.Second
 
-	resp, err := (&http.Client{Timeout: timeout}).Post(apiURL, "text/plain", nil)
+	// Use cancellable context for Stop() support
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	// Track active cancel for Stop()
+	c.activeMu.Lock()
+	c.cancelFunc = cancel
+	c.activeMu.Unlock()
+
+	defer func() {
+		c.activeMu.Lock()
+		c.cancelFunc = nil
+		c.activeMu.Unlock()
+	}()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, nil)
+	if err != nil {
+		return fmt.Errorf("building go2rtc request: %w", err)
+	}
+	req.Header.Set("Content-Type", "text/plain")
+
+	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
 		return fmt.Errorf("go2rtc API call: %w", err)
 	}
@@ -120,6 +147,34 @@ func (c *Go2rtcClient) SendRaw(rawFile string) error {
 	if err == nil {
 		stopResp.Body.Close()
 	}
+
+	return nil
+}
+
+// Stop immediately stops audio playback by cancelling the active go2rtc API call
+// and sending a stop command to go2rtc.
+func (c *Go2rtcClient) Stop() error {
+	c.activeMu.Lock()
+	cancel := c.cancelFunc
+	c.activeMu.Unlock()
+
+	c.log.Info("stop: stopping audio", "stream", c.stream)
+
+	// Cancel the active HTTP request to go2rtc
+	if cancel != nil {
+		cancel()
+	}
+
+	// Also tell go2rtc to stop the stream
+	stopURL := fmt.Sprintf("%s/api/streams?dst=%s&src=", c.go2rtcURL, url.QueryEscape(c.stream))
+	stopResp, err := (&http.Client{Timeout: 5 * time.Second}).Post(stopURL, "text/plain", nil)
+	if err == nil {
+		stopResp.Body.Close()
+	}
+
+	c.activeMu.Lock()
+	c.cancelFunc = nil
+	c.activeMu.Unlock()
 
 	return nil
 }

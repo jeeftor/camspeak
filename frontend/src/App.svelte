@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte'
-  import { Radio, Loader2, Globe } from 'lucide-svelte'
+  import { Radio, Loader2, Globe, Square } from 'lucide-svelte'
   import CameraGrid from './components/CameraGrid.svelte'
   import Library from './components/Library.svelte'
   import EventLog from './components/EventLog.svelte'
@@ -23,6 +23,18 @@
   let showUrlEditor = $state(false)
   let urlEditValue = $state('')
   let globalVisionPrompt = $state('')
+  let stoppingAll = $state(false)
+
+  async function stopAll() {
+    stoppingAll = true
+    try {
+      await fetch('/api/stop', { method: 'POST' })
+    } catch (e) {
+      // ignore — best effort
+    } finally {
+      stoppingAll = false
+    }
+  }
 
   // --- Hash-based SPA routing ---
   const validTabs = ['cameras', 'library', 'events', 'broadcast', 'frigate', 'ha', 'config', 'vision-test', 'rest', 'swagger', 'mcp']
@@ -116,6 +128,23 @@
           </button>
         {/each}
       </nav>
+
+      <!-- STOP ALL button — always visible, kills audio on all cameras -->
+      <button
+        class="flex items-center gap-1.5 flex-shrink-0 rounded-md bg-destructive px-3 py-1.5 text-sm font-bold
+               text-destructive-foreground hover:bg-destructive/90 transition-colors
+               disabled:opacity-50"
+        onclick={stopAll}
+        disabled={stoppingAll}
+        title="Immediately stop all audio playback on all cameras"
+      >
+        {#if stoppingAll}
+          <Loader2 class="h-3.5 w-3.5 animate-spin" />
+        {:else}
+          <Square class="h-3.5 w-3.5 fill-current" />
+        {/if}
+        STOP
+      </button>
 
       <!-- Curl base URL + version -->
       <div class="flex items-center gap-2 flex-shrink-0">

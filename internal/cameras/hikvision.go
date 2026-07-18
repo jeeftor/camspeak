@@ -26,6 +26,11 @@ type HikvisionClient struct {
 	client  *http.Client
 	mu      sync.Mutex // serializes audio sends — camera supports one session at a time
 	log     *clog.Logger
+
+	// Active stream tracking for Stop()
+	activeMu      sync.Mutex
+	activeConn    net.Conn // active TCP connection streaming audio
+	activeSession string   // active ISAPI two-way audio session ID
 }
 
 // NewHikvisionClient creates a client with digest auth transport.
@@ -142,7 +147,19 @@ func (c *HikvisionClient) SendRaw(rawFile string) error {
 		return fmt.Errorf("open channel: %w", err)
 	}
 	c.log.Debug("send: channel opened", "session", sessionID, "elapsed", time.Since(openStart))
-	defer c.closeChannel(sessionID)
+
+	// Track active session for Stop()
+	c.activeMu.Lock()
+	c.activeSession = sessionID
+	c.activeMu.Unlock()
+
+	defer func() {
+		c.closeChannel(sessionID)
+		c.activeMu.Lock()
+		c.activeConn = nil
+		c.activeSession = ""
+		c.activeMu.Unlock()
+	}()
 
 	c.log.Info("send: streaming audio", "ip", c.ip, "session", sessionID, "bytes", size)
 	sendStart := time.Now()
@@ -153,6 +170,38 @@ func (c *HikvisionClient) SendRaw(rawFile string) error {
 	}
 
 	c.log.Info("send: complete", "ip", c.ip, "bytes", size, "elapsed", time.Since(sendStart))
+	return nil
+}
+
+// Stop immediately stops audio playback by closing the active TCP connection
+// and the ISAPI two-way audio channel.
+func (c *HikvisionClient) Stop() error {
+	c.activeMu.Lock()
+	conn := c.activeConn
+	sessionID := c.activeSession
+	c.activeMu.Unlock()
+
+	if conn == nil && sessionID == "" {
+		return nil // nothing playing
+	}
+
+	c.log.Info("stop: stopping audio", "ip", c.ip, "session", sessionID)
+
+	// Close the TCP connection — this interrupts the streaming loop
+	if conn != nil {
+		_ = conn.Close()
+	}
+
+	// Close the ISAPI two-way audio channel
+	if sessionID != "" {
+		c.closeChannel(sessionID)
+	}
+
+	c.activeMu.Lock()
+	c.activeConn = nil
+	c.activeSession = ""
+	c.activeMu.Unlock()
+
 	return nil
 }
 
@@ -230,6 +279,11 @@ func (c *HikvisionClient) sendAudioRaw(sessionID string, data []byte) error {
 		return fmt.Errorf("dialing camera for audio: %w", err)
 	}
 	defer conn2.Close()
+
+	// Track active connection for Stop()
+	c.activeMu.Lock()
+	c.activeConn = conn2
+	c.activeMu.Unlock()
 
 	// Set deadline = playback duration + 5s grace
 	deadline := time.Now().Add(time.Duration(int64(len(data))/8000+5) * time.Second)
