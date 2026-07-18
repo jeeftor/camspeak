@@ -10,6 +10,7 @@ import (
 	neturl "net/url"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -402,17 +403,51 @@ func (h *Handlers) Vision(c echo.Context) error {
 }
 
 // VisionTest handles POST /api/vision/test — captures a snapshot (or reuses
-// a client-provided base64 image) and runs a vision prompt against it.
-// Returns both the image (base64 data URI) and the description, so the UI
-// can display the snapshot and iterate on prompts without re-capturing.
+// a client-provided base64 image, or accepts an uploaded image file) and runs
+// a vision prompt against it. Returns both the image (base64 data URI) and
+// the description, so the UI can display the snapshot and iterate on prompts
+// without re-capturing.
+//
+// Accepts either:
+//   - JSON: {camera, prompt, image} where image is a base64 data URI
+//   - Multipart form: "prompt" field + "image" file upload
 func (h *Handlers) VisionTest(c echo.Context) error {
-	var req struct {
-		Camera string `json:"camera"`
-		Prompt string `json:"prompt"`
-		Image  string `json:"image"` // optional base64 data URI; if empty, capture from camera
-	}
-	if err := c.Bind(&req); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid request body")
+	var camera, prompt, imageB64 string
+
+	contentType := c.Request().Header.Get("Content-Type")
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		// Multipart form upload
+		prompt = c.FormValue("prompt")
+		file, err := c.FormFile("image")
+		if err == nil && file != nil {
+			src, err := file.Open()
+			if err != nil {
+				return echo.NewHTTPError(http.StatusBadRequest, "cannot open uploaded file")
+			}
+			defer src.Close()
+			imgBytes, err := io.ReadAll(src)
+			if err != nil {
+				return echo.NewHTTPError(http.StatusInternalServerError, "reading uploaded file")
+			}
+			mimeType := file.Header.Get("Content-Type")
+			if mimeType == "" {
+				mimeType = http.DetectContentType(imgBytes)
+			}
+			imageB64 = "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(imgBytes)
+		}
+	} else {
+		// JSON body
+		var req struct {
+			Camera string `json:"camera"`
+			Prompt string `json:"prompt"`
+			Image  string `json:"image"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, "invalid request body")
+		}
+		camera = req.Camera
+		prompt = req.Prompt
+		imageB64 = req.Image
 	}
 
 	h.cfgMu.Lock()
@@ -427,10 +462,9 @@ func (h *Handlers) VisionTest(c echo.Context) error {
 	var imageBytes []byte
 	var imageDataURI string
 
-	if req.Image != "" {
-		// Client provided a cached image — decode and reuse
-		// Strip the data URI prefix if present
-		b64Data := req.Image
+	if imageB64 != "" {
+		// Client provided an image (uploaded or cached) — decode and reuse
+		b64Data := imageB64
 		if idx := indexOf(b64Data, ','); idx > 0 && len(b64Data) > 20 && b64Data[:5] == "data:" {
 			b64Data = b64Data[idx+1:]
 		}
@@ -439,16 +473,16 @@ func (h *Handlers) VisionTest(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusBadRequest, "invalid base64 image")
 		}
 		imageBytes = decoded
-		imageDataURI = req.Image
+		imageDataURI = imageB64
 	} else {
 		// Capture a fresh snapshot from Frigate
-		if req.Camera == "" {
+		if camera == "" {
 			return echo.NewHTTPError(http.StatusBadRequest, "camera required (or provide image)")
 		}
 		if frigateURL == "" {
 			return echo.NewHTTPError(http.StatusServiceUnavailable, "frigate URL not configured")
 		}
-		snapURL := fmt.Sprintf("%s/api/%s/latest.jpg?h=720", frigateURL, req.Camera)
+		snapURL := fmt.Sprintf("%s/api/%s/latest.jpg?h=720", frigateURL, camera)
 		snapReq, err := http.NewRequestWithContext(c.Request().Context(), http.MethodGet, snapURL, nil)
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -471,18 +505,18 @@ func (h *Handlers) VisionTest(c echo.Context) error {
 		imageDataURI = "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(imageBytes)
 	}
 
-	description, err := visionClient.Describe(imageBytes, "image/jpeg", req.Prompt)
+	description, err := visionClient.Describe(imageBytes, "image/jpeg", prompt)
 	if err != nil {
-		h.log.Error("vision-test: failed", "camera", req.Camera, "err", err)
+		h.log.Error("vision-test: failed", "camera", camera, "err", err)
 		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("vision: %s", err))
 	}
 
 	h.log.Info(
 		"vision-test: done",
 		"camera",
-		req.Camera,
+		camera,
 		"prompt_len",
-		len(req.Prompt),
+		len(prompt),
 		"text",
 		description,
 	)

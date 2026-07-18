@@ -73,6 +73,13 @@ type TTSPreset struct {
 	IsActive     bool   `json:"is_active"`
 }
 
+// VisionPrompt is a saved named vision prompt for reuse in the vision test playground.
+type VisionPrompt struct {
+	Name        string `json:"name"`
+	Prompt      string `json:"prompt"`
+	Description string `json:"description,omitempty"`
+}
+
 // Config is the root configuration model.
 type Config struct {
 	TTS         TTSConfig               `json:"tts"`
@@ -517,6 +524,54 @@ func DeleteTTSPreset(db *sql.DB, name string) error {
 	_, err := db.Exec(`DELETE FROM tts_presets WHERE name = ?`, name)
 	if err != nil {
 		return fmt.Errorf("deleting TTS preset %s: %w", name, err)
+	}
+	return nil
+}
+
+// ListVisionPrompts returns all saved vision prompts from SQLite, ordered by name.
+func ListVisionPrompts(db *sql.DB) ([]VisionPrompt, error) {
+	rows, err := db.Query(
+		`SELECT name, prompt, description FROM vision_prompts ORDER BY name`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("listing vision prompts: %w", err)
+	}
+	defer rows.Close()
+
+	var prompts []VisionPrompt
+	for rows.Next() {
+		var p VisionPrompt
+		if err := rows.Scan(&p.Name, &p.Prompt, &p.Description); err != nil {
+			continue
+		}
+		prompts = append(prompts, p)
+	}
+	return prompts, rows.Err()
+}
+
+// SaveVisionPrompt inserts or updates a vision prompt by name.
+func SaveVisionPrompt(db *sql.DB, p VisionPrompt) error {
+	if p.Name == "" {
+		return fmt.Errorf("vision prompt name is required")
+	}
+	_, err := db.Exec(
+		`INSERT INTO vision_prompts (name, prompt, description)
+		 VALUES (?, ?, ?)
+		 ON CONFLICT(name) DO UPDATE SET
+		   prompt = excluded.prompt, description = excluded.description`,
+		p.Name, p.Prompt, p.Description,
+	)
+	if err != nil {
+		return fmt.Errorf("saving vision prompt %s: %w", p.Name, err)
+	}
+	return nil
+}
+
+// DeleteVisionPrompt removes a vision prompt by name.
+func DeleteVisionPrompt(db *sql.DB, name string) error {
+	_, err := db.Exec(`DELETE FROM vision_prompts WHERE name = ?`, name)
+	if err != nil {
+		return fmt.Errorf("deleting vision prompt %s: %w", name, err)
 	}
 	return nil
 }
