@@ -135,7 +135,9 @@ func (s *Server) Start() error {
 		// Use RegisterProxy to advertise a specific IP — critical for Docker
 		// host networking where bridge interfaces (172.x.x.x) must not be
 		// advertised, only the LAN IP.
-		hostname := fmt.Sprintf("%s.local.", s.name)
+		// Note: zeroconf appends ".local." from the domain arg, so hostname
+		// must NOT include ".local." — otherwise we get "name.local.local."
+		hostname := s.name
 		s.log.Debug("mDNS register", "mode", "proxy",
 			"host", hostname, "ip", s.advertiseIP, "port", s.port)
 		zc, err = zeroconf.RegisterProxy(
@@ -325,7 +327,7 @@ func (s *Server) handleRequest(req *rtspRequest) *rtspResponse {
 
 	switch req.method {
 	case "OPTIONS":
-		return &rtspResponse{
+		resp := &rtspResponse{
 			status: 200,
 			reason: "OK",
 			headers: map[string]string{
@@ -333,6 +335,11 @@ func (s *Server) handleRequest(req *rtspRequest) *rtspResponse {
 				"Public": "ANNOUNCE, SETUP, RECORD, PAUSE, FLUSH, TEARDOWN, OPTIONS, GET_PARAMETER, SET_PARAMETER, POST",
 			},
 		}
+		// iOS sends Apple-Challenge with OPTIONS — must respond with Apple-Response
+		if appleResp, ok := s.handleAppleChallenge(req); ok {
+			resp.headers["Apple-Response"] = appleResp
+		}
+		return resp
 
 	case "ANNOUNCE":
 		return s.handleAnnounce(req, cseq)
@@ -372,48 +379,49 @@ func (s *Server) handleRequest(req *rtspRequest) *rtspResponse {
 	}
 }
 
+// handleAppleChallenge processes the Apple-Challenge header from an RTSP
+// request (sent with OPTIONS or ANNOUNCE) and returns the Apple-Response
+// string (RSA-signed, base64-encoded). Returns ok=false if no challenge
+// header is present.
+func (s *Server) handleAppleChallenge(req *rtspRequest) (string, bool) {
+	challenge, ok := req.headers["Apple-Challenge"]
+	if !ok {
+		return "", false
+	}
+
+	challengeBytes, err := base64.StdEncoding.DecodeString(padBase64(challenge))
+	if err != nil {
+		s.log.Warn("Apple-Challenge: bad base64", "err", err)
+		return "", false
+	}
+
+	// Pad challenge to 32 bytes (RSA block size)
+	padded := make([]byte, 32)
+	copy(padded, challengeBytes)
+
+	// Sign with RSA private key (PKCS#1 v1.5, raw — no hash)
+	// RAOP uses RSA_private_encrypt with PKCS1_PADDING, which is equivalent
+	// to SignPKCS1v15 with crypto.Hash(0) (no pre-hashing).
+	signed, err := rsa.SignPKCS1v15(rand.Reader, s.rsaKey, crypto.Hash(0), padded)
+	if err != nil {
+		s.log.Warn("Apple-Challenge: RSA sign failed", "err", err)
+		return "", false
+	}
+
+	resp := base64.StdEncoding.EncodeToString(signed)
+	// Strip padding to match Apple's format
+	return strings.TrimRight(resp, "="), true
+}
+
 // handleAnnounce parses the SDP, extracts AES key/IV, handles RSA challenge,
 // and creates a new session.
 func (s *Server) handleAnnounce(req *rtspRequest, cseq string) *rtspResponse {
 	sdp := parseSDP(req.body)
 
-	// Handle Apple-Challenge (RSA authentication)
+	// Handle Apple-Challenge (RSA authentication) — may appear in ANNOUNCE too
 	var appleResponse string
-	if challenge, ok := req.headers["Apple-Challenge"]; ok {
-		challengeBytes, err := base64.StdEncoding.DecodeString(padBase64(challenge))
-		if err != nil {
-			s.log.Warn("ANNOUNCE: bad Apple-Challenge", "err", err)
-			return &rtspResponse{
-				status:  400,
-				reason:  "Bad Request",
-				headers: map[string]string{"CSeq": cseq},
-			}
-		}
-
-		// Pad challenge to 32 bytes (RSA block size)
-		padded := make([]byte, 32)
-		copy(padded, challengeBytes)
-
-		// Sign with RSA private key (PKCS#1 v1.5, raw — no hash)
-		// RAOP uses RSA_private_encrypt with PKCS1_PADDING, which is equivalent
-		// to SignPKCS1v15 with crypto.Hash(0) (no pre-hashing).
-		signed, err := rsa.SignPKCS1v15(
-			rand.Reader,
-			s.rsaKey,
-			crypto.Hash(0),
-			padded,
-		)
-		if err != nil {
-			s.log.Warn("ANNOUNCE: RSA sign failed", "err", err)
-			return &rtspResponse{
-				status:  500,
-				reason:  "Internal Error",
-				headers: map[string]string{"CSeq": cseq},
-			}
-		}
-		appleResponse = base64.StdEncoding.EncodeToString(signed)
-		// Strip padding to match Apple's format
-		appleResponse = strings.TrimRight(appleResponse, "=")
+	if resp, ok := s.handleAppleChallenge(req); ok {
+		appleResponse = resp
 	}
 
 	// Extract AES key from rsaaeskey (RSA-encrypted AES key)
@@ -517,12 +525,12 @@ func (s *Server) handleAnnounce(req *rtspRequest, cseq string) *rtspResponse {
 		status: 200,
 		reason: "OK",
 		headers: map[string]string{
-			"CSeq": cseq,
+			"CSeq":              cseq,
+			"Audio-Jack-Status": "connected; type=analog",
 		},
 	}
 	if appleResponse != "" {
 		resp.headers["Apple-Response"] = appleResponse
-		resp.headers["Audio-Jack-Status"] = "connected; type=analog"
 	}
 	return resp
 }
