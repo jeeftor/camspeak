@@ -5,6 +5,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v1.12.1] — 2026-07-17
+
+### Changed
+- **Syntax-highlighted JSON everywhere** — Config overview, REST docs, and MCP docs now use the `JsonCode` highlighter instead of plain `<pre>` blocks. Keys, strings, numbers, booleans, and punctuation are colored (theme-aware).
+
+---
+
 ## [v1.12.0] — 2026-07-17
 
 ### Added
