@@ -318,17 +318,3 @@ func (c *HikvisionClient) Ping() bool {
 	// Fallback: raw TCP connect to port 80
 	return tcpPing(c.ip, 80, 3*time.Second)
 }
-
-func isTimeoutError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	type timeoutErr interface{ Timeout() bool }
-
-	if te, ok := err.(timeoutErr); ok {
-		return te.Timeout()
-	}
-
-	return false
-}
