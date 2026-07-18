@@ -477,7 +477,15 @@ func (h *Handlers) VisionTest(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("vision: %s", err))
 	}
 
-	h.log.Info("vision-test: done", "camera", req.Camera, "prompt_len", len(req.Prompt), "text", description)
+	h.log.Info(
+		"vision-test: done",
+		"camera",
+		req.Camera,
+		"prompt_len",
+		len(req.Prompt),
+		"text",
+		description,
+	)
 
 	return c.JSON(http.StatusOK, map[string]string{
 		"description": description,

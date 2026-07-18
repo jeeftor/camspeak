@@ -38,7 +38,6 @@ func buildMCPServer(h *Handlers) *server.MCPServer {
 			}
 
 			err := h.speakText(camera, text, voice, 3.0)
-
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
@@ -65,7 +64,6 @@ func buildMCPServer(h *Handlers) *server.MCPServer {
 			}
 
 			err := h.playPreset(camera, category, preset, 3.0)
-
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}

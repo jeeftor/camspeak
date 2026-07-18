@@ -1,4 +1,11 @@
 repos:
+  # Enforce conventional commit message format
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.2.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+
   # Standard file hygiene hooks
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
@@ -11,6 +18,7 @@ repos:
         args: [--maxkb=500]
       - id: mixed-line-ending
         args: [--fix=lf]
+      - id: detect-private-key
 
   # Go linter — runs on all files (use golangci-lint for changed-only in local)
   - repo: https://github.com/golangci/golangci-lint
