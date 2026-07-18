@@ -35,7 +35,7 @@ func TestRTSPFullSession(t *testing.T) {
 	speaker := &mockSpeaker{}
 
 	// Create server on a random port
-	server, err := NewServer("test-camera", 0, speaker)
+	server, err := NewServer("test-camera", 0, "", speaker)
 	if err != nil {
 		t.Fatalf("NewServer failed: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestRTSPFullSession(t *testing.T) {
 // TestRTSPMultipleSessions tests that a new ANNOUNCE replaces the old session.
 func TestRTSPMultipleSessions(t *testing.T) {
 	speaker := &mockSpeaker{}
-	server, err := NewServer("test-camera", 0, speaker)
+	server, err := NewServer("test-camera", 0, "", speaker)
 	if err != nil {
 		t.Fatalf("NewServer failed: %v", err)
 	}
@@ -261,7 +261,7 @@ func TestRTSPMultipleSessions(t *testing.T) {
 // TestRTSPUnknownMethod tests that unknown methods return 405.
 func TestRTSPUnknownMethod(t *testing.T) {
 	speaker := &mockSpeaker{}
-	server, err := NewServer("test-camera", 0, speaker)
+	server, err := NewServer("test-camera", 0, "", speaker)
 	if err != nil {
 		t.Fatalf("NewServer failed: %v", err)
 	}

@@ -115,7 +115,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 				appLog.Warn("AirPlay: skipping camera", "name", name, "err", err)
 				continue
 			}
-			apServer, err := airplay.NewServer(name, port, speaker)
+			apServer, err := airplay.NewServer(name, port, cfg.AdvertiseIP, speaker)
 			if err != nil {
 				appLog.Warn("AirPlay: failed to create server", "name", name, "err", err)
 				continue

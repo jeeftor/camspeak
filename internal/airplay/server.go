@@ -30,14 +30,15 @@ import (
 // Server is a RAOP (AirPlay v1) receiver that listens for AirPlay connections
 // and routes received audio to a camera speaker.
 type Server struct {
-	name     string // AirPlay device name (shown in iOS AirPlay picker)
-	port     int    // RTSP listener port
-	hwAddr   string // fake MAC address for mDNS registration
-	rsaKey   *rsa.PrivateKey
-	speaker  Speaker
-	log      *clog.Logger
-	listener net.Listener
-	zeroconf *zeroconf.Server
+	name        string // AirPlay device name (shown in iOS AirPlay picker)
+	port        int    // RTSP listener port
+	hwAddr      string // fake MAC address for mDNS registration
+	advertiseIP string // IP to advertise in mDNS (empty = auto-detect all interfaces)
+	rsaKey      *rsa.PrivateKey
+	speaker     Speaker
+	log         *clog.Logger
+	listener    net.Listener
+	zeroconf    *zeroconf.Server
 
 	// Active session
 	sessionMu sync.Mutex
@@ -53,7 +54,10 @@ type Speaker interface {
 
 // NewServer creates a RAOP receiver for the given camera name.
 // The name appears in the iOS AirPlay picker.
-func NewServer(name string, port int, speaker Speaker) (*Server, error) {
+// advertiseIP is the IP address to advertise in mDNS (important for Docker host
+// networking where bridge interfaces shouldn't be advertised). If empty, all
+// interfaces are used.
+func NewServer(name string, port int, advertiseIP string, speaker Speaker) (*Server, error) {
 	key, err := loadRSAPrivateKey()
 	if err != nil {
 		return nil, fmt.Errorf("loading RSA key: %w", err)
@@ -75,11 +79,12 @@ func NewServer(name string, port int, speaker Speaker) (*Server, error) {
 	)
 
 	return &Server{
-		name:    name,
-		port:    port,
-		hwAddr:  hwAddr,
-		rsaKey:  key,
-		speaker: speaker,
+		name:        name,
+		port:        port,
+		hwAddr:      hwAddr,
+		advertiseIP: advertiseIP,
+		rsaKey:      key,
+		speaker:     speaker,
 		log: clog.NewWithOptions(os.Stderr, clog.Options{
 			Prefix:          fmt.Sprintf("airplay[%s]", name),
 			ReportTimestamp: true,
@@ -125,7 +130,22 @@ func (s *Server) Start() error {
 		"sf=0x4",
 	}
 
-	zc, err := zeroconf.Register(raopName, "_raop._tcp", "local.", s.port, text, nil)
+	var zc *zeroconf.Server
+	if s.advertiseIP != "" {
+		// Use RegisterProxy to advertise a specific IP — critical for Docker
+		// host networking where bridge interfaces (172.x.x.x) must not be
+		// advertised, only the LAN IP.
+		hostname := fmt.Sprintf("%s.local.", s.name)
+		s.log.Debug("mDNS register", "mode", "proxy",
+			"host", hostname, "ip", s.advertiseIP, "port", s.port)
+		zc, err = zeroconf.RegisterProxy(
+			raopName, "_raop._tcp", "local.",
+			s.port, hostname, []string{s.advertiseIP}, text, nil,
+		)
+	} else {
+		s.log.Debug("mDNS register", "mode", "auto", "port", s.port)
+		zc, err = zeroconf.Register(raopName, "_raop._tcp", "local.", s.port, text, nil)
+	}
 	if err != nil {
 		ln.Close()
 		return fmt.Errorf("mDNS registration: %w", err)
