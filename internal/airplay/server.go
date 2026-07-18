@@ -248,16 +248,38 @@ func (s *Server) acceptLoop() {
 func (s *Server) handleConn(conn net.Conn) {
 	defer conn.Close()
 	remote := conn.RemoteAddr().String()
-	s.log.Debug("RTSP connection opened", "from", remote)
+	s.log.Debug("connection opened", "from", remote)
 
 	reader := bufio.NewReader(conn)
 	for {
-		req, err := readRTSPRequest(reader)
+		// Read the first line to determine if this is RTSP or HTTP
+		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err != io.EOF {
-				s.log.Debug("RTSP read error", "err", err, "from", remote)
+				s.log.Debug("read error", "err", err, "from", remote)
 			}
-			s.log.Debug("RTSP connection closed", "from", remote)
+			s.log.Debug("connection closed", "from", remote)
+			return
+		}
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue // skip blank lines
+		}
+
+		// Check protocol: HTTP ends with HTTP/1.x, RTSP with RTSP/1.0
+		if strings.Contains(line, "HTTP/1.") {
+			// HTTP request — parse it and handle AirPlay endpoints
+			if err := s.handleHTTPFromLine(reader, conn, line, remote); err != nil {
+				s.log.Debug("HTTP connection closed", "err", err, "from", remote)
+				return
+			}
+			continue
+		}
+
+		// RTSP request — parse from the line we already read
+		req, err := parseRTSPFromLine(reader, line)
+		if err != nil {
+			s.log.Debug("RTSP parse error", "err", err, "from", remote)
 			return
 		}
 
@@ -279,39 +301,80 @@ func (s *Server) handleConn(conn net.Conn) {
 	}
 }
 
-// rtspRequest is a parsed RTSP request.
-type rtspRequest struct {
-	method  string
-	uri     string
-	headers map[string]string
-	body    []byte
-}
+// handleHTTPFromLine processes an HTTP/1.x request from iOS, given that we've
+// already read the first line (which contains method, URI, and HTTP/1.x).
+func (s *Server) handleHTTPFromLine(
+	r *bufio.Reader, conn net.Conn, firstLine string, remote string,
+) error {
+	parts := strings.SplitN(firstLine, " ", 3)
+	if len(parts) < 3 {
+		return fmt.Errorf("malformed HTTP request: %q", firstLine)
+	}
+	method := parts[0]
+	uri := parts[1]
 
-// rtspResponse is an RTSP response to send back.
-type rtspResponse struct {
-	status  int
-	reason  string
-	headers map[string]string
-	body    []byte
-	close   bool
-}
-
-func readRTSPRequest(r *bufio.Reader) (*rtspRequest, error) {
-	// Read request line, skipping blank lines (iOS sends them between requests)
-	var line string
+	// Read remaining headers
+	headers := make(map[string]string)
 	for {
-		l, err := r.ReadString('\n')
+		hline, err := r.ReadString('\n')
 		if err != nil {
-			return nil, err
+			return err
 		}
-		line = strings.TrimSpace(l)
-		if line != "" {
+		hline = strings.TrimSpace(hline)
+		if hline == "" {
 			break
 		}
+		kv := strings.SplitN(hline, ":", 2)
+		if len(kv) == 2 {
+			headers[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
+		}
 	}
-	parts := strings.SplitN(line, " ", 3)
+
+	// Read body if Content-Length present
+	var body []byte
+	if cl, ok := headers["Content-Length"]; ok {
+		n, _ := strconv.Atoi(cl)
+		if n > 0 {
+			body = make([]byte, n)
+			if _, err := io.ReadFull(r, body); err != nil {
+				return err
+			}
+		}
+	}
+
+	s.log.Debug("HTTP request", "method", method, "uri", uri, "from", remote)
+
+	// Handle AirPlay HTTP endpoints
+	switch {
+	case uri == "/info" || strings.HasPrefix(uri, "/info?"):
+		resp := "HTTP/1.1 200 OK\r\nContent-Type: application/x-apple-binaryplist\r\nContent-Length: 0\r\n\r\n"
+		_, err := conn.Write([]byte(resp))
+		return err
+
+	case uri == "/command" || strings.HasPrefix(uri, "/command?"):
+		resp := "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"
+		_, err := conn.Write([]byte(resp))
+		return err
+
+	case strings.HasPrefix(uri, "/pair-setup") || strings.HasPrefix(uri, "/pair-verify"):
+		resp := "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 0\r\n\r\n"
+		_, err := conn.Write([]byte(resp))
+		return err
+
+	default:
+		s.log.Debug("HTTP unknown endpoint", "uri", uri, "method", method, "from", remote)
+		resp := "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"
+		_, err := conn.Write([]byte(resp))
+		return err
+	}
+}
+
+// parseRTSPFromLine parses an RTSP request when the first line has already
+// been read from the reader.
+func parseRTSPFromLine(r *bufio.Reader, firstLine string) (*rtspRequest, error) {
+	parts := strings.SplitN(firstLine, " ", 3)
 	if len(parts) < 3 {
-		return nil, fmt.Errorf("malformed RTSP request: %q", line)
+		return nil, fmt.Errorf("malformed RTSP request: %q", firstLine)
 	}
 
 	req := &rtspRequest{
@@ -349,6 +412,42 @@ func readRTSPRequest(r *bufio.Reader) (*rtspRequest, error) {
 	}
 
 	return req, nil
+}
+
+// rtspRequest is a parsed RTSP request.
+type rtspRequest struct {
+	method  string
+	uri     string
+	headers map[string]string
+	body    []byte
+}
+
+// rtspResponse is an RTSP response to send back.
+type rtspResponse struct {
+	status  int
+	reason  string
+	headers map[string]string
+	body    []byte
+	close   bool
+}
+
+// readRTSPRequest reads and parses a complete RTSP request from a reader.
+// Used by tests. In production, handleConn reads the first line separately
+// to detect HTTP vs RTSP.
+func readRTSPRequest(r *bufio.Reader) (*rtspRequest, error) {
+	// Read request line, skipping blank lines
+	var line string
+	for {
+		l, err := r.ReadString('\n')
+		if err != nil {
+			return nil, err
+		}
+		line = strings.TrimSpace(l)
+		if line != "" {
+			break
+		}
+	}
+	return parseRTSPFromLine(r, line)
 }
 
 func writeRTSPResponse(w io.Writer, resp *rtspResponse) error {
