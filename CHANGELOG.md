@@ -5,7 +5,11 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [Unreleased]
+## [v2.0.0] — 2026-07-18
+
+### Major release — AirPlay, stop button, and library management
+
+This release introduces three major features that significantly expand camspeak's capabilities: AirPlay receiver support, audio stop controls, and library preset renaming.
 
 ### Added
 - **AirPlay v1 (RAOP) receiver** — each camera can now appear as an AirPlay target in the iOS AirPlay picker. AirPlay audio from an iPhone/iPad/Mac is decoded (ALAC → PCM → G.711ulaw) and sent to the camera speaker in real-time.
@@ -18,6 +22,18 @@ Versions follow [Semantic Versioning](https://semver.org/).
   - Config: `CAMSPEAK_AIRPLAY_ENABLED=true` and `CAMSPEAK_AIRPLAY_BASE_PORT=5000` env vars, or via UI Config → AirPlay tab
   - REST API: `GET/PUT /api/config/airplay`
   - Each camera gets its own RAOP listener on a sequential port starting from base_port
+  - 23 tests covering RSA, SDP parsing, RTSP handshake, AES, ALAC, and full integration
+
+- **Library preset rename** — rename presets and move them between categories from the UI.
+  - Pencil button on each preset opens inline edit form with name and category fields
+  - `PATCH /api/library/:category/:name` endpoint
+  - File is moved on disk and metadata updated in SQLite atomically with rollback on failure
+  - 5 tests covering rename, category change, conflict detection, not found, and no-op
+
+### Tests
+- 28 tests total (23 AirPlay, 5 library rename)
+- AirPlay coverage: 66.4% (untested parts are UDP timing loops and ffmpeg pipeline)
+- Library coverage: 50.0% (untested parts require ffmpeg)
 
 ---
 
