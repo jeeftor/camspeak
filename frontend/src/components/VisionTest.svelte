@@ -4,6 +4,7 @@
   import { Input } from '$lib/components/ui/input'
   import { Textarea } from '$lib/components/ui/textarea'
   import CopyButton from '$lib/components/CopyButton.svelte'
+  import Markdown from '$lib/components/Markdown.svelte'
   import { buildCurl } from '$lib/curl.svelte'
 
   let { cameras = [], globalPrompt = '', onSavePrompt } = $props()
@@ -351,7 +352,7 @@
               {/if}
             </div>
             <p class="text-xs text-muted-foreground italic">"{r.prompt || '(empty — hardcoded default)'}"</p>
-            <p class="text-sm text-foreground">{r.description}</p>
+            <Markdown content={r.description} class="text-sm text-foreground" />
             {#if i === 0}
               <div class="flex gap-1.5 mt-1">
                 <Button variant="ghost" size="sm" onclick={() => prompt = r.prompt} title="Load this prompt into the editor">
