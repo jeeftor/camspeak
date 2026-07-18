@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
@@ -63,19 +64,13 @@ func NewServer(name string, port int, advertiseIP string, speaker Speaker) (*Ser
 		return nil, fmt.Errorf("loading RSA key: %w", err)
 	}
 
-	// Generate a fake MAC address for mDNS
-	mac := make([]byte, 6)
-	if _, err := rand.Read(mac); err != nil {
-		return nil, fmt.Errorf("generating MAC: %w", err)
-	}
+	// Generate a deterministic MAC address from the camera name so mDNS
+	// entries stay stable across container restarts (random MACs leave
+	// stale entries that confuse iOS).
+	h := sha256.Sum256([]byte(name))
 	hwAddr := fmt.Sprintf(
 		"%02X%02X%02X%02X%02X%02X",
-		mac[0],
-		mac[1],
-		mac[2],
-		mac[3],
-		mac[4],
-		mac[5],
+		h[0], h[1], h[2], h[3], h[4], h[5],
 	)
 
 	return &Server{
