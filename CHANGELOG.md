@@ -5,6 +5,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v1.11.0] — 2026-07-17
+
+### Added
+- **Vision Prompt Test playground** — new "Vision Test" tab for refining vision prompts against live camera snapshots without sending TTS to the camera. Capture a snapshot once, then iterate on prompts and see results instantly. Save the winning prompt as the global default.
+  - `POST /api/vision/test` endpoint — captures snapshot (or reuses a client-provided base64 image) and runs a vision prompt, returning both description and image
+  - Prompt history showing the last 10 results with timestamps
+  - "Save as Global Default" button to push the refined prompt to config
+
+---
+
 ## [v1.10.6] — 2026-07-17
 
 ### Fixed
