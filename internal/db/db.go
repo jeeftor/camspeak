@@ -118,18 +118,21 @@ func Open(dbPath string) (*sql.DB, error) {
 func migrate(db *sql.DB) {
 	// Add 'stream' column to cameras if missing (added in v1.4.0).
 	var streamCol int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cameras') WHERE name='stream'`).Scan(&streamCol); err == nil && streamCol == 0 {
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cameras') WHERE name='stream'`).Scan(&streamCol); err == nil &&
+		streamCol == 0 {
 		_, _ = db.Exec(`ALTER TABLE cameras ADD COLUMN stream TEXT DEFAULT ''`)
 	}
 	// Add 'enabled' column to cameras if missing (added in v1.4.5).
 	// Default 0 (disabled) — users must explicitly enable cameras.
 	var enabledCol int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cameras') WHERE name='enabled'`).Scan(&enabledCol); err == nil && enabledCol == 0 {
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cameras') WHERE name='enabled'`).Scan(&enabledCol); err == nil &&
+		enabledCol == 0 {
 		_, _ = db.Exec(`ALTER TABLE cameras ADD COLUMN enabled INTEGER DEFAULT 0`)
 	}
 	// Add 'vision_prompt' column to cameras if missing (added in v1.8.0).
 	var vpCol int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cameras') WHERE name='vision_prompt'`).Scan(&vpCol); err == nil && vpCol == 0 {
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cameras') WHERE name='vision_prompt'`).Scan(&vpCol); err == nil &&
+		vpCol == 0 {
 		_, _ = db.Exec(`ALTER TABLE cameras ADD COLUMN vision_prompt TEXT DEFAULT ''`)
 	}
 }

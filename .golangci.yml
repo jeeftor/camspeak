@@ -32,7 +32,8 @@ linters:
 
 formatters:
   enable:
-    - gofmt
+    - goimports
+    - gofumpt
   exclusions:
     paths:
       - "frontend/.*"

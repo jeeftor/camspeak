@@ -123,7 +123,17 @@ func (c *HikvisionClient) SendRaw(rawFile string) error {
 	}
 
 	size := int64(len(data))
-	c.log.Info("send: opening channel", "ip", c.ip, "channel", c.channel, "bytes", size, "duration_s", size/8000)
+	c.log.Info(
+		"send: opening channel",
+		"ip",
+		c.ip,
+		"channel",
+		c.channel,
+		"bytes",
+		size,
+		"duration_s",
+		size/8000,
+	)
 
 	openStart := time.Now()
 	sessionID, err := c.openChannel()
@@ -149,7 +159,11 @@ func (c *HikvisionClient) SendRaw(rawFile string) error {
 // sendAudioRaw opens a raw TCP connection and sends the audio data
 // with digest auth, throttled to 8000 bytes/sec.
 func (c *HikvisionClient) sendAudioRaw(sessionID string, data []byte) error {
-	path := fmt.Sprintf("/ISAPI/System/TwoWayAudio/channels/%d/audioData?sessionId=%s", c.channel, sessionID)
+	path := fmt.Sprintf(
+		"/ISAPI/System/TwoWayAudio/channels/%d/audioData?sessionId=%s",
+		c.channel,
+		sessionID,
+	)
 	host := c.ip
 	port := "80"
 
@@ -225,7 +239,11 @@ func (c *HikvisionClient) sendAudioRaw(sessionID string, data []byte) error {
 }
 
 // sendAudioWithAuth sends the PUT request with the audio body, throttled to 8000 bytes/sec.
-func (c *HikvisionClient) sendAudioWithAuth(conn net.Conn, path, host, authHeader string, data []byte) error {
+func (c *HikvisionClient) sendAudioWithAuth(
+	conn net.Conn,
+	path, host, authHeader string,
+	data []byte,
+) error {
 	size := int64(len(data))
 
 	// Build request headers
@@ -257,7 +275,15 @@ func (c *HikvisionClient) sendAudioWithAuth(conn net.Conn, path, host, authHeade
 			// If we've written most of the data, the camera may have closed
 			// after receiving enough — treat as success if we wrote >50%.
 			if int64(totalWritten) > size/2 {
-				c.log.Debug("send: write interrupted (partial send)", "written", totalWritten+n, "total", size, "err", err)
+				c.log.Debug(
+					"send: write interrupted (partial send)",
+					"written",
+					totalWritten+n,
+					"total",
+					size,
+					"err",
+					err,
+				)
 				return nil
 			}
 			return fmt.Errorf("writing audio data: %w", err)
@@ -284,7 +310,11 @@ func (c *HikvisionClient) sendAudioWithAuth(conn net.Conn, path, host, authHeade
 	if !strings.Contains(statusLine, "200") && !strings.Contains(statusLine, "204") {
 		// Read a bit of body for error context
 		body, _ := respReader.ReadString('\n')
-		return fmt.Errorf("camera returned %s: %s", strings.TrimSpace(statusLine), strings.TrimSpace(body))
+		return fmt.Errorf(
+			"camera returned %s: %s",
+			strings.TrimSpace(statusLine),
+			strings.TrimSpace(body),
+		)
 	}
 
 	return nil
