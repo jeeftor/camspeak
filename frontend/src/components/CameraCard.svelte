@@ -274,24 +274,27 @@
     </div>
 
     <!-- TTS row -->
-    <div class="flex gap-1.5">
-      <Input
+    <div class="flex flex-col gap-1.5">
+      <Textarea
         bind:value={text}
         placeholder="Say something..."
-        onkeydown={e => e.key === 'Enter' && speak()}
+        onkeydown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), speak())}
         disabled={busy}
-        class="flex-1 text-sm min-w-0"
+        rows="2"
+        class="flex-1 text-sm min-w-0 resize-y"
       />
-      <VoiceSelect bind:value={voice} {voices} {busy} class="w-[100px] flex-shrink-0" />
-      <Button size="sm" onclick={speak} disabled={busy || !text} aria-label="Speak" title="Send TTS to camera" class="flex-shrink-0">
-        <Play class="h-4 w-4" />
-      </Button>
-      <CopyButton
-        text={buildCurl('POST', '/api/speak', { camera: camera.name, text, voice: voice || undefined, gain })}
-        disabled={!text} label="Copy curl — speak endpoint"
-        preview={!!text} previewType="curl"
-        class="flex-shrink-0"
-      />
+      <div class="flex gap-1.5">
+        <VoiceSelect bind:value={voice} {voices} {busy} class="w-[100px] flex-shrink-0" />
+        <Button size="sm" onclick={speak} disabled={busy || !text} aria-label="Speak" title="Send TTS to camera" class="flex-shrink-0">
+          <Play class="h-4 w-4" />
+        </Button>
+        <CopyButton
+          text={buildCurl('POST', '/api/speak', { camera: camera.name, text, voice: voice || undefined, gain })}
+          disabled={!text} label="Copy curl — speak endpoint"
+          preview={!!text} previewType="curl"
+          class="flex-shrink-0"
+        />
+      </div>
     </div>
 
     <!-- Volume row -->

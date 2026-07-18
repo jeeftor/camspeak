@@ -65,7 +65,7 @@
   )
 </script>
 
-<div class="flex flex-col gap-6 max-w-xl">
+<div class="flex flex-col gap-6 max-w-3xl">
   <div>
     <h2 class="text-lg font-semibold text-primary mb-1">Broadcast</h2>
     <p class="text-sm text-muted-foreground">Send audio to all cameras simultaneously.</p>
@@ -92,7 +92,7 @@
         Message
         <textarea
           bind:value={text}
-          rows="3"
+          rows="5"
           placeholder="Type your announcement..."
           disabled={busy}
           onkeydown={e => e.ctrlKey && e.key === 'Enter' && broadcast()}

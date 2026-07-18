@@ -262,11 +262,11 @@
     {/if}
 
   {:else if tab === 'generate'}
-    <div class="flex max-w-md flex-col gap-3">
+    <div class="flex max-w-2xl flex-col gap-3">
       <h3 class="text-base font-semibold text-primary">Generate TTS Preset</h3>
       <label class="flex flex-col gap-1 text-sm text-muted-foreground">
         Text
-        <Textarea bind:value={genText} rows="3" placeholder="Text to synthesize..." />
+        <Textarea bind:value={genText} rows="5" placeholder="Text to synthesize..." />
       </label>
       <label class="flex flex-col gap-1 text-sm text-muted-foreground">
         Voice
@@ -309,7 +309,7 @@
     </div>
 
   {:else}
-    <div class="flex max-w-md flex-col gap-3">
+    <div class="flex max-w-2xl flex-col gap-3">
       <h3 class="text-base font-semibold text-primary">Upload Audio File</h3>
       <p class="text-sm text-muted-foreground">Any format — ffmpeg will convert to G.711ulaw 8kHz</p>
       <label class="flex flex-col gap-1 text-sm text-muted-foreground">
