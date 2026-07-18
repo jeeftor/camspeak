@@ -72,6 +72,14 @@ CREATE TABLE IF NOT EXISTS rules (
     enabled INTEGER DEFAULT 1
 );
 
+CREATE TABLE IF NOT EXISTS vision_prompts (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT UNIQUE NOT NULL,
+    prompt      TEXT NOT NULL DEFAULT '',
+    description TEXT DEFAULT '',
+    created     DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_presets_category ON presets(category);
 CREATE INDEX IF NOT EXISTS idx_events_created ON events(created DESC);
 CREATE INDEX IF NOT EXISTS idx_tts_presets_active ON tts_presets(is_active);

@@ -340,6 +340,42 @@ const openAPISpec = `{
         }
       }
     },
+    "/config/vision-prompts": {
+      "get": {
+        "tags": ["config"],
+        "summary": "List all saved vision prompt presets",
+        "responses": {
+          "200": {"description": "OK", "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/VisionPromptPreset"}}}}}
+        }
+      },
+      "post": {
+        "tags": ["config"],
+        "summary": "Create or update a vision prompt preset",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/VisionPromptPreset"}
+            }
+          }
+        },
+        "responses": {
+          "201": {"description": "Created", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/VisionPromptPreset"}}}}
+        }
+      }
+    },
+    "/config/vision-prompts/{name}": {
+      "delete": {
+        "tags": ["config"],
+        "summary": "Delete a vision prompt preset",
+        "parameters": [
+          {"name": "name", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "200": {"description": "OK"}
+        }
+      }
+    },
     "/config/tts": {
       "get": {
         "tags": ["config"],
@@ -612,6 +648,15 @@ const openAPISpec = `{
           "model": {"type": "string", "example": "llama3.2-vision"},
           "api_key": {"type": "string"},
           "prompt": {"type": "string", "description": "Global default vision prompt"}
+        }
+      },
+      "VisionPromptPreset": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {"type": "string", "example": "concise-people"},
+          "prompt": {"type": "string", "example": "Describe what you see in one or two sentences. Focus on people, vehicles, and animals."},
+          "description": {"type": "string", "example": "Concise description focusing on people and vehicles"}
         }
       },
       "TTSPreset": {

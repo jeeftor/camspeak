@@ -266,6 +266,41 @@ func (h *Handlers) ToggleCamera(c echo.Context) error {
 	})
 }
 
+// ListVisionPrompts handles GET /api/config/vision-prompts — returns all saved vision prompts.
+func (h *Handlers) ListVisionPrompts(c echo.Context) error {
+	prompts, err := config.ListVisionPrompts(h.db)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, prompts)
+}
+
+// CreateVisionPrompt handles POST /api/config/vision-prompts — creates or updates a vision prompt.
+func (h *Handlers) CreateVisionPrompt(c echo.Context) error {
+	var p config.VisionPrompt
+	if err := c.Bind(&p); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid JSON body")
+	}
+	if p.Name == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "name is required")
+	}
+	if err := config.SaveVisionPrompt(h.db, p); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	h.log.Info("vision prompt saved", "name", p.Name)
+	return c.JSON(http.StatusCreated, p)
+}
+
+// DeleteVisionPrompt handles DELETE /api/config/vision-prompts/:name — removes a vision prompt.
+func (h *Handlers) DeleteVisionPrompt(c echo.Context) error {
+	name := c.Param("name")
+	if err := config.DeleteVisionPrompt(h.db, name); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	h.log.Info("vision prompt deleted", "name", name)
+	return c.JSON(http.StatusOK, map[string]string{"deleted": name})
+}
+
 // ListRules handles GET /api/config/rules — returns all MQTT rules.
 func (h *Handlers) ListRules(c echo.Context) error {
 	return c.JSON(http.StatusOK, h.cfg.Rules)
