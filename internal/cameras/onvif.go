@@ -27,6 +27,7 @@ type OnvifClient struct {
 	// Active stream tracking for Stop()
 	activeMu  sync.Mutex
 	activeCli *gortsplib.Client // active RTSP client
+	stopped   bool              // set by Stop() to suppress write errors
 }
 
 // NewOnvifClient creates a client that uses ONVIF RTSP backchannel.
@@ -57,6 +58,11 @@ func findG711BackChannel(desc *description.Session) (*description.Media, *format
 // It reads the raw file, converts G.711ulaw → LPCM, encodes to RTP, and
 // sends packets at real-time speed (8000 samples/sec).
 func (c *OnvifClient) SendRaw(rawFile string) error {
+	// Reset stopped flag from any previous Stop() call
+	c.activeMu.Lock()
+	c.stopped = false
+	c.activeMu.Unlock()
+
 	// Read the raw G.711ulaw file
 	rawData, err := os.ReadFile(rawFile)
 	if err != nil {
@@ -191,6 +197,14 @@ func (c *OnvifClient) SendRaw(rawFile string) error {
 		for _, pkt := range pkts {
 			pkt.Timestamp = uint32(int64(randomStart) + pts)
 			if err := client.WritePacketRTP(medi, pkt); err != nil {
+				// Check if Stop() was called — intentional cancellation
+				c.activeMu.Lock()
+				wasStopped := c.stopped
+				c.activeMu.Unlock()
+				if wasStopped {
+					c.log.Debug("send: stopped by user", "samples", sentSamples, "total", totalSamples)
+					return nil
+				}
 				return fmt.Errorf("writing RTP packet: %w", err)
 			}
 		}
@@ -207,6 +221,7 @@ func (c *OnvifClient) SendRaw(rawFile string) error {
 func (c *OnvifClient) Stop() error {
 	c.activeMu.Lock()
 	cli := c.activeCli
+	c.stopped = true // suppress write errors in the streaming loop
 	c.activeMu.Unlock()
 
 	if cli == nil {

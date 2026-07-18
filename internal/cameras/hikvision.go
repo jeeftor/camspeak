@@ -31,6 +31,7 @@ type HikvisionClient struct {
 	activeMu      sync.Mutex
 	activeConn    net.Conn // active TCP connection streaming audio
 	activeSession string   // active ISAPI two-way audio session ID
+	stopped       bool     // set by Stop() to suppress write errors in SendRaw
 }
 
 // NewHikvisionClient creates a client with digest auth transport.
@@ -122,6 +123,11 @@ func (c *HikvisionClient) SendRaw(rawFile string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Reset stopped flag from any previous Stop() call
+	c.activeMu.Lock()
+	c.stopped = false
+	c.activeMu.Unlock()
+
 	data, err := os.ReadFile(rawFile)
 	if err != nil {
 		return fmt.Errorf("reading audio file: %w", err)
@@ -179,6 +185,7 @@ func (c *HikvisionClient) Stop() error {
 	c.activeMu.Lock()
 	conn := c.activeConn
 	sessionID := c.activeSession
+	c.stopped = true // suppress write errors in the streaming loop
 	c.activeMu.Unlock()
 
 	if conn == nil && sessionID == "" {
@@ -326,6 +333,15 @@ func (c *HikvisionClient) sendAudioWithAuth(
 		}
 		n, err := conn.Write(data[totalWritten:end])
 		if err != nil {
+			// Check if Stop() was called — if so, this is an intentional
+			// cancellation, not a real error.
+			c.activeMu.Lock()
+			wasStopped := c.stopped
+			c.activeMu.Unlock()
+			if wasStopped {
+				c.log.Debug("send: stopped by user", "written", totalWritten+n, "total", size)
+				return nil
+			}
 			// If we've written most of the data, the camera may have closed
 			// after receiving enough — treat as success if we wrote >50%.
 			if int64(totalWritten) > size/2 {

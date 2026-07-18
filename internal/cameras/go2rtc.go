@@ -31,6 +31,7 @@ type Go2rtcClient struct {
 	// Active stream tracking for Stop()
 	activeMu   sync.Mutex
 	cancelFunc context.CancelFunc // cancels the active go2rtc API call
+	stopped    bool               // set by Stop() to suppress errors
 }
 
 // NewGo2rtcClient creates a client that uses go2rtc's stream-to-camera API.
@@ -51,6 +52,11 @@ func NewGo2rtcClient(go2rtcURL, stream, ip, advertiseIP string) *Go2rtcClient {
 // It starts a temporary HTTP server to serve the file, then tells go2rtc
 // to fetch and transcode it.
 func (c *Go2rtcClient) SendRaw(rawFile string) error {
+	// Reset stopped flag from any previous Stop() call
+	c.activeMu.Lock()
+	c.stopped = false
+	c.activeMu.Unlock()
+
 	// Start a temporary HTTP server to serve the raw file
 	listener, err := net.Listen("tcp", ":0")
 	if err != nil {
@@ -128,6 +134,14 @@ func (c *Go2rtcClient) SendRaw(rawFile string) error {
 
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
+		// Check if Stop() was called — intentional cancellation
+		c.activeMu.Lock()
+		wasStopped := c.stopped
+		c.activeMu.Unlock()
+		if wasStopped {
+			c.log.Debug("send: stopped by user", "stream", c.stream)
+			return nil
+		}
 		return fmt.Errorf("go2rtc API call: %w", err)
 	}
 	defer resp.Body.Close()
@@ -156,6 +170,7 @@ func (c *Go2rtcClient) SendRaw(rawFile string) error {
 func (c *Go2rtcClient) Stop() error {
 	c.activeMu.Lock()
 	cancel := c.cancelFunc
+	c.stopped = true // suppress errors in SendRaw
 	c.activeMu.Unlock()
 
 	c.log.Info("stop: stopping audio", "stream", c.stream)
