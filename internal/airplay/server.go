@@ -324,7 +324,7 @@ func (s *Server) handleRequest(req *rtspRequest) *rtspResponse {
 			reason: "OK",
 			headers: map[string]string{
 				"CSeq":   cseq,
-				"Public": "ANNOUNCE, SETUP, RECORD, PAUSE, FLUSH, TEARDOWN, OPTIONS, GET_PARAMETER, SET_PARAMETER",
+				"Public": "ANNOUNCE, SETUP, RECORD, PAUSE, FLUSH, TEARDOWN, OPTIONS, GET_PARAMETER, SET_PARAMETER, POST",
 			},
 		}
 
@@ -348,6 +348,13 @@ func (s *Server) handleRequest(req *rtspRequest) *rtspResponse {
 		return &rtspResponse{status: 200, reason: "OK", headers: map[string]string{"CSeq": cseq}}
 
 	case "GET_PARAMETER":
+		return &rtspResponse{status: 200, reason: "OK", headers: map[string]string{"CSeq": cseq}}
+
+	case "POST":
+		// POST /command and /feedback are control endpoints used by iOS
+		// for metadata, volume, and playback feedback. Accept them with 200
+		// so iOS proceeds with the RTSP ANNOUNCE/SETUP/RECORD flow.
+		s.log.Debug("POST control endpoint", "uri", req.uri, "body_len", len(req.body))
 		return &rtspResponse{status: 200, reason: "OK", headers: map[string]string{"CSeq": cseq}}
 
 	default:
