@@ -145,9 +145,7 @@ func (s *Server) Start() error {
 		"vs=366.0",
 		"am=camspeak",
 		"sf=0x4",
-		// Features: audio (bit 3), video media data (bit 7),
-		// legacy pairing (bit 27), audio receiver (bit 30)
-		"ft=0x48000088,0x0",
+		"ft=0x5A7FFEE6,0x0",
 		"pk=" + s.pkHex,
 		"vv=2",
 	}
@@ -181,7 +179,7 @@ func (s *Server) Start() error {
 	// Minimal TXT records for audio-only AirPlay v1.
 	airplayText := []string{
 		"deviceid=" + formatMAC(s.hwAddr),
-		"features=0x48000088,0x0",
+		"features=0x5A7FFEE6,0x0",
 		"flags=0x4",
 		"model=camspeak",
 		"pw=false",
