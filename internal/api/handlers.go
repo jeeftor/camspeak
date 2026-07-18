@@ -256,6 +256,33 @@ func (h *Handlers) PlayURL(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// Stop handles POST /api/stop — stops audio on a specific camera or all cameras.
+// If the request body contains a "camera" field, only that camera is stopped.
+// Otherwise (empty body or no camera field), all cameras are stopped.
+func (h *Handlers) Stop(c echo.Context) error {
+	var req struct {
+		Camera string `json:"camera"`
+	}
+	// Body is optional — ignore bind errors (empty body = stop all)
+	_ = c.Bind(&req)
+
+	if req.Camera != "" {
+		if err := h.reg.Stop(req.Camera); err != nil {
+			h.log.Warn("stop: camera not found", "camera", req.Camera, "err", err)
+			return echo.NewHTTPError(http.StatusNotFound, err.Error())
+		}
+		h.log.Info("stop: stopped camera", "camera", req.Camera)
+		h.events.publish(event{Camera: req.Camera, Action: "stop", At: time.Now()})
+		return c.JSON(http.StatusOK, map[string]string{"status": "stopped", "camera": req.Camera})
+	}
+
+	// Stop all cameras
+	h.reg.StopAll()
+	h.log.Info("stop: stopped all cameras")
+	h.events.publish(event{Action: "stop-all", At: time.Now()})
+	return c.JSON(http.StatusOK, map[string]string{"status": "stopped", "camera": "all"})
+}
+
 // Beep handles POST /api/beep — 800Hz test tone → camera.
 func (h *Handlers) Beep(c echo.Context) error {
 	var req struct {

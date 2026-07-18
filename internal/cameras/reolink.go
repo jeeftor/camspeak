@@ -30,6 +30,11 @@ func (c *ReolinkClient) SendRaw(rawFile string) error {
 		"open an issue at github.com/jeeftor/camspeak", c.ip)
 }
 
+// Stop is a no-op for Reolink (audio not yet implemented).
+func (c *ReolinkClient) Stop() error {
+	return nil
+}
+
 // Ping checks if the Reolink camera HTTP API is reachable on port 80.
 // Falls back to a raw TCP connect if the HTTP request fails.
 func (c *ReolinkClient) Ping() bool {

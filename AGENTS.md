@@ -107,6 +107,7 @@ Copy `.env.example` to `.env` for local dev. Loaded by godotenv at startup. Giti
 - `POST /api/speak` — TTS to camera
 - `POST /api/play` — preset to camera
 - `POST /api/beep` — test tone
+- `POST /api/stop` — stop audio on a camera (or all cameras if body empty)
 - `POST /api/broadcast` — broadcast to all cameras
 - `GET/POST /api/library` — preset management
 - `ANY /mcp` — MCP endpoint

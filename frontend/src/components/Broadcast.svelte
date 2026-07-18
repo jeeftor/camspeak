@@ -1,6 +1,6 @@
 <script>
   import { onDestroy } from 'svelte'
-  import { Radio, Loader2 } from 'lucide-svelte'
+  import { Radio, Loader2, Square } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import VoiceSelect from '$lib/components/VoiceSelect.svelte'
@@ -42,6 +42,19 @@
       clearTimeout(statusTimeout)
       statusTimeout = setTimeout(() => (status = ''), 5000)
     }
+  }
+
+  async function stopAll() {
+    try {
+      await fetch('/api/stop', { method: 'POST' })
+      status = '⏹ Stopped all cameras'
+      statusType = 'ok'
+    } catch {
+      status = '✗ Error stopping'
+      statusType = 'err'
+    }
+    clearTimeout(statusTimeout)
+    statusTimeout = setTimeout(() => (status = ''), 5000)
   }
 
   const grouped = $derived(
@@ -130,6 +143,15 @@
         <Radio class="h-4 w-4" />
         Broadcast to All Cameras
       {/if}
+    </Button>
+    <Button
+      variant="destructive"
+      onclick={stopAll}
+      size="lg"
+      title="Immediately stop all audio on all cameras"
+    >
+      <Square class="h-4 w-4 fill-current" />
+      Stop All
     </Button>
     {#if status}
       <span class="text-sm {statusType === 'err' ? 'text-destructive' : 'text-primary'}">{status}</span>

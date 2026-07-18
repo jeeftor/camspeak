@@ -5,6 +5,18 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v1.13.0] — 2026-07-17
+
+### Added
+- **STOP button** — immediately stop audio playback on all cameras or a specific camera. A red STOP button is always visible in the header bar (works from any tab). Per-camera stop buttons are on each camera card. The Broadcast tab also has a "Stop All" button.
+  - `POST /api/stop` endpoint — accepts `{camera: "name"}` to stop one camera, or empty body to stop all cameras
+  - Hikvision: closes the active TCP connection + ISAPI two-way audio session
+  - ONVIF: closes the active RTSP client
+  - go2rtc: cancels the active HTTP request + sends stop command to go2rtc
+  - Reolink: no-op (audio not yet implemented)
+
+---
+
 ## [v1.12.2] — 2026-07-17
 
 ### Added

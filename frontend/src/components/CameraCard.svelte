@@ -1,6 +1,6 @@
 <script>
   import { onDestroy } from 'svelte'
-  import { Eye, Bell, Play, Loader2, FileAudio, X, MessageSquare } from 'lucide-svelte'
+  import { Eye, Bell, Play, Loader2, FileAudio, X, MessageSquare, Square } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Textarea } from '$lib/components/ui/textarea'
@@ -104,6 +104,15 @@
       setStatus('✗ ' + e.message, 'err')
     } finally {
       busy = false
+    }
+  }
+
+  async function stop() {
+    try {
+      await post('/api/stop', { camera: camera.name })
+      setStatus('⏹ stopped')
+    } catch (e) {
+      setStatus('✗ ' + e.message, 'err')
     }
   }
 
@@ -252,6 +261,14 @@
           class="h-8 w-8"
         >
           <Bell class="h-4 w-4" />
+        </Button>
+        <Button
+          variant="outline" size="icon"
+          onclick={stop}
+          title="Stop audio on this camera" aria-label="Stop"
+          class="h-8 w-8 hover:bg-destructive/10 hover:text-destructive hover:border-destructive/50"
+        >
+          <Square class="h-4 w-4 fill-current" />
         </Button>
       </div>
     </div>

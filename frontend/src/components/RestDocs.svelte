@@ -46,6 +46,14 @@
       response: { status: 'ok' },
     },
     {
+      id: 'stop',
+      method: 'POST',
+      path: '/api/stop',
+      summary: 'Stop audio on a specific camera or all cameras',
+      body: { camera: 'backyard' },
+      response: { status: 'stopped', camera: 'backyard' },
+    },
+    {
       id: 'snapshot',
       method: 'GET',
       path: '/api/snapshot/:camera',

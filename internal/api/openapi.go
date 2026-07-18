@@ -112,6 +112,30 @@ const openAPISpec = `{
         }
       }
     },
+    "/stop": {
+      "post": {
+        "tags": ["audio"],
+        "summary": "Stop audio playback on a specific camera or all cameras",
+        "description": "If the request body contains a camera name, only that camera is stopped. If empty or omitted, all cameras are stopped.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "camera": {"type": "string", "description": "Camera name to stop. If omitted, stops all cameras."}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {"description": "OK", "content": {"application/json": {"schema": {"type": "object", "properties": {"status": {"type": "string"}, "camera": {"type": "string"}}}}}},
+          "404": {"description": "Camera not found"}
+        }
+      }
+    },
     "/snapshot/{camera}": {
       "get": {
         "tags": ["vision"],
@@ -292,7 +316,7 @@ const openAPISpec = `{
     "/events": {
       "get": {
         "tags": ["system"],
-        "summary": "Server-Sent Events stream of speak/play/beep/broadcast/describe actions",
+        "summary": "Server-Sent Events stream of speak/play/beep/broadcast/describe/stop actions",
         "responses": {
           "200": {"description": "SSE stream", "content": {"text/event-stream": {"schema": {"type": "string"}}}}
         }
