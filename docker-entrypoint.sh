@@ -1,24 +1,11 @@
 #!/bin/sh
 set -e
 
-# Ensure machine-id exists (required by D-Bus)
-if [ ! -f /etc/machine-id ]; then
-  dbus-uuidgen > /etc/machine-id
-fi
-
-# Start D-Bus system bus (required by avahi-daemon)
-mkdir -p /run/dbus
-dbus-daemon --system --fork
-
-# Brief pause to let dbus initialize
-sleep 0.3
-
-# Start avahi-daemon (provides mDNS for shairport-sync AirPlay advertisement).
-# --no-chroot is required inside Docker containers.
+# Start avahi-daemon for mDNS advertisement (shairport-sync AirPlay discovery).
+# --no-dbus: avahi runs without D-Bus (avoids dbus socket issues in Docker).
+# --no-chroot: required inside Docker containers.
+# -D: daemonize.
 mkdir -p /run/avahi-daemon
-avahi-daemon --daemonize --no-chroot
-
-# Brief pause to let avahi initialize
-sleep 0.3
+avahi-daemon --no-dbus --no-chroot -D
 
 exec "$@"

@@ -20,17 +20,43 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -ldflags="-s -w -X main.Version=${VERSION}" -o camspeak .
 
-### Stage 3: runtime
+### Stage 3: build shairport-sync from source with --with-stdout
+# The Alpine package (4.3.2) omits stdout support; we build it ourselves.
+FROM alpine:3.20 AS shairport-builder
+RUN apk add --no-cache \
+      git autoconf automake libtool \
+      pkgconfig gcc make \
+      popt-dev libconfig-dev openssl-dev \
+      avahi-dev soxr-dev alsa-lib-dev
+RUN git clone --depth 1 --branch 4.3.2 \
+      https://github.com/mikebrady/shairport-sync.git /src
+WORKDIR /src
+RUN autoreconf -fi && \
+    ./configure \
+      --with-avahi \
+      --with-ssl=openssl \
+      --with-stdout \
+      --with-pipe \
+      --with-soxr \
+      --with-metadata \
+      --sysconfdir=/etc && \
+    make -j"$(nproc)" && \
+    make install DESTDIR=/build
+
+### Stage 4: runtime
 FROM alpine:3.20
 # ffmpeg: PCM→G.711ulaw transcoding
-# shairport-sync: AirPlay/RAOP receiver (handles FairPlay+ALAC correctly)
-# avahi + dbus: mDNS advertisement for shairport-sync (requires --net=host in Docker)
+# avahi: mDNS advertisement for shairport-sync (run with --no-dbus, no dbus needed)
+# runtime libs for our custom shairport-sync build
 RUN apk add --no-cache \
       ffmpeg \
       ca-certificates \
-      dbus \
       avahi \
-      shairport-sync
+      libpopt \
+      libconfig \
+      openssl \
+      libsoxr
+COPY --from=shairport-builder /build/usr/local/bin/shairport-sync /usr/local/bin/shairport-sync
 WORKDIR /app
 COPY --from=builder /app/camspeak .
 COPY docker-entrypoint.sh /docker-entrypoint.sh
