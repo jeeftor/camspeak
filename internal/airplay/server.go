@@ -1188,17 +1188,16 @@ func (s *session) audioReceiveLoop() {
 		s.log.Debug("audio: RTP packet",
 			"seq", seqNum, "payloadLen", len(payload), "totalLen", n)
 
-		// Decrypt with AES-128-CBC
-		if len(payload)%16 != 0 {
-			s.log.Debug("audio: payload not 16-byte aligned", "len", len(payload))
-			continue
-		}
-
+		// Decrypt with AES-128-CBC.
+		// RAOP only encrypts the 16-byte-aligned prefix; the tail is plaintext.
 		decrypted := make([]byte, len(payload))
-		iv := make([]byte, 16)
-		copy(iv, s.aesIV)
-		mode := cipher.NewCBCDecrypter(block, iv)
-		mode.CryptBlocks(decrypted, payload)
+		alignedLen := len(payload) &^ 0xf // round down to multiple of 16
+		if alignedLen > 0 {
+			iv := make([]byte, 16)
+			copy(iv, s.aesIV)
+			cipher.NewCBCDecrypter(block, iv).CryptBlocks(decrypted[:alignedLen], payload[:alignedLen])
+		}
+		copy(decrypted[alignedLen:], payload[alignedLen:]) // unencrypted tail
 
 		// Decode ALAC frame → PCM 16-bit stereo 44100Hz.
 		// Small frames (<64 bytes) are silence/sync packets — skip them.
