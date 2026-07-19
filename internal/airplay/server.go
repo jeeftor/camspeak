@@ -581,7 +581,11 @@ func (s *Server) handleRequest(req *rtspRequest) *rtspResponse {
 				s.fpMu.Lock()
 				s.fpSessionKey = sessionKey
 				s.fpMu.Unlock()
-				s.log.Debug("fp-setup step 2: session key derived", "mode", mode)
+				s.log.Info("fp-setup step 2: session key derived",
+					"mode", mode,
+					"step2_prefix", fmt.Sprintf("%x", req.body[:min(32, len(req.body))]),
+					"session_key", fmt.Sprintf("%x", sessionKey),
+				)
 			}
 			return &rtspResponse{
 				status: 200, reason: "OK",
@@ -688,7 +692,10 @@ func (s *Server) handleAnnounce(req *rtspRequest, cseq string) *rtspResponse {
 				headers: map[string]string{"CSeq": cseq},
 			}
 		}
-		s.log.Debug("ANNOUNCE: FairPlay AES key decrypted OK")
+		s.log.Info("ANNOUNCE: FairPlay AES key decrypted",
+			"blob_prefix", fmt.Sprintf("%x", fpBlob[:min(52, len(fpBlob))]),
+			"audio_aes_key", fmt.Sprintf("%x", aesKey),
+		)
 	} else if rsaAesKey, ok := sdp["rsaaeskey"]; ok {
 		// Legacy RSA path
 		s.log.Debug("ANNOUNCE: RSA mode (rsaaeskey)")
