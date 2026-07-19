@@ -571,9 +571,9 @@ func (s *Server) handleRequest(req *rtspRequest) *rtspResponse {
 					headers: map[string]string{"CSeq": cseq},
 				}
 			}
-			s.fpMu.Lock()
-			mode := s.fpMode
-			s.fpMu.Unlock()
+			// Mode for key derivation comes from step2 body byte[6], NOT from step1.
+			// RPiPlay/goplay2 both read mode from the step2 request directly.
+			mode := int(req.body[6])
 			sessionKey, err := deriveFPSessionKey(req.body, mode)
 			if err != nil {
 				s.log.Warn("fp-setup step 2: session key derivation failed", "err", err)
