@@ -1200,8 +1200,14 @@ func (s *session) audioReceiveLoop() {
 		mode := cipher.NewCBCDecrypter(block, iv)
 		mode.CryptBlocks(decrypted, payload)
 
-		// Decode ALAC frame → PCM 16-bit stereo 44100Hz
-		pcm := s.decoder.Decode(decrypted)
+		// Decode ALAC frame → PCM 16-bit stereo 44100Hz.
+		// Small frames (<64 bytes) are silence/sync packets — skip them.
+		// Also recover from panics in the ALAC library for malformed frames.
+		if len(decrypted) < 64 {
+			s.log.Debug("audio: skipping small frame", "len", len(decrypted))
+			continue
+		}
+		pcm := alacDecodeSafe(s.decoder, decrypted)
 		if len(pcm) == 0 {
 			s.log.Debug("audio: ALAC decode returned empty", "encryptedLen", len(payload))
 			continue
@@ -1330,6 +1336,17 @@ func newAlacDecoder(fmtp string) (*alacDecoder, error) {
 // Decode decodes a single ALAC frame to 16-bit PCM.
 func (d *alacDecoder) Decode(frame []byte) []byte {
 	return d.decoder.Decode(frame)
+}
+
+// alacDecodeSafe calls Decode and recovers from panics in the ALAC library
+// (which can occur on malformed or silence frames).
+func alacDecodeSafe(d *alacDecoder, frame []byte) (pcm []byte) {
+	defer func() {
+		if r := recover(); r != nil {
+			pcm = nil
+		}
+	}()
+	return d.Decode(frame)
 }
 
 // chunkInterval is how often accumulated audio is flushed to the camera speaker.
