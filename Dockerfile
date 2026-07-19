@@ -46,20 +46,19 @@ RUN autoreconf -fi && \
 ### Stage 4: runtime
 FROM alpine:3.20
 # ffmpeg: PCM→G.711ulaw transcoding
-# avahi: mDNS advertisement for shairport-sync (run with --no-dbus, no dbus needed)
+# dbus + avahi: mDNS advertisement for shairport-sync (libavahi-client requires dbus)
 # runtime libs for our custom shairport-sync build
 RUN apk add --no-cache \
       ffmpeg \
       ca-certificates \
+      dbus \
       avahi \
       popt \
       libconfig \
       openssl \
-      soxr
+      soxr && \
+    dbus-uuidgen --ensure=/etc/machine-id
 COPY --from=shairport-builder /build/usr/local/bin/shairport-sync /usr/local/bin/shairport-sync
-# Disable D-Bus in avahi (no dbus daemon in this container)
-RUN mkdir -p /etc/avahi && \
-    printf '[server]\nenable-dbus=no\n' > /etc/avahi/avahi-daemon.conf
 WORKDIR /app
 COPY --from=builder /app/camspeak .
 COPY docker-entrypoint.sh /docker-entrypoint.sh
