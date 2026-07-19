@@ -1129,9 +1129,13 @@ func (s *session) audioReceiveLoop() {
 		return
 	}
 
+	pktCount := 0
+	decodeCount := 0
+
 	for {
 		select {
 		case <-s.done:
+			s.log.Info("audio: stream ended", "packets", pktCount, "decoded", decodeCount)
 			return
 		default:
 		}
@@ -1176,7 +1180,11 @@ func (s *session) audioReceiveLoop() {
 			continue
 		}
 
+		pktCount++
 		seqNum := int(buf[2])<<8 | int(buf[3])
+		if pktCount == 1 {
+			s.log.Info("audio: first RTP packet received", "seq", seqNum, "payloadLen", len(payload))
+		}
 		s.log.Debug("audio: RTP packet",
 			"seq", seqNum, "payloadLen", len(payload), "totalLen", n)
 
@@ -1199,6 +1207,7 @@ func (s *session) audioReceiveLoop() {
 			continue
 		}
 
+		decodeCount++
 		s.log.Debug("audio: decoded ALAC", "pcmLen", len(pcm), "seq", seqNum)
 
 		// Feed PCM to the audio stream (which pipes to ffmpeg → G.711ulaw → camera)
@@ -1323,8 +1332,12 @@ func (d *alacDecoder) Decode(frame []byte) []byte {
 	return d.decoder.Decode(frame)
 }
 
+// chunkInterval is how often accumulated audio is flushed to the camera speaker.
+// Shorter = lower latency but more ffmpeg process overhead.
+const chunkInterval = 1 * time.Second
+
 // audioStream manages the pipeline: PCM → ffmpeg → G.711ulaw → temp file → camera.
-// It accumulates audio in chunks and sends completed chunks to the camera.
+// A ticker flushes chunks every chunkInterval for near-real-time playback.
 type audioStream struct {
 	speaker    Speaker
 	log        *clog.Logger
@@ -1335,21 +1348,39 @@ type audioStream struct {
 	rawPath    string
 	chunkCount int
 	mu         sync.Mutex
+	stopTick   chan struct{}
 }
 
 // newAudioStream starts an ffmpeg process that converts PCM 44100Hz stereo
 // to G.711ulaw 8000Hz mono, writing to a temp file.
+// A background ticker flushes completed chunks to the camera every chunkInterval.
 func newAudioStream(speaker Speaker, log *clog.Logger) (*audioStream, error) {
 	as := &audioStream{
-		speaker: speaker,
-		log:     log,
+		speaker:  speaker,
+		log:      log,
+		stopTick: make(chan struct{}),
 	}
 
 	if err := as.startChunk(); err != nil {
 		return nil, err
 	}
 
+	go as.tickerLoop()
 	return as, nil
+}
+
+// tickerLoop flushes a completed audio chunk to the camera every chunkInterval.
+func (as *audioStream) tickerLoop() {
+	ticker := time.NewTicker(chunkInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			as.flush()
+		case <-as.stopTick:
+			return
+		}
+	}
 }
 
 // startChunk begins a new ffmpeg process and temp file for the next audio chunk.
@@ -1476,8 +1507,9 @@ func (as *audioStream) closeChunk() {
 	as.rawPath = ""
 }
 
-// finish closes the stream and sends the final chunk to the camera.
+// finish stops the ticker and sends any remaining audio to the camera.
 func (as *audioStream) finish() {
+	close(as.stopTick) // stop ticker goroutine
 	as.mu.Lock()
 	defer as.mu.Unlock()
 	as.closeChunk()

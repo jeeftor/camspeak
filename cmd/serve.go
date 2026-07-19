@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/charmbracelet/lipgloss"
@@ -115,7 +116,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 				appLog.Warn("AirPlay: skipping camera", "name", name, "err", err)
 				continue
 			}
-			apServer, err := airplay.NewServer(name, port, cfg.AdvertiseIP, speaker)
+			displayName := toDisplayName(name)
+			apServer, err := airplay.NewServer(displayName, port, cfg.AdvertiseIP, speaker)
 			if err != nil {
 				appLog.Warn("AirPlay: failed to create server", "name", name, "err", err)
 				continue
@@ -160,6 +162,19 @@ func runServe(cmd *cobra.Command, args []string) error {
 	addr := fmt.Sprintf(":%d", cfg.Port)
 
 	return srv.Start(addr)
+}
+
+// toDisplayName converts a camera key like "backyard" to "Backyard Camera"
+// for display in the iOS AirPlay picker.
+func toDisplayName(name string) string {
+	if name == "" {
+		return name
+	}
+	words := strings.Fields(strings.ReplaceAll(name, "_", " "))
+	for i, w := range words {
+		words[i] = strings.ToUpper(w[:1]) + w[1:]
+	}
+	return strings.Join(words, " ") + " Camera"
 }
 
 var titleStyle = lipgloss.NewStyle().
