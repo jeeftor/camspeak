@@ -172,6 +172,7 @@ func New(
 	// AirPlay config
 	api.GET("/config/airplay", h.GetAirPlayConfig)
 	api.PUT("/config/airplay", h.UpdateAirPlayConfig)
+	api.PATCH("/config/airplay/:camera/toggle", h.ToggleAirPlay)
 
 	// MQTT status + live event browser + dynamic subscriptions
 	api.GET("/mqtt/status", h.MQTTStatus)

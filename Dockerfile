@@ -22,19 +22,28 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 ### Stage 3: runtime
 FROM alpine:3.20
-RUN apk add --no-cache ffmpeg ca-certificates
+# ffmpeg: PCM→G.711ulaw transcoding
+# shairport-sync: AirPlay/RAOP receiver (handles FairPlay+ALAC correctly)
+# avahi + dbus: mDNS advertisement for shairport-sync (requires --net=host in Docker)
+RUN apk add --no-cache \
+      ffmpeg \
+      ca-certificates \
+      dbus \
+      avahi \
+      shairport-sync
 WORKDIR /app
 COPY --from=builder /app/camspeak .
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 
 ENV CAMSPEAK_DATA_DIR=/config
 
 EXPOSE 8585
 VOLUME ["/config"]
 
-# NOTE: This container runs as root so it can write to the /config volume,
-# which is bind-mounted from the host (typically owned by root).
-# For hardened deployments, run with: --security-opt no-new-privileges:true
-# and chown the host volume to a non-root UID.
+# NOTE: AirPlay advertisement requires host networking so avahi multicast
+# reaches the LAN: docker run --net=host ...
+# This container runs as root so it can write to the /config volume.
 
-ENTRYPOINT ["/app/camspeak"]
-CMD ["serve"]
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["/app/camspeak", "serve"]

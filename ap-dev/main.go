@@ -565,6 +565,7 @@ func (s *server) handleAnnounce(req *rtspReq, cseq string, conn net.Conn) *rtspR
 			return bad(cseq)
 		}
 		log.Printf("[announce] fpaeskey blob (%d bytes): %x", len(fpBlob), fpBlob)
+		fmt.Printf("FP-DIAG announce: blob=%x\n", fpBlob)
 
 		s.mu.Lock()
 		sessionKey := s.fp.sessionKey
@@ -582,6 +583,7 @@ func (s *server) handleAnnounce(req *rtspReq, cseq string, conn net.Conn) *rtspR
 			return bad(cseq)
 		}
 		log.Printf("[announce] FairPlay AES key decrypted OK: %x", aesKey)
+		fmt.Printf("FP-DIAG announce: session_key=%x audio_key=%x\n", sessionKey, aesKey)
 
 	} else if rsaKeyB64, ok := sdp["rsaaeskey"]; ok {
 		// Legacy RSA mode
@@ -622,6 +624,10 @@ func (s *server) handleAnnounce(req *rtspReq, cseq string, conn net.Conn) *rtspR
 
 	log.Printf("[announce] AES key OK (%d bytes), IV OK (%d bytes)", len(aesKey), len(aesIV))
 	log.Printf("[announce] rtpmap=%s fmtp=%s", sdp["rtpmap"], sdp["fmtp"])
+	fmt.Printf("FP-DIAG announce: aes_iv=%x\n", aesIV)
+	// Write all key material to a file for easy inspection.
+	diagData := fmt.Sprintf("aes_iv=%x\naudio_key=%x\n", aesIV, aesKey)
+	_ = os.WriteFile("airplay-keys.txt", []byte(diagData), 0o644)
 
 	// Get client IP from the connection
 	clientIP := conn.RemoteAddr().(*net.TCPAddr).IP.String()
@@ -762,7 +768,7 @@ func (s *session) init() error {
 }
 
 func (s *session) setupAudio() (int, error) {
-	conn, err := net.ListenUDP("udp4", &net.UDPAddr{})
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{})
 	if err != nil {
 		return 0, err
 	}
@@ -771,11 +777,11 @@ func (s *session) setupAudio() (int, error) {
 }
 
 func (s *session) setupCtrlTiming() (int, int, error) {
-	cConn, err := net.ListenUDP("udp4", &net.UDPAddr{})
+	cConn, err := net.ListenUDP("udp", &net.UDPAddr{})
 	if err != nil {
 		return 0, 0, err
 	}
-	tConn, err := net.ListenUDP("udp4", &net.UDPAddr{})
+	tConn, err := net.ListenUDP("udp", &net.UDPAddr{})
 	if err != nil {
 		cConn.Close()
 		return 0, 0, err
@@ -879,6 +885,7 @@ func (s *session) audioLoop() {
 		if pktCount == 1 {
 			log.Printf("[audio] first packet from %s (%d bytes) !", addr, n)
 		}
+		const diagPkts = 3
 		if verbose {
 			log.Printf("[audio] pkt #%d from %s: %d bytes", pktCount, addr, n)
 		}
@@ -900,21 +907,43 @@ func (s *session) audioLoop() {
 			continue
 		}
 		payload := buf[hdr:n]
-		if len(payload) == 0 || len(payload)%16 != 0 {
-			log.Printf("[audio] payload not 16-byte aligned: %d", len(payload))
+		if len(payload) == 0 {
 			continue
 		}
 
-		// Decrypt AES-128-CBC
+		// Decrypt AES-128-CBC — only the 16-byte-aligned prefix is encrypted;
+		// the tail bytes are plaintext (standard RAOP behaviour).
 		dec := make([]byte, len(payload))
-		iv := make([]byte, 16)
-		copy(iv, s.aesIV)
-		cipher.NewCBCDecrypter(block, iv).CryptBlocks(dec, payload)
+		alignedLen := len(payload) &^ 0xf
+		if alignedLen > 0 {
+			iv := make([]byte, 16)
+			copy(iv, s.aesIV)
+			cipher.NewCBCDecrypter(block, iv).CryptBlocks(dec[:alignedLen], payload[:alignedLen])
+		}
+		copy(dec[alignedLen:], payload[alignedLen:])
 
-		// Decode ALAC → PCM
-		pcm := s.decoder.Decode(dec)
+		// For first few packets, dump raw and decrypted bytes to stdout for key verification.
+		if pktCount <= diagPkts {
+			dumpLen := len(payload)
+			if dumpLen > 32 {
+				dumpLen = 32
+			}
+			fmt.Printf("FP-DIAG pkt%d: raw[0:%d]=%x dec[0:%d]=%x\n",
+				pktCount, dumpLen, payload[:dumpLen], dumpLen, dec[:dumpLen])
+			// Append to key file.
+			entry := fmt.Sprintf("pkt%d_raw=%x\npkt%d_dec=%x\n",
+				pktCount, payload[:dumpLen], pktCount, dec[:dumpLen])
+			if f, ferr := os.OpenFile("airplay-keys.txt", os.O_APPEND|os.O_WRONLY, 0o644); ferr == nil {
+				_, _ = f.WriteString(entry)
+				f.Close()
+			}
+		}
+
+		// Decode ALAC → PCM (recover from panics in the library on bad frames)
+		pcm := alacDecodeSafe(s.decoder, dec)
 		if len(pcm) == 0 {
-			log.Printf("[audio] ALAC decode empty (encLen=%d)", len(payload))
+			log.Printf("[audio] ALAC decode empty (payloadLen=%d dec0=%02x raw0=%02x)",
+				len(payload), dec[0], payload[0])
 			continue
 		}
 		decodeOK++
@@ -977,6 +1006,16 @@ func (s *session) ctrlLoop() {
 }
 
 // --- WAV ---
+
+// alacDecodeSafe decodes an ALAC frame, recovering from library panics.
+func alacDecodeSafe(d *alac.Alac, frame []byte) (pcm []byte) {
+	defer func() {
+		if r := recover(); r != nil {
+			pcm = nil
+		}
+	}()
+	return d.Decode(frame)
+}
 
 // mustWriteBin writes a binary value to a bytes.Buffer. bytes.Buffer.Write never
 // returns an error, so this helper panics if one ever appears (it won't).
@@ -1650,9 +1689,10 @@ func (s *server) fairplaySetupConn(body []byte) ([]byte, bool) {
 		return reply, true
 	}
 
-	// Step 2 (164 bytes): derive session key then return echo response
+	// Step 2 (164 bytes): derive session key then return echo response.
+	// Mode comes from step2 body byte[6], NOT from step1 (RPiPlay/goplay2 behaviour).
+	mode := int(body[6])
 	s.mu.Lock()
-	mode := s.fp.mode
 	s.fp.step2Data = make([]byte, len(body))
 	copy(s.fp.step2Data, body)
 	s.mu.Unlock()
@@ -1666,6 +1706,8 @@ func (s *server) fairplaySetupConn(body []byte) ([]byte, bool) {
 		s.fp.sessionKey = sessionKey
 		s.mu.Unlock()
 		log.Printf("[fp-setup] step 2: session key derived: %x", sessionKey)
+		fmt.Printf("FP-DIAG step2: mode=%d step2[12:28]=%x session_key=%x\n",
+			mode, body[12:28], sessionKey)
 	}
 
 	resp := make([]byte, 32)

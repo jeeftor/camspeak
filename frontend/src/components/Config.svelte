@@ -49,6 +49,8 @@
   let airplayEnabled = $state(false)
   let airplayBasePort = $state(5000)
   let airplayStatus = $state('')
+  let airplayCameras = $state([])   // [{name, airplay_enabled, airplay_running}]
+  let airplayToggling = $state({})  // camera name → true while toggling
 
   // Test status
   let testStatus = $state({})
@@ -79,6 +81,7 @@
       const ap = await airplayRes.json()
       airplayEnabled = ap.enabled ?? false
       airplayBasePort = ap.base_port ?? 5000
+      airplayCameras = (ap.per_camera ?? []).sort((a, b) => a.name.localeCompare(b.name))
     } catch (e) {
       console.error('loadConfig error:', e)
     } finally {
@@ -261,6 +264,21 @@
   }
 
   // --- AirPlay ---
+  async function toggleCameraAirPlay(cam) {
+    airplayToggling = { ...airplayToggling, [cam.name]: true }
+    try {
+      const res = await fetch(`/api/config/airplay/${encodeURIComponent(cam.name)}/toggle`, {
+        method: 'PATCH',
+      })
+      if (!res.ok) throw new Error(await res.text())
+      loadConfig()
+    } catch (e) {
+      configError = '✗ ' + e.message
+    } finally {
+      airplayToggling = { ...airplayToggling, [cam.name]: false }
+    }
+  }
+
   async function saveAirPlay() {
     airplayStatus = ''
     try {
@@ -523,29 +541,62 @@
         <h3 class="mb-1 text-base font-semibold text-primary">AirPlay Receivers</h3>
         <p class="mb-4 text-sm text-muted-foreground">
           When enabled, each camera appears as a separate AirPlay target in the iOS AirPlay picker.
-          AirPlay audio from your iPhone is decoded and sent to the camera speaker.
-          Uses classic AirPlay v1 (RAOP) — compatible with iOS 18+ and iOS 26.
+          Audio from your iPhone is decoded by shairport-sync and sent to the camera speaker.
         </p>
-        <label class="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            bind:checked={airplayEnabled}
-            class="h-4 w-4 cursor-pointer rounded border-input accent-primary"
-          />
-          Enable AirPlay receivers for all cameras
-        </label>
-        <label class="mt-3 flex flex-col gap-1 text-xs text-muted-foreground" style="max-width: 200px">
-          Base Port (each camera gets next sequential port)
-          <Input bind:value={airplayBasePort} type="number" min="1024" max="65535" />
-        </label>
-        <p class="mt-2 text-xs text-muted-foreground">
-          Example: with base port 5000 and 3 cameras, they'll listen on ports 5000, 5001, 5002.
-          Each camera name appears in the iOS AirPlay picker.
-        </p>
-        <Button onclick={saveAirPlay} class="mt-3">
-          Save AirPlay Config
-        </Button>
-        {#if airplayStatus}<span class="ml-2 text-sm text-primary">{airplayStatus}</span>{/if}
+
+        <!-- Global toggle + port -->
+        <div class="flex flex-wrap items-center gap-4">
+          <label class="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              bind:checked={airplayEnabled}
+              class="h-4 w-4 cursor-pointer rounded border-input accent-primary"
+            />
+            Enable AirPlay globally
+          </label>
+          <label class="flex items-center gap-2 text-xs text-muted-foreground">
+            Base port
+            <Input bind:value={airplayBasePort} type="number" min="1024" max="65535" class="w-24" />
+          </label>
+          <Button onclick={saveAirPlay} size="sm">Save</Button>
+          {#if airplayStatus}<span class="text-sm text-primary">{airplayStatus}</span>{/if}
+        </div>
+
+        <!-- Per-camera toggles -->
+        {#if airplayCameras.length > 0}
+          <div class="mt-4 flex flex-col gap-1.5">
+            <p class="text-xs font-medium text-muted-foreground">Per-camera AirPlay</p>
+            {#each airplayCameras as cam}
+              <div class="flex items-center justify-between rounded-lg border bg-background px-3 py-2">
+                <div class="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={cam.airplay_enabled}
+                    disabled={airplayToggling[cam.name]}
+                    onchange={() => toggleCameraAirPlay(cam)}
+                    class="h-4 w-4 cursor-pointer rounded border-input accent-primary disabled:cursor-wait"
+                    title={cam.airplay_enabled ? 'Disable AirPlay for this camera' : 'Enable AirPlay for this camera'}
+                  />
+                  <span class="font-semibold">{cam.name}</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  {#if cam.airplay_running}
+                    <span class="inline-flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-0.5 text-xs font-medium text-green-600">
+                      <span class="h-1.5 w-1.5 rounded-full bg-green-500"></span>
+                      running
+                    </span>
+                  {:else if cam.airplay_enabled}
+                    <span class="text-xs text-muted-foreground italic">stopped</span>
+                  {:else}
+                    <span class="text-xs text-muted-foreground italic">disabled</span>
+                  {/if}
+                </div>
+              </div>
+            {/each}
+          </div>
+        {:else}
+          <p class="mt-4 text-sm text-muted-foreground italic">No cameras configured yet.</p>
+        {/if}
       </section>
 
     <!-- Overview -->

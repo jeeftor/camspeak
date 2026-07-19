@@ -29,6 +29,9 @@ airplay-dev: ## Run standalone AirPlay debug receiver (ap-dev/)
 airplay-dev-modern: ## Run AirPlay debug receiver in modern mode (pk/pi)
 	go run ./ap-dev -name "AirPlay-Test" -port 5100 -mode modern -v -play
 
+airplay: ## Run server with AirPlay enabled (shairport-sync must be installed)
+	CAMSPEAK_AIRPLAY_ENABLED=1 CAMSPEAK_AIRPLAY_BASE_PORT=5100 go run main.go serve
+
 clean: ## Remove build artifacts
 	rm -f $(BINARY)
 	rm -rf frontend/dist

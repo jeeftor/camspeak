@@ -17,6 +17,7 @@ import (
 	clog "github.com/charmbracelet/log"
 	"github.com/labstack/echo/v4"
 
+	"github.com/jeeftor/camspeak/internal/airplay"
 	"github.com/jeeftor/camspeak/internal/cameras"
 	"github.com/jeeftor/camspeak/internal/config"
 	"github.com/jeeftor/camspeak/internal/library"
@@ -29,6 +30,7 @@ type Handlers struct {
 	cfg             *config.Config
 	cfgMu           sync.Mutex
 	reg             *cameras.Registry
+	airplayMgr      *airplay.Manager
 	store           *library.Store
 	tts             *tts.Client
 	vision          *vision.Client
@@ -40,6 +42,12 @@ type Handlers struct {
 	db              *sql.DB
 	tmpDir          string
 	log             *clog.Logger
+}
+
+// SetAirPlayManager attaches a live AirPlay manager so per-camera toggles
+// take effect immediately without a restart.
+func (h *Handlers) SetAirPlayManager(m *airplay.Manager) {
+	h.airplayMgr = m
 }
 
 // speakReq is the body for POST /api/speak.

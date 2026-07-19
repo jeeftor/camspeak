@@ -139,16 +139,22 @@ func (h *Handlers) ActivateTTSPreset(c echo.Context) error {
 
 // ListCamerasConfig handles GET /api/config/cameras — returns all configured cameras.
 func (h *Handlers) ListCamerasConfig(c echo.Context) error {
+	apStatus := map[string]bool{}
+	if h.airplayMgr != nil {
+		apStatus = h.airplayMgr.Status()
+	}
 	cameras := make([]map[string]interface{}, 0, len(h.cfg.Cameras))
 	for name, cam := range h.cfg.Cameras {
 		cameras = append(cameras, map[string]interface{}{
-			"name":          name,
-			"type":          cam.Type,
-			"ip":            cam.IP,
-			"channel":       cam.Channel,
-			"stream":        cam.Stream,
-			"enabled":       cam.Enabled,
-			"vision_prompt": cam.VisionPrompt,
+			"name":            name,
+			"type":            cam.Type,
+			"ip":              cam.IP,
+			"channel":         cam.Channel,
+			"stream":          cam.Stream,
+			"enabled":         cam.Enabled,
+			"airplay_enabled": cam.AirPlayEnabled,
+			"airplay_running": apStatus[name],
+			"vision_prompt":   cam.VisionPrompt,
 		})
 	}
 	return c.JSON(http.StatusOK, cameras)
@@ -342,11 +348,79 @@ func (h *Handlers) CreateRule(c echo.Context) error {
 	return c.JSON(http.StatusCreated, r)
 }
 
-// GetAirPlayConfig handles GET /api/config/airplay — returns AirPlay config.
+// GetAirPlayConfig handles GET /api/config/airplay — returns AirPlay config and per-camera status.
 func (h *Handlers) GetAirPlayConfig(c echo.Context) error {
 	h.cfgMu.Lock()
-	defer h.cfgMu.Unlock()
-	return c.JSON(http.StatusOK, h.cfg.AirPlay)
+	ap := h.cfg.AirPlay
+	cams := h.cfg.Cameras
+	h.cfgMu.Unlock()
+
+	status := map[string]bool{}
+	if h.airplayMgr != nil {
+		status = h.airplayMgr.Status()
+	}
+
+	perCamera := make([]map[string]interface{}, 0, len(cams))
+	for name, cam := range cams {
+		perCamera = append(perCamera, map[string]interface{}{
+			"name":            name,
+			"airplay_enabled": cam.AirPlayEnabled,
+			"airplay_running": status[name],
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"enabled":    ap.Enabled,
+		"base_port":  ap.BasePort,
+		"per_camera": perCamera,
+	})
+}
+
+// ToggleAirPlay handles PATCH /api/config/airplay/:camera/toggle —
+// enables or disables the shairport-sync receiver for a single camera live.
+func (h *Handlers) ToggleAirPlay(c echo.Context) error {
+	name := c.Param("camera")
+
+	h.cfgMu.Lock()
+	cam, ok := h.cfg.Cameras[name]
+	if !ok {
+		h.cfgMu.Unlock()
+		return echo.NewHTTPError(http.StatusNotFound, "camera not found")
+	}
+	cam.AirPlayEnabled = !cam.AirPlayEnabled
+	h.cfg.Cameras[name] = cam
+	h.cfgMu.Unlock()
+
+	if err := config.SaveCamera(h.db, name, cam); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	running := false
+	if h.airplayMgr != nil {
+		if cam.AirPlayEnabled && cam.Enabled {
+			if err := h.airplayMgr.Enable(name); err != nil {
+				h.log.Warn("AirPlay enable failed", "camera", name, "err", err)
+			}
+		} else {
+			h.airplayMgr.Disable(name)
+		}
+		running = h.airplayMgr.IsRunning(name)
+	}
+
+	h.log.Info(
+		"AirPlay toggled",
+		"camera",
+		name,
+		"airplay_enabled",
+		cam.AirPlayEnabled,
+		"running",
+		running,
+	)
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"camera":          name,
+		"airplay_enabled": cam.AirPlayEnabled,
+		"running":         running,
+	})
 }
 
 // UpdateAirPlayConfig handles PUT /api/config/airplay — updates AirPlay config.

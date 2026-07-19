@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 
 	"github.com/charmbracelet/lipgloss"
@@ -102,38 +101,21 @@ func runServe(cmd *cobra.Command, args []string) error {
 		appLog.Info("camera", "name", name, "type", cam.Type, "ip", cam.IP, "enabled", cam.Enabled)
 	}
 
-	// Start AirPlay receivers for each camera if enabled
-	var airplayServers []*airplay.Server
+	// Start AirPlay receivers via the Manager (shairport-sync backend).
+	// The Manager assigns stable ports and handles per-camera enable/disable live.
+	var airplayMgr *airplay.Manager
 	if cfg.AirPlay.Enabled {
-		appLog.Info("AirPlay enabled — starting receivers for all cameras")
-		port := cfg.AirPlay.BasePort
-		for name, cam := range cfg.Cameras {
-			if !cam.Enabled {
-				continue
-			}
-			speaker, err := reg.Get(name)
-			if err != nil {
-				appLog.Warn("AirPlay: skipping camera", "name", name, "err", err)
-				continue
-			}
-			displayName := toDisplayName(name)
-			apServer, err := airplay.NewServer(displayName, port, cfg.AdvertiseIP, speaker)
-			if err != nil {
-				appLog.Warn("AirPlay: failed to create server", "name", name, "err", err)
-				continue
-			}
-			apServer.SetLogLevel(level)
-			if err := apServer.Start(); err != nil {
-				appLog.Warn("AirPlay: failed to start server", "name", name, "err", err)
-				continue
-			}
-			airplayServers = append(airplayServers, apServer)
-			port++
-		}
-		appLog.Info("AirPlay receivers started", "count", len(airplayServers))
+		appLog.Info("AirPlay enabled — starting Manager")
+		airplayMgr = airplay.NewManager(cfg, reg)
+		airplayMgr.SetLogLevel(level)
 	}
 
 	srv := api.New(cfg, reg, store, ttsClient, database)
+
+	// Wire AirPlay Manager → API so per-camera toggles take effect live.
+	if airplayMgr != nil {
+		srv.Handlers().SetAirPlayManager(airplayMgr)
+	}
 
 	// Wire MQTT → API handlers
 	mqttSub := mqtt.New(cfg.MQTT, cfg.Rules, srv.Handlers().SpeakForMQTT)
@@ -153,8 +135,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	go func() {
 		<-quit
 		appLog.Info("shutting down")
-		for _, ap := range airplayServers {
-			ap.Stop()
+		if airplayMgr != nil {
+			airplayMgr.Stop()
 		}
 		srv.Stop() //nolint:errcheck
 	}()
@@ -162,19 +144,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 	addr := fmt.Sprintf(":%d", cfg.Port)
 
 	return srv.Start(addr)
-}
-
-// toDisplayName converts a camera key like "backyard" to "Backyard Camera"
-// for display in the iOS AirPlay picker.
-func toDisplayName(name string) string {
-	if name == "" {
-		return name
-	}
-	words := strings.Fields(strings.ReplaceAll(name, "_", " "))
-	for i, w := range words {
-		words[i] = strings.ToUpper(w[:1]) + w[1:]
-	}
-	return strings.Join(words, " ") + " Camera"
 }
 
 var titleStyle = lipgloss.NewStyle().

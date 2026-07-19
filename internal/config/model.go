@@ -33,14 +33,15 @@ type VisionConfig struct {
 
 // CameraConfig holds connection details for a single camera.
 type CameraConfig struct {
-	Type         string `json:"type"` // "hikvision", "reolink", "go2rtc", "onvif"
-	IP           string `json:"ip"`
-	User         string `json:"user"`
-	Pass         string `json:"pass"`
-	Channel      int    `json:"channel"`       // Hikvision audio channel, default 1
-	Stream       string `json:"stream"`        // go2rtc stream name (e.g. "garage_2way") or RTSP path for onvif
-	Enabled      bool   `json:"enabled"`       // if false, camera is loaded but skipped for speak/broadcast
-	VisionPrompt string `json:"vision_prompt"` // default prompt for vision/describe; empty = generic
+	Type           string `json:"type"` // "hikvision", "reolink", "go2rtc", "onvif"
+	IP             string `json:"ip"`
+	User           string `json:"user"`
+	Pass           string `json:"pass"`
+	Channel        int    `json:"channel"`         // Hikvision audio channel, default 1
+	Stream         string `json:"stream"`          // go2rtc stream name (e.g. "garage_2way") or RTSP path for onvif
+	Enabled        bool   `json:"enabled"`         // if false, camera is loaded but skipped for speak/broadcast
+	AirPlayEnabled bool   `json:"airplay_enabled"` // if false, no shairport-sync receiver for this camera
+	VisionPrompt   string `json:"vision_prompt"`   // default prompt for vision/describe; empty = generic
 }
 
 // MQTTConfig holds connection details for the MQTT broker.
@@ -106,7 +107,7 @@ type AirPlayConfig struct {
 const (
 	defaultPort            = 8585
 	defaultLibrary         = "/config/library"
-	defaultAirPlayBasePort = 5000
+	defaultAirPlayBasePort = 5100
 )
 
 // DefaultTTSPresets are created on first boot if no presets exist.
@@ -296,7 +297,8 @@ func seedDefaultPresets(db *sql.DB) {
 // loadCameras loads camera configurations from SQLite.
 func loadCameras(db *sql.DB, cfg *Config) {
 	rows, err := db.Query(
-		`SELECT name, type, ip, user, pass, channel, stream, enabled, vision_prompt FROM cameras`,
+		`SELECT name, type, ip, user, pass, channel, stream, enabled, vision_prompt,
+		        COALESCE(airplay_enabled, 1) FROM cameras`,
 	)
 	if err != nil {
 		return
@@ -306,11 +308,15 @@ func loadCameras(db *sql.DB, cfg *Config) {
 	for rows.Next() {
 		var cam CameraConfig
 		var name string
-		var enabled int
-		if err := rows.Scan(&name, &cam.Type, &cam.IP, &cam.User, &cam.Pass, &cam.Channel, &cam.Stream, &enabled, &cam.VisionPrompt); err != nil {
+		var enabled, airplayEnabled int
+		if err := rows.Scan(
+			&name, &cam.Type, &cam.IP, &cam.User, &cam.Pass,
+			&cam.Channel, &cam.Stream, &enabled, &cam.VisionPrompt, &airplayEnabled,
+		); err != nil {
 			continue
 		}
 		cam.Enabled = enabled == 1
+		cam.AirPlayEnabled = airplayEnabled == 1
 		cfg.Cameras[name] = cam
 	}
 }
@@ -441,13 +447,19 @@ func SaveCamera(db *sql.DB, name string, cam CameraConfig) error {
 	if cam.Enabled {
 		enabled = 1
 	}
+	airplayEnabled := 1
+	if !cam.AirPlayEnabled {
+		airplayEnabled = 0
+	}
 	_, err := db.Exec(
-		`INSERT INTO cameras (name, type, ip, user, pass, channel, stream, enabled, vision_prompt)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO cameras
+		   (name, type, ip, user, pass, channel, stream, enabled, vision_prompt, airplay_enabled)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(name) DO UPDATE SET
 		   type = excluded.type, ip = excluded.ip, user = excluded.user,
 		   pass = excluded.pass, channel = excluded.channel, stream = excluded.stream,
-		   enabled = excluded.enabled, vision_prompt = excluded.vision_prompt`,
+		   enabled = excluded.enabled, vision_prompt = excluded.vision_prompt,
+		   airplay_enabled = excluded.airplay_enabled`,
 		name,
 		cam.Type,
 		cam.IP,
@@ -457,6 +469,7 @@ func SaveCamera(db *sql.DB, name string, cam CameraConfig) error {
 		cam.Stream,
 		enabled,
 		cam.VisionPrompt,
+		airplayEnabled,
 	)
 	if err != nil {
 		return fmt.Errorf("saving camera %s: %w", name, err)

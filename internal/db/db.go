@@ -143,4 +143,11 @@ func migrate(db *sql.DB) {
 		vpCol == 0 {
 		_, _ = db.Exec(`ALTER TABLE cameras ADD COLUMN vision_prompt TEXT DEFAULT ''`)
 	}
+	// Add 'airplay_enabled' column to cameras if missing (added in v1.9.0).
+	// Default 1 (enabled) — existing cameras automatically get AirPlay.
+	var apCol int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cameras') WHERE name='airplay_enabled'`).Scan(&apCol); err == nil &&
+		apCol == 0 {
+		_, _ = db.Exec(`ALTER TABLE cameras ADD COLUMN airplay_enabled INTEGER DEFAULT 1`)
+	}
 }
