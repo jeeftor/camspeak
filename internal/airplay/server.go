@@ -1215,8 +1215,21 @@ func (s *session) audioReceiveLoop() {
 		}
 		pcm := alacDecodeSafe(s.decoder, decrypted)
 		if len(pcm) == 0 {
-			s.log.Debug("audio: ALAC decode returned empty", "encryptedLen", len(payload))
-			continue
+			// Fallback: try the raw (undecrypted) payload — if this works,
+			// the stream is unencrypted despite fpaeskey being present.
+			rawPCM := alacDecodeSafe(s.decoder, payload)
+			if len(rawPCM) > 0 {
+				s.log.Info("audio: raw payload decoded — stream is UNENCRYPTED",
+					"seq", seqNum, "payloadLen", len(payload))
+				pcm = rawPCM
+			} else {
+				s.log.Debug("audio: ALAC decode returned empty",
+					"encryptedLen", len(payload),
+					"raw0", fmt.Sprintf("%02x", payload[0]),
+					"dec0", fmt.Sprintf("%02x", decrypted[0]),
+				)
+				continue
+			}
 		}
 
 		decodeCount++
