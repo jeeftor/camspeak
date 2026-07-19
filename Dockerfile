@@ -25,7 +25,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM alpine:3.20 AS shairport-builder
 RUN apk add --no-cache \
       git autoconf automake libtool \
-      pkgconfig gcc make \
+      pkgconfig build-base \
       popt-dev libconfig-dev openssl-dev \
       avahi-dev soxr-dev alsa-lib-dev
 RUN git clone --depth 1 --branch 4.3.2 \
