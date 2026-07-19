@@ -5,6 +5,26 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v2.2.0] — 2026-07-19
+
+### AirPlay FairPlay decryption support
+
+iOS 18+ negotiates FairPlay-encrypted audio (sending an `fpaeskey` in the ANNOUNCE SDP) instead of the legacy RSA-encrypted `rsaaeskey`. This release adds the FairPlay session-key derivation and audio-key decryption needed to handle that path, so iOS no longer drops the connection after ANNOUNCE.
+
+### Added
+- **FairPlay session key derivation** — `/fp-setup` step 1 now captures the mode byte from the iOS request, and step 2 derives the 16-byte FairPlay session key by AES-128-ECB-decrypting request bytes [12:28] with the mode-specific master key (from RPiPlay/UxPlay `fair_play.c`).
+- **`fpaeskey` decryption** — ANNOUNCE now decrypts the audio AES key from the FairPlay-encrypted `fpaeskey` SDP blob (FPLY magic + AES-128-ECB) using the derived session key. Falls back to the legacy RSA `rsaaeskey` path when `fpaeskey` is absent.
+- `Audio-Jack-Status: connected; type=analog` header on OPTIONS responses.
+- `GET_PARAMETER` now returns `volume: -20.000000` when queried, so iOS volume UI works.
+
+### Changed
+- ANNOUNCE AES-key extraction is now a two-branch dispatch (FairPlay `fpaeskey` first, then legacy RSA `rsaaeskey`), replacing the RSA-only path.
+
+### Notes
+- The `ap-dev/` standalone AirPlay debug receiver and its `make airplay-dev` / `make airplay-dev-modern` targets are preserved on the `airplay-dev-working` tag but are not part of the released image.
+
+---
+
 ## [v2.0.0] — 2026-07-18
 
 ### Major release — AirPlay, stop button, and library management

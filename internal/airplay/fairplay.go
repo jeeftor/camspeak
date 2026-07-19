@@ -1,5 +1,11 @@
 package airplay
 
+import (
+	"crypto/aes"
+	"encoding/binary"
+	"fmt"
+)
+
 // FairPlay hardcoded certificates from RPiPlay/UxPlay.
 // These are used for the /fp-setup RTSP handshake that iOS requires
 // when the features bitmask advertises FairPlay authentication.
@@ -86,4 +92,53 @@ func fairplayHandshake(req []byte) ([]byte, bool) {
 	copy(resp[:12], fairplayHeader[:])
 	copy(resp[12:], req[144:164])
 	return resp, true
+}
+
+// fpMasterKeys are the 4 mode-specific AES-128 keys used to derive the FairPlay session key.
+// Source: RPiPlay/UxPlay fair_play.c (public domain, extracted from AirPort firmware).
+var fpMasterKeys = [4][16]byte{
+	{0x59, 0xD9, 0x0A, 0xE9, 0x26, 0xBF, 0x25, 0x7F, 0x02, 0x7E, 0x8F, 0x7D, 0xC4, 0x97, 0x15, 0x55},
+	{0xF5, 0x26, 0xFE, 0x8F, 0xAA, 0x17, 0xEB, 0xFC, 0x0B, 0x56, 0xA8, 0x17, 0xB9, 0x38, 0x33, 0xD0},
+	{0xF7, 0xD6, 0x9C, 0xE2, 0x09, 0x9C, 0x2B, 0x4C, 0x2E, 0x0A, 0xBB, 0xBE, 0x54, 0x67, 0x13, 0x02},
+	{0x1B, 0x0B, 0x92, 0x98, 0x59, 0x2F, 0x8A, 0x2C, 0xDF, 0xB4, 0xD9, 0x4D, 0x16, 0x60, 0x7C, 0x9D},
+}
+
+// deriveFPSessionKey derives the 16-byte FairPlay session key from the /fp-setup step-2 request.
+// It AES-128-ECB-decrypts bytes [12:28] of the request using the mode-specific master key.
+func deriveFPSessionKey(step2 []byte, mode int) ([]byte, error) {
+	if len(step2) < 28 {
+		return nil, fmt.Errorf("fp-setup step2 too short: %d", len(step2))
+	}
+	if mode > 3 {
+		return nil, fmt.Errorf("fp-setup invalid mode: %d", mode)
+	}
+	block, err := aes.NewCipher(fpMasterKeys[mode][:])
+	if err != nil {
+		return nil, fmt.Errorf("fp-setup AES cipher: %w", err)
+	}
+	sessionKey := make([]byte, 16)
+	block.Decrypt(sessionKey, step2[12:28])
+	return sessionKey, nil
+}
+
+// decryptFPAESKey decrypts the audio AES key from an fpaeskey SDP blob using the FairPlay session key.
+// Blob structure: [0:4] FPLY magic, [32:36] uint32be key length (must be 16), [36:52] encrypted key.
+func decryptFPAESKey(blob, sessionKey []byte) ([]byte, error) {
+	if len(blob) < 52 {
+		return nil, fmt.Errorf("fpaeskey blob too short: %d bytes", len(blob))
+	}
+	if string(blob[0:4]) != "FPLY" {
+		return nil, fmt.Errorf("fpaeskey bad magic: %x", blob[0:4])
+	}
+	keyLen := int(binary.BigEndian.Uint32(blob[32:36]))
+	if keyLen != 16 {
+		return nil, fmt.Errorf("fpaeskey unexpected key length: %d", keyLen)
+	}
+	block, err := aes.NewCipher(sessionKey)
+	if err != nil {
+		return nil, fmt.Errorf("fpaeskey AES cipher: %w", err)
+	}
+	audioKey := make([]byte, 16)
+	block.Decrypt(audioKey, blob[36:52])
+	return audioKey, nil
 }

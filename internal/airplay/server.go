@@ -49,6 +49,11 @@ type Server struct {
 	// Active session
 	sessionMu sync.Mutex
 	session   *session
+
+	// FairPlay per-connection state (mode derived in step 1, session key in step 2)
+	fpMu         sync.Mutex
+	fpMode       int
+	fpSessionKey []byte
 }
 
 // Speaker is the interface for sending raw G.711ulaw audio to a camera.
@@ -486,8 +491,9 @@ func (s *Server) handleRequest(req *rtspRequest) *rtspResponse {
 			status: 200,
 			reason: "OK",
 			headers: map[string]string{
-				"CSeq":   cseq,
-				"Public": "ANNOUNCE, SETUP, RECORD, PAUSE, FLUSH, TEARDOWN, OPTIONS, GET_PARAMETER, SET_PARAMETER, POST",
+				"CSeq":              cseq,
+				"Public":            "ANNOUNCE, SETUP, RECORD, PAUSE, FLUSH, TEARDOWN, OPTIONS, GET_PARAMETER, SET_PARAMETER, POST",
+				"Audio-Jack-Status": "connected; type=analog",
 			},
 		}
 		// iOS sends Apple-Challenge with OPTIONS — must respond with Apple-Response
@@ -516,13 +522,21 @@ func (s *Server) handleRequest(req *rtspRequest) *rtspResponse {
 		return &rtspResponse{status: 200, reason: "OK", headers: map[string]string{"CSeq": cseq}}
 
 	case "GET_PARAMETER":
-		return &rtspResponse{status: 200, reason: "OK", headers: map[string]string{"CSeq": cseq}}
+		var respBody string
+		if strings.Contains(string(req.body), "volume") {
+			respBody = "volume: -20.000000\r\n"
+		}
+		hdrs := map[string]string{"CSeq": cseq}
+		if respBody != "" {
+			hdrs["Content-Type"] = "text/parameters"
+		}
+		return &rtspResponse{status: 200, reason: "OK", headers: hdrs, body: []byte(respBody)}
 
 	case "POST":
 		// FairPlay setup — iOS sends 16 bytes (step 1) or 164 bytes (step 2)
 		if strings.HasPrefix(req.uri, "/fp-setup") {
 			if len(req.body) <= 16 {
-				// Step 1: return 142-byte FairPlay certificate
+				// Step 1: return 142-byte FairPlay certificate; save mode for step 2
 				resp, ok := fairplaySetup(req.body)
 				if !ok {
 					s.log.Debug("fp-setup step 1 failed", "body_len", len(req.body))
@@ -532,7 +546,12 @@ func (s *Server) handleRequest(req *rtspRequest) *rtspResponse {
 						headers: map[string]string{"CSeq": cseq},
 					}
 				}
-				s.log.Debug("fp-setup step 1", "body_len", len(req.body), "resp_len", len(resp))
+				mode := int(req.body[14])
+				s.fpMu.Lock()
+				s.fpMode = mode
+				s.fpSessionKey = nil
+				s.fpMu.Unlock()
+				s.log.Debug("fp-setup step 1", "mode", mode, "resp_len", len(resp))
 				return &rtspResponse{
 					status: 200, reason: "OK",
 					headers: map[string]string{
@@ -542,7 +561,7 @@ func (s *Server) handleRequest(req *rtspRequest) *rtspResponse {
 					body: resp,
 				}
 			}
-			// Step 2: return 32-byte handshake response
+			// Step 2: derive session key, return 32-byte handshake response
 			resp, ok := fairplayHandshake(req.body)
 			if !ok {
 				s.log.Debug("fp-setup step 2 failed", "body_len", len(req.body))
@@ -552,7 +571,18 @@ func (s *Server) handleRequest(req *rtspRequest) *rtspResponse {
 					headers: map[string]string{"CSeq": cseq},
 				}
 			}
-			s.log.Debug("fp-setup step 2", "body_len", len(req.body), "resp_len", len(resp))
+			s.fpMu.Lock()
+			mode := s.fpMode
+			s.fpMu.Unlock()
+			sessionKey, err := deriveFPSessionKey(req.body, mode)
+			if err != nil {
+				s.log.Warn("fp-setup step 2: session key derivation failed", "err", err)
+			} else {
+				s.fpMu.Lock()
+				s.fpSessionKey = sessionKey
+				s.fpMu.Unlock()
+				s.log.Debug("fp-setup step 2: session key derived", "mode", mode)
+			}
 			return &rtspResponse{
 				status: 200, reason: "OK",
 				headers: map[string]string{
@@ -623,38 +653,59 @@ func (s *Server) handleAnnounce(req *rtspRequest, cseq string) *rtspResponse {
 		appleResponse = resp
 	}
 
-	// Extract AES key from rsaaeskey (RSA-encrypted AES key)
-	rsaAesKey, ok := sdp["rsaaeskey"]
-	if !ok {
-		s.log.Warn("ANNOUNCE: no rsaaeskey in SDP")
-		return &rtspResponse{
-			status:  400,
-			reason:  "Bad Request",
-			headers: map[string]string{"CSeq": cseq},
+	// Extract AES key — iOS 18 uses fpaeskey (FairPlay), older iOS uses rsaaeskey (RSA)
+	var aesKey []byte
+	if fpKeyB64, ok := sdp["fpaeskey"]; ok {
+		// FairPlay path: audio AES key is encrypted with the FP session key from /fp-setup
+		s.log.Debug("ANNOUNCE: FairPlay mode (fpaeskey)")
+		fpKeyB64 = strings.Join(strings.Fields(fpKeyB64), "")
+		fpBlob, err := base64.StdEncoding.DecodeString(padBase64(fpKeyB64))
+		if err != nil {
+			s.log.Warn("ANNOUNCE: bad fpaeskey base64", "err", err)
+			return &rtspResponse{
+				status:  400,
+				reason:  "Bad Request",
+				headers: map[string]string{"CSeq": cseq},
+			}
 		}
-	}
-
-	// The rsaaeskey may have whitespace from line continuation
-	rsaAesKey = strings.Join(strings.Fields(rsaAesKey), "")
-	encryptedAesKey, err := base64.StdEncoding.DecodeString(padBase64(rsaAesKey))
-	if err != nil {
-		s.log.Warn("ANNOUNCE: bad rsaaeskey base64", "err", err)
-		return &rtspResponse{
-			status:  400,
-			reason:  "Bad Request",
-			headers: map[string]string{"CSeq": cseq},
+		s.fpMu.Lock()
+		sessionKey := s.fpSessionKey
+		s.fpMu.Unlock()
+		if sessionKey == nil {
+			s.log.Warn("ANNOUNCE: fpaeskey present but no FP session key — fp-setup incomplete")
+			return &rtspResponse{
+				status:  400,
+				reason:  "Bad Request",
+				headers: map[string]string{"CSeq": cseq},
+			}
 		}
-	}
-
-	// Decrypt AES key with RSA private key (OAEP padding)
-	aesKey, err := rsa.DecryptOAEP(sha1.New(), rand.Reader, s.rsaKey, encryptedAesKey, nil)
-	if err != nil {
-		s.log.Warn("ANNOUNCE: RSA decrypt failed", "err", err)
-		return &rtspResponse{
-			status:  400,
-			reason:  "Bad Request",
-			headers: map[string]string{"CSeq": cseq},
+		aesKey, err = decryptFPAESKey(fpBlob, sessionKey)
+		if err != nil {
+			s.log.Warn("ANNOUNCE: fpaeskey decrypt failed", "err", err)
+			return &rtspResponse{
+				status:  400,
+				reason:  "Bad Request",
+				headers: map[string]string{"CSeq": cseq},
+			}
 		}
+		s.log.Debug("ANNOUNCE: FairPlay AES key decrypted OK")
+	} else if rsaAesKey, ok := sdp["rsaaeskey"]; ok {
+		// Legacy RSA path
+		s.log.Debug("ANNOUNCE: RSA mode (rsaaeskey)")
+		rsaAesKey = strings.Join(strings.Fields(rsaAesKey), "")
+		encryptedAesKey, err := base64.StdEncoding.DecodeString(padBase64(rsaAesKey))
+		if err != nil {
+			s.log.Warn("ANNOUNCE: bad rsaaeskey base64", "err", err)
+			return &rtspResponse{status: 400, reason: "Bad Request", headers: map[string]string{"CSeq": cseq}}
+		}
+		aesKey, err = rsa.DecryptOAEP(sha1.New(), rand.Reader, s.rsaKey, encryptedAesKey, nil)
+		if err != nil {
+			s.log.Warn("ANNOUNCE: RSA decrypt failed", "err", err)
+			return &rtspResponse{status: 400, reason: "Bad Request", headers: map[string]string{"CSeq": cseq}}
+		}
+	} else {
+		s.log.Warn("ANNOUNCE: no fpaeskey or rsaaeskey in SDP")
+		return &rtspResponse{status: 400, reason: "Bad Request", headers: map[string]string{"CSeq": cseq}}
 	}
 
 	if len(aesKey) != 16 {

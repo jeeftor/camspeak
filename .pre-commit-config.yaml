@@ -19,7 +19,7 @@ repos:
       - id: mixed-line-ending
         args: [--fix=lf]
       - id: detect-private-key
-        exclude: ^internal/airplay/rsa_key\.go$
+        exclude: ^(internal/airplay/rsa_key\.go|ap-dev/main\.go)$
 
   # Go linter — runs on all files (use golangci-lint for changed-only in local)
   - repo: https://github.com/golangci/golangci-lint
