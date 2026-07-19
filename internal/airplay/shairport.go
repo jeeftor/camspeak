@@ -74,7 +74,6 @@ func (s *ShairportServer) Start() error {
 	// than a config file. Use classic AirPlay 1 (RAOP) mode.
 	cmd := exec.Command(
 		"shairport-sync",
-		"--service-type", "classic",
 		"-a", s.name,
 		"-p", fmt.Sprintf("%d", s.port),
 		"-o", "stdout",
