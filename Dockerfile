@@ -52,10 +52,10 @@ RUN apk add --no-cache \
       ffmpeg \
       ca-certificates \
       avahi \
-      libpopt \
+      popt \
       libconfig \
       openssl \
-      libsoxr
+      soxr
 COPY --from=shairport-builder /build/usr/local/bin/shairport-sync /usr/local/bin/shairport-sync
 WORKDIR /app
 COPY --from=builder /app/camspeak .
