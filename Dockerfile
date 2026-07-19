@@ -20,20 +20,21 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -ldflags="-s -w -X main.Version=${VERSION}" -o camspeak .
 
-### Stage 3: build shairport-sync from source with --with-stdout
+### Stage 3: build shairport-sync from source with --with-stdout and --with-tinysvcmdns
 # The Alpine package (4.3.2) omits stdout support; we build it ourselves.
+# tinysvcmdns is bundled in the shairport-sync source — no avahi/dbus needed at runtime.
 FROM alpine:3.20 AS shairport-builder
 RUN apk add --no-cache \
       git autoconf automake libtool \
       pkgconfig build-base \
       popt-dev libconfig-dev openssl-dev \
-      avahi-dev soxr-dev alsa-lib-dev
+      soxr-dev alsa-lib-dev
 RUN git clone --depth 1 --branch 4.3.2 \
       https://github.com/mikebrady/shairport-sync.git /src
 WORKDIR /src
 RUN autoreconf -fi && \
     ./configure \
-      --with-avahi \
+      --with-tinysvcmdns \
       --with-ssl=openssl \
       --with-stdout \
       --with-pipe \
@@ -46,18 +47,14 @@ RUN autoreconf -fi && \
 ### Stage 4: runtime
 FROM alpine:3.20
 # ffmpeg: PCM→G.711ulaw transcoding
-# dbus + avahi: mDNS advertisement for shairport-sync (libavahi-client requires dbus)
-# runtime libs for our custom shairport-sync build
+# runtime libs for our custom shairport-sync build (tinysvcmdns is built-in, no avahi/dbus needed)
 RUN apk add --no-cache \
       ffmpeg \
       ca-certificates \
-      dbus \
-      avahi \
       popt \
       libconfig \
       openssl \
-      soxr && \
-    dbus-uuidgen --ensure=/etc/machine-id
+      soxr
 COPY --from=shairport-builder /build/usr/local/bin/shairport-sync /usr/local/bin/shairport-sync
 WORKDIR /app
 COPY --from=builder /app/camspeak .
