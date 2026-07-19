@@ -23,6 +23,12 @@ test: ## Run the test suite
 docker: ## Build the multi-arch Docker image
 	docker buildx build --build-arg VERSION=$(VERSION) --platform linux/amd64,linux/arm64 -t $(IMAGE):dev .
 
+airplay-dev: ## Run standalone AirPlay debug receiver (ap-dev/)
+	go run ./ap-dev -name "AirPlay-Test" -port 5100 -v
+
+airplay-dev-modern: ## Run AirPlay debug receiver in modern mode (pk/pi)
+	go run ./ap-dev -name "AirPlay-Test" -port 5100 -mode modern -v -play
+
 clean: ## Remove build artifacts
 	rm -f $(BINARY)
 	rm -rf frontend/dist
