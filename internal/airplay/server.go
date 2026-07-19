@@ -144,7 +144,7 @@ func (s *Server) Start() error {
 		"vs=366.0",
 		"am=camspeak",
 		"sf=0x4",
-		"ft=0x5A73AEE6,0x0",
+		"ft=0x5A7FFEE6,0x0",
 		"pk=" + s.pkHex,
 		"vv=2",
 	}
@@ -178,7 +178,7 @@ func (s *Server) Start() error {
 	// Minimal TXT records for audio-only AirPlay v1.
 	airplayText := []string{
 		"deviceid=" + formatMAC(s.hwAddr),
-		"features=0x5A73AEE6,0x0",
+		"features=0x5A7FFEE6,0x0",
 		"flags=0x4",
 		"model=camspeak",
 		"pw=false",
@@ -519,6 +519,49 @@ func (s *Server) handleRequest(req *rtspRequest) *rtspResponse {
 		return &rtspResponse{status: 200, reason: "OK", headers: map[string]string{"CSeq": cseq}}
 
 	case "POST":
+		// FairPlay setup — iOS sends 16 bytes (step 1) or 164 bytes (step 2)
+		if strings.HasPrefix(req.uri, "/fp-setup") {
+			if len(req.body) <= 16 {
+				// Step 1: return 142-byte FairPlay certificate
+				resp, ok := fairplaySetup(req.body)
+				if !ok {
+					s.log.Debug("fp-setup step 1 failed", "body_len", len(req.body))
+					return &rtspResponse{
+						status:  400,
+						reason:  "Bad Request",
+						headers: map[string]string{"CSeq": cseq},
+					}
+				}
+				s.log.Debug("fp-setup step 1", "body_len", len(req.body), "resp_len", len(resp))
+				return &rtspResponse{
+					status: 200, reason: "OK",
+					headers: map[string]string{
+						"CSeq":         cseq,
+						"Content-Type": "application/octet-stream",
+					},
+					body: resp,
+				}
+			}
+			// Step 2: return 32-byte handshake response
+			resp, ok := fairplayHandshake(req.body)
+			if !ok {
+				s.log.Debug("fp-setup step 2 failed", "body_len", len(req.body))
+				return &rtspResponse{
+					status:  400,
+					reason:  "Bad Request",
+					headers: map[string]string{"CSeq": cseq},
+				}
+			}
+			s.log.Debug("fp-setup step 2", "body_len", len(req.body), "resp_len", len(resp))
+			return &rtspResponse{
+				status: 200, reason: "OK",
+				headers: map[string]string{
+					"CSeq":         cseq,
+					"Content-Type": "application/octet-stream",
+				},
+				body: resp,
+			}
+		}
 		// POST /command and /feedback are control endpoints used by iOS
 		// for metadata, volume, and playback feedback. Accept them with 200
 		// so iOS proceeds with the RTSP ANNOUNCE/SETUP/RECORD flow.
