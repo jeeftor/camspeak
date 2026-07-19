@@ -57,6 +57,9 @@ RUN apk add --no-cache \
       openssl \
       soxr
 COPY --from=shairport-builder /build/usr/local/bin/shairport-sync /usr/local/bin/shairport-sync
+# Disable D-Bus in avahi (no dbus daemon in this container)
+RUN mkdir -p /etc/avahi && \
+    printf '[server]\nenable-dbus=no\n' > /etc/avahi/avahi-daemon.conf
 WORKDIR /app
 COPY --from=builder /app/camspeak .
 COPY docker-entrypoint.sh /docker-entrypoint.sh
