@@ -263,8 +263,16 @@ func (h *Handlers) ToggleCamera(c echo.Context) error {
 			h.log.Error("camera enable failed", "name", name, "err", err)
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
+		if h.airplayMgr != nil && cam.AirPlayEnabled {
+			if err := h.airplayMgr.Enable(name); err != nil {
+				h.log.Warn("AirPlay enable failed", "camera", name, "err", err)
+			}
+		}
 	} else {
 		h.reg.DisableCamera(name)
+		if h.airplayMgr != nil {
+			h.airplayMgr.Disable(name)
+		}
 	}
 	h.log.Info("camera toggled", "name", name, "enabled", cam.Enabled)
 	return c.JSON(http.StatusOK, map[string]interface{}{
