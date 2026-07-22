@@ -27,6 +27,9 @@
   let ttsStatus = $state('')
 
   // Camera form
+  let camFormOpen = $state(false)
+  let testCamStatus = $state('')
+  let testCamBusy = $state(false)
   let camName = $state('')
   let camType = $state('hikvision')
   let camIP = $state('')
@@ -214,10 +217,28 @@
     camName = cam.name
     camType = cam.type
     camIP = cam.ip
+    camUser = cam.user ?? ''
+    camPass = cam.pass ?? ''
     camChannel = cam.channel || 1
     camStream = cam.stream || ''
     camEnabled = cam.enabled ?? false
     camVisionPrompt = cam.vision_prompt ?? ''
+    camFormOpen = true
+  }
+
+  async function pingCamera(name) {
+    testCamBusy = true
+    testCamStatus = ''
+    try {
+      const res = await fetch(`/api/cameras/${encodeURIComponent(name)}/ping`, { method: 'POST' })
+      const data = await res.json()
+      testCamStatus = data.ok ? '✓ Reachable' : '✗ Unreachable'
+    } catch (e) {
+      testCamStatus = '✗ ' + e.message
+    } finally {
+      testCamBusy = false
+      setTimeout(() => testCamStatus = '', 5000)
+    }
   }
 
   async function toggleCamera(cam) {
@@ -390,7 +411,7 @@
             </label>
             <label class="flex flex-col gap-1 text-xs text-muted-foreground">
               Endpoint
-              <Input bind:value={ttsEndpoint} placeholder="http://192.168.1.91:13305/v1/audio/speech" />
+              <Input bind:value={ttsEndpoint} placeholder="http://10.0.0.x:13305/v1/audio/speech" />
             </label>
             <label class="flex flex-col gap-1 text-xs text-muted-foreground">
               Model
@@ -443,36 +464,23 @@
               <div class="flex shrink-0 items-center gap-1">
                 {#if testStatus[cam.name]}<span class="mr-1 text-sm text-primary">{testStatus[cam.name]}</span>{/if}
                 <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => testCamera(cam.name)} title="Test beep" aria-label="Test beep" disabled={!cam.enabled}><Bell class="h-4 w-4" /></Button>
-                <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => editCamera(cam)} title="Edit" aria-label="Edit camera"><Pencil class="h-4 w-4" /></Button>
+                <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => editCamera(cam)} title="Edit camera settings" aria-label="Edit camera"><Pencil class="h-4 w-4" /></Button>
                 <Button variant="outline" size="sm" class="h-7 px-2 hover:border-destructive hover:text-destructive" onclick={() => deleteCamera(cam.name)} title="Delete" aria-label="Delete camera"><X class="h-4 w-4" /></Button>
               </div>
             </div>
           {/each}
+          <div class="mb-2 flex flex-wrap items-center gap-3">
+            <Button size="sm" variant="outline" onclick={discoverCameras} disabled={discoverBusy} title={config?.frigate_url ? 'Discover cameras from Frigate NVR' : 'Set a Frigate URL in Settings first'}>
+              {#if discoverBusy}Discovering…{:else}Discover from Frigate{/if}
+            </Button>
+            {#if discoverStatus}<span class="text-sm text-primary">{discoverStatus}</span>{/if}
+          </div>
           {#if cameras.length === 0}
-            <div class="flex flex-wrap items-center gap-3">
-              <p class="italic text-muted-foreground text-sm">No cameras configured.</p>
-              {#if config?.frigate_url}
-                <Button size="sm" variant="outline" onclick={discoverCameras} disabled={discoverBusy}>
-                  {#if discoverBusy}Discovering…{:else}Discover from Frigate{/if}
-                </Button>
-              {:else}
-                <p class="text-sm text-muted-foreground">Set a Frigate URL in Settings to enable auto-discovery.</p>
-              {/if}
-              {#if discoverStatus}<span class="text-sm text-primary">{discoverStatus}</span>{/if}
-            </div>
-          {:else}
-            <div class="mb-2 flex items-center gap-3">
-              {#if config?.frigate_url}
-                <Button size="sm" variant="outline" onclick={discoverCameras} disabled={discoverBusy}>
-                  {#if discoverBusy}Discovering…{:else}Discover from Frigate{/if}
-                </Button>
-              {/if}
-              {#if discoverStatus}<span class="text-sm text-primary">{discoverStatus}</span>{/if}
-            </div>
+            <p class="italic text-muted-foreground text-sm">No cameras configured. Use Discover or add one below.</p>
           {/if}
         </div>
 
-        <details class="border-t pt-3">
+        <details class="border-t pt-3" bind:open={camFormOpen}>
           <summary class="cursor-pointer py-1.5 text-sm text-primary hover:text-primary/80">{camName ? 'Edit' : 'Add'} Camera</summary>
           <div class="mt-3 grid grid-cols-2 gap-2.5 max-sm:grid-cols-1">
             <label class="flex flex-col gap-1 text-xs text-muted-foreground">
@@ -490,7 +498,7 @@
             </label>
             <label class="flex flex-col gap-1 text-xs text-muted-foreground">
               IP
-              <Input bind:value={camIP} placeholder="192.168.1.181" />
+              <Input bind:value={camIP} placeholder="10.0.0.x" />
             </label>
             <label class="flex flex-col gap-1 text-xs text-muted-foreground">
               Username
@@ -527,10 +535,12 @@
             <input type="checkbox" bind:checked={camEnabled} class="h-4 w-4 cursor-pointer rounded border-input accent-primary" />
             Enabled (camera will receive speak/broadcast)
           </label>
-          <Button onclick={saveCamera} disabled={!camName || !camIP} class="mt-3">
-            Save Camera
-          </Button>
-          {#if camStatus}<span class="ml-2 text-sm text-primary">{camStatus}</span>{/if}
+          <div class="mt-3 flex flex-wrap items-center gap-2">
+            <Button onclick={saveCamera} disabled={!camName || !camIP}>Save Camera</Button>
+            <Button variant="outline" onclick={() => pingCamera(camName)} disabled={!camName || testCamBusy}>Test Connection</Button>
+            {#if camStatus}<span class="text-sm text-primary">{camStatus}</span>{/if}
+            {#if testCamStatus}<span class="text-sm text-primary">{testCamStatus}</span>{/if}
+          </div>
         </details>
       </section>
 
@@ -545,7 +555,7 @@
         <div class="grid grid-cols-2 gap-2.5 max-sm:grid-cols-1">
           <label class="flex flex-col gap-1 text-xs text-muted-foreground">
             Endpoint URL
-            <Input bind:value={visionURL} placeholder="http://192.168.1.91:8080/v1/chat/completions" />
+            <Input bind:value={visionURL} placeholder="http://10.0.0.x:8080/v1/chat/completions" />
           </label>
           <label class="flex flex-col gap-1 text-xs text-muted-foreground">
             Model

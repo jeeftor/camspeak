@@ -694,7 +694,7 @@ const openAPISpec = `{
       "VisionConfig": {
         "type": "object",
         "properties": {
-          "url": {"type": "string", "example": "http://192.168.1.91:8080/v1/chat/completions"},
+          "url": {"type": "string", "example": "http://10.0.0.x:8080/v1/chat/completions"},
           "model": {"type": "string", "example": "llama3.2-vision"},
           "api_key": {"type": "string"},
           "prompt": {"type": "string", "description": "Global default vision prompt"}

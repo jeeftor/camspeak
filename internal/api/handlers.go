@@ -1212,3 +1212,26 @@ func (h *Handlers) SpeakForMQTT(cams []string, text, preset, voice string) {
 
 	wg.Wait()
 }
+
+// PingCamera handles POST /api/cameras/:name/ping — checks if the camera is reachable.
+func (h *Handlers) PingCamera(c echo.Context) error {
+	name := c.Param("name")
+	h.cfgMu.Lock()
+	_, ok := h.cfg.Cameras[name]
+	h.cfgMu.Unlock()
+	if !ok {
+		return echo.NewHTTPError(http.StatusNotFound, "camera not found")
+	}
+	cam, err := h.reg.Get(name)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "camera not loaded")
+	}
+	ok = cam.Ping()
+	if ok {
+		return c.JSON(http.StatusOK, map[string]interface{}{"ok": true, "camera": name})
+	}
+	return c.JSON(
+		http.StatusOK,
+		map[string]interface{}{"ok": false, "camera": name, "error": "unreachable"},
+	)
+}

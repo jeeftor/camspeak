@@ -139,6 +139,7 @@ func New(
 	api.POST("/describe", h.Describe)
 	api.POST("/broadcast", h.Broadcast)
 	api.GET("/cameras", h.Cameras)
+	api.POST("/cameras/:name/ping", h.PingCamera)
 	api.GET("/voices", h.Voices)
 	api.GET("/library", h.ListLibrary)
 	api.POST("/library", h.GeneratePreset)
