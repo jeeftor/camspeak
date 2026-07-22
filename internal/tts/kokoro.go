@@ -17,8 +17,7 @@ var log = logging.New("tts", clog.InfoLevel)
 
 // SetLogLevel updates the TTS client logger level.
 func SetLogLevel(level clog.Level) {
-	log.SetLevel(level)
-	log.SetReportCaller(level == clog.DebugLevel)
+	logging.SetLevel(log, level)
 }
 
 // Client calls an OpenAI-compatible /v1/audio/speech endpoint.

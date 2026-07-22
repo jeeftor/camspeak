@@ -18,6 +18,7 @@ import (
 	"github.com/jeeftor/camspeak/internal/library"
 	"github.com/jeeftor/camspeak/internal/mqtt"
 	"github.com/jeeftor/camspeak/internal/tts"
+	"github.com/jeeftor/camspeak/internal/util"
 	"github.com/jeeftor/camspeak/internal/vision"
 )
 
@@ -162,7 +163,7 @@ func printBanner(cfg *config.Config) {
 	fmt.Println(titleStyle.Render(fmt.Sprintf("  camspeak %s", version)))
 	fmt.Println(infoStyle.Render(fmt.Sprintf("  UI  -> http://localhost:%d", cfg.Port)))
 	fmt.Println(infoStyle.Render(fmt.Sprintf("  MCP -> http://localhost:%d/mcp", cfg.Port)))
-	fmt.Println(infoStyle.Render("  TTS -> " + cfg.TTS.URL))
+	fmt.Println(infoStyle.Render("  TTS -> " + util.RedactURLString(cfg.TTS.URL)))
 	if cfg.AirPlay.Enabled {
 		fmt.Println(
 			infoStyle.Render(

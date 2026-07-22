@@ -10,6 +10,7 @@ import (
 
 	"github.com/jeeftor/camspeak/internal/config"
 	"github.com/jeeftor/camspeak/internal/frigate"
+	"github.com/jeeftor/camspeak/internal/util"
 	"github.com/jeeftor/camspeak/internal/vision"
 )
 
@@ -24,8 +25,9 @@ func (h *Handlers) GetConfig(c echo.Context) error {
 // GetVisionConfig handles GET /api/config/vision — returns vision config.
 func (h *Handlers) GetVisionConfig(c echo.Context) error {
 	h.cfgMu.Lock()
-	defer h.cfgMu.Unlock()
-	return c.JSON(http.StatusOK, h.cfg.Vision)
+	cfg := h.cfg.Vision.Sanitized()
+	h.cfgMu.Unlock()
+	return c.JSON(http.StatusOK, cfg)
 }
 
 // UpdateVisionConfig handles PUT /api/config/vision — updates vision config.
@@ -54,11 +56,11 @@ func (h *Handlers) UpdateVisionConfig(c echo.Context) error {
 
 	h.logger(c).Info(
 		"vision config updated",
-		"url", req.URL,
+		"url", util.RedactURLString(req.URL),
 		"model", req.Model,
 		"has_prompt", req.Prompt != "",
 	)
-	return c.JSON(http.StatusOK, req)
+	return c.JSON(http.StatusOK, req.Sanitized())
 }
 
 // TestVisionConfig handles POST /api/config/vision/test — probes the vision endpoint from the server.

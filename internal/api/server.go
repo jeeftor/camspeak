@@ -101,12 +101,11 @@ func New(
 			return uri == "/api/health" || uri == "/api/events"
 		},
 		LogValuesFunc: func(c echo.Context, v middleware.RequestLoggerValues) error {
-			h.log.Debug("request",
+			h.logger(c).Debug("request",
 				"method", v.Method,
 				"uri", v.URI,
 				"status", v.Status,
 				"latency", v.Latency,
-				"request_id", v.RequestID,
 			)
 			return nil
 		},

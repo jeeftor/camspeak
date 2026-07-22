@@ -69,21 +69,22 @@ func NewRegistry(cfg *config.Config, ttsClient *tts.Client) (*Registry, error) {
 	return r, nil
 }
 
-// register creates and registers a Speaker for the given camera config.
-func (r *Registry) register(name string, cam config.CameraConfig) error {
+// NewSpeaker creates a Speaker for the given camera config.
+// go2rtcURL and advertiseIP are only used for go2rtc cameras.
+func NewSpeaker(cam config.CameraConfig, name, go2rtcURL, advertiseIP string) (Speaker, error) {
 	switch cam.Type {
 	case "hikvision":
-		r.cameras[name] = NewHikvisionClient(cam.IP, cam.User, cam.Pass, cam.Channel, name)
+		return NewHikvisionClient(cam.IP, cam.User, cam.Pass, cam.Channel, name), nil
 	case "reolink":
-		r.cameras[name] = NewReolinkClient(cam.IP, cam.User, cam.Pass)
+		return NewReolinkClient(cam.IP, cam.User, cam.Pass), nil
 	case "go2rtc":
-		if r.go2rtcURL == "" {
-			return fmt.Errorf("camera %q uses go2rtc type but CAMSPEAK_GO2RTC_URL is not set", name)
+		if go2rtcURL == "" {
+			return nil, fmt.Errorf("camera %q uses go2rtc type but CAMSPEAK_GO2RTC_URL is not set", name)
 		}
 		if cam.Stream == "" {
-			return fmt.Errorf("camera %q uses go2rtc type but no stream name configured", name)
+			return nil, fmt.Errorf("camera %q uses go2rtc type but no stream name configured", name)
 		}
-		r.cameras[name] = NewGo2rtcClient(r.go2rtcURL, cam.Stream, cam.IP, r.advertiseIP, name)
+		return NewGo2rtcClient(go2rtcURL, cam.Stream, cam.IP, advertiseIP, name), nil
 	case "onvif":
 		rtspURL := cam.Stream
 		if rtspURL == "" {
@@ -94,10 +95,19 @@ func (r *Registry) register(name string, cam config.CameraConfig) error {
 				rtspURL = fmt.Sprintf("rtsp://%s:554/stream0", cam.IP)
 			}
 		}
-		r.cameras[name] = NewOnvifClient(rtspURL, cam.IP, name)
+		return NewOnvifClient(rtspURL, cam.IP, name), nil
 	default:
-		return fmt.Errorf("unknown camera type %q for camera %q", cam.Type, name)
+		return nil, fmt.Errorf("unknown camera type %q for camera %q", cam.Type, name)
 	}
+}
+
+// register creates and registers a Speaker for the given camera config.
+func (r *Registry) register(name string, cam config.CameraConfig) error {
+	speaker, err := NewSpeaker(cam, name, r.go2rtcURL, r.advertiseIP)
+	if err != nil {
+		return err
+	}
+	r.cameras[name] = speaker
 	return nil
 }
 

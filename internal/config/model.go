@@ -15,6 +15,7 @@ import (
 	"github.com/joho/godotenv"
 
 	"github.com/jeeftor/camspeak/internal/logging"
+	"github.com/jeeftor/camspeak/internal/util"
 )
 
 // TTSConfig holds connection details for the OpenAI-compatible TTS endpoint.
@@ -25,12 +26,28 @@ type TTSConfig struct {
 	APIKey       string `json:"api_key,omitempty"`
 }
 
+// Sanitized returns a copy of c with secrets redacted and URL credentials removed.
+func (c TTSConfig) Sanitized() TTSConfig {
+	out := c
+	out.APIKey = ""
+	out.URL = util.RedactURLString(out.URL)
+	return out
+}
+
 // VisionConfig holds connection details for the vision LLM endpoint.
 type VisionConfig struct {
 	URL    string `json:"url"`
 	Model  string `json:"model"`
 	APIKey string `json:"api_key,omitempty"`
 	Prompt string `json:"prompt"` // global default prompt; empty = hardcoded fallback
+}
+
+// Sanitized returns a copy of c with the API key removed and URL credentials stripped.
+func (c VisionConfig) Sanitized() VisionConfig {
+	out := c
+	out.APIKey = ""
+	out.URL = util.RedactURLString(out.URL)
+	return out
 }
 
 // CameraConfig holds connection details for a single camera.
@@ -47,11 +64,25 @@ type CameraConfig struct {
 	VisionPrompt   string `json:"vision_prompt"`   // default prompt for vision/describe; empty = generic
 }
 
+// Sanitized returns a copy of c with the password removed.
+func (c CameraConfig) Sanitized() CameraConfig {
+	out := c
+	out.Pass = ""
+	return out
+}
+
 // MQTTConfig holds connection details for the MQTT broker.
 type MQTTConfig struct {
 	Broker string `json:"broker"`
 	User   string `json:"user"`
 	Pass   string `json:"pass"`
+}
+
+// Sanitized returns a copy of c with the password removed.
+func (c MQTTConfig) Sanitized() MQTTConfig {
+	out := c
+	out.Pass = ""
+	return out
 }
 
 // Rule defines an MQTT-triggered auto-speak rule.
@@ -110,14 +141,13 @@ type AirPlayConfig struct {
 // Sanitized returns a copy of cfg with secrets (API keys and passwords) redacted.
 func (cfg Config) Sanitized() Config {
 	out := cfg
-	out.TTS.APIKey = ""
-	out.Vision.APIKey = ""
-	out.MQTT.Pass = ""
+	out.TTS = out.TTS.Sanitized()
+	out.Vision = out.Vision.Sanitized()
+	out.MQTT = out.MQTT.Sanitized()
 	if len(cfg.Cameras) > 0 {
 		out.Cameras = make(map[string]CameraConfig, len(cfg.Cameras))
 		for name, cam := range cfg.Cameras {
-			cam.Pass = ""
-			out.Cameras[name] = cam
+			out.Cameras[name] = cam.Sanitized()
 		}
 	}
 	return out

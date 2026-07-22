@@ -118,8 +118,7 @@ func NewServer(name string, port int, advertiseIP string, speaker Speaker) (*Ser
 // SetLogLevel changes the log level for this AirPlay server.
 // Pass clog.DebugLevel for verbose protocol logging.
 func (s *Server) SetLogLevel(level clog.Level) {
-	s.log.SetLevel(level)
-	s.log.SetReportCaller(level == clog.DebugLevel)
+	logging.SetLevel(s.log, level)
 }
 
 // Start begins listening for RAOP connections and advertising via mDNS.

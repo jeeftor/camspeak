@@ -22,6 +22,7 @@ import (
 	"github.com/jeeftor/camspeak/internal/config"
 	"github.com/jeeftor/camspeak/internal/library"
 	"github.com/jeeftor/camspeak/internal/tts"
+	"github.com/jeeftor/camspeak/internal/util"
 	"github.com/jeeftor/camspeak/internal/vision"
 )
 
@@ -199,7 +200,7 @@ func (h *Handlers) PlayURL(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "url must be http or https")
 	}
 
-	redactedURL := redactURL(parsedURL)
+	redactedURL := util.RedactURL(parsedURL)
 
 	log.Info("play-url: request", "camera", req.Camera, "url", redactedURL, "gain", req.Gain)
 	start := time.Now()

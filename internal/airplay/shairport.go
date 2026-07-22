@@ -54,8 +54,7 @@ func NewShairportServer(
 
 // SetLogLevel changes the log level for this server.
 func (s *ShairportServer) SetLogLevel(level clog.Level) {
-	s.log.SetLevel(level)
-	s.log.SetReportCaller(level == clog.DebugLevel)
+	logging.SetLevel(s.log, level)
 }
 
 // KillAllStale kills every shairport-sync process on this host.

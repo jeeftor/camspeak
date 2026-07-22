@@ -48,6 +48,12 @@ func New(prefix string, level clog.Level) *clog.Logger {
 	return l
 }
 
+// SetLevel updates a logger's level and toggles caller reporting for debug.
+func SetLevel(l *clog.Logger, level clog.Level) {
+	l.SetLevel(level)
+	l.SetReportCaller(level == clog.DebugLevel)
+}
+
 // colorForPrefix returns the display color for a given logger prefix stem.
 func colorForPrefix(prefix string) lipgloss.Color {
 	lower := strings.ToLower(prefix)

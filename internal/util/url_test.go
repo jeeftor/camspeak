@@ -1,4 +1,4 @@
-package api
+package util
 
 import (
 	"net/url"
@@ -36,10 +36,22 @@ func TestRedactURL(t *testing.T) {
 			input:    "",
 			expected: "",
 		},
+		{
+			name:     "RedactURLString helper",
+			input:    "http://user:pass@example.com/audio.wav",
+			expected: "http://example.com/audio.wav",
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.name == "RedactURLString helper" {
+				got := RedactURLString(tc.input)
+				if got != tc.expected {
+					t.Fatalf("RedactURLString(%q) = %q, want %q", tc.input, got, tc.expected)
+				}
+				return
+			}
 			var u *url.URL
 			if tc.input != "" {
 				var err error
@@ -48,9 +60,9 @@ func TestRedactURL(t *testing.T) {
 					t.Fatalf("parse url: %v", err)
 				}
 			}
-			got := redactURL(u)
+			got := RedactURL(u)
 			if got != tc.expected {
-				t.Fatalf("redactURL(%q) = %q, want %q", tc.input, got, tc.expected)
+				t.Fatalf("RedactURL(%q) = %q, want %q", tc.input, got, tc.expected)
 			}
 		})
 	}

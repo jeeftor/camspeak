@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -38,10 +39,54 @@ var voiceSegments = []voiceSegment{
 var testSpeakerCmd = &cobra.Command{
 	Use:   "test-speaker",
 	Short: "Stream multi-voice speech to a Hikvision camera speaker",
-	Long: `Uses macOS 'say' to synthesize speech in multiple voices, then streams
-the audio as a single continuous session to verify the camera speaker works.
-No gaps between segments — one open/stream/close for the full sequence.`,
+	Long: `Uses macOS 'say' or Linux 'espeak/espeak-ng' to synthesize speech in
+multiple voices, then streams the audio as a single continuous session to verify
+the camera speaker works. No gaps between segments — one open/stream/close for
+the full sequence.`,
 	RunE: runTestSpeaker,
+}
+
+// platformAudioExt returns the intermediate audio file extension for this OS.
+func platformAudioExt() string {
+	if runtime.GOOS == "darwin" {
+		return ".aiff"
+	}
+	return ".wav"
+}
+
+// platformAudioFormat returns the ffmpeg muxer name for the intermediate files.
+func platformAudioFormat() string {
+	if runtime.GOOS == "darwin" {
+		return "aiff"
+	}
+	return "wav"
+}
+
+// platformAudioCodec returns the ffmpeg audio codec for the intermediate files.
+func platformAudioCodec() string {
+	if runtime.GOOS == "darwin" {
+		return "pcm_s16be"
+	}
+	return "pcm_s16le"
+}
+
+// synthCommand returns an OS-specific exec.Cmd to synthesize a voice segment.
+// macOS uses `say`; Linux uses `espeak-ng` if available, otherwise `espeak`.
+func synthCommand(seg voiceSegment, output string) *exec.Cmd {
+	if runtime.GOOS == "darwin" {
+		return exec.Command("say", "-v", seg.voice, "-r", "140", seg.text, "-o", output)
+	}
+	if _, err := exec.LookPath("espeak-ng"); err == nil {
+		return exec.Command("espeak-ng", "-s", "140", "-v", "en", "-w", output, seg.text)
+	}
+	return exec.Command("espeak", "-s", "140", "-v", "en", "-w", output, seg.text)
+}
+
+// silenceCmd returns an ffmpeg command that generates a silent intermediate audio file.
+func silenceCmd(output string, seconds float64) *exec.Cmd {
+	return exec.Command("ffmpeg", "-y",
+		"-f", "lavfi", "-i", fmt.Sprintf("aevalsrc=0:c=mono:s=22050:d=%.1f", seconds),
+		"-c:a", platformAudioCodec(), "-f", platformAudioFormat(), output)
 }
 
 var (
@@ -70,6 +115,9 @@ var (
 )
 
 func runTestSpeaker(cmd *cobra.Command, _ []string) error {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		return fmt.Errorf("test-speaker is only supported on macOS and Linux")
+	}
 	fmt.Println()
 	fmt.Println(tsStyleBold.Render("  camspeak speaker test — multi-voice"))
 	fmt.Printf("  Camera: %s  Channel: %d\n\n", tsCameraIP, tsCameraPort)
@@ -80,47 +128,44 @@ func runTestSpeaker(cmd *cobra.Command, _ []string) error {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	// --- Step 1: Synthesize each voice segment with `say` ---
+	// --- Step 1: Synthesize each voice segment ---
+	ext := platformAudioExt()
 	fmt.Println("  Synthesizing voice segments...")
-	aiffFiles := make([]string, 0, len(voiceSegments))
+	audioFiles := make([]string, 0, len(voiceSegments))
 	for i, seg := range voiceSegments {
-		aiff := filepath.Join(tmpDir, fmt.Sprintf("%02d-%s.aiff", i, seg.voice))
+		audio := filepath.Join(tmpDir, fmt.Sprintf("%02d-%s%s", i, seg.voice, ext))
 		fmt.Printf("  %s %-10s  %s\n",
 			tsStyleDim.Render(fmt.Sprintf("[%d/%d]", i+1, len(voiceSegments))),
 			tsStyleVoice.Render(seg.voice),
 			tsStyleDim.Render(seg.text))
-		sayCmd := exec.Command("say", "-v", seg.voice, "-r", "140", seg.text, "-o", aiff)
-		if out, err := sayCmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("say -v %s failed: %w\n%s", seg.voice, err, out)
+		synth := synthCommand(seg, audio)
+		if out, err := synth.CombinedOutput(); err != nil {
+			return fmt.Errorf("synthesis failed for voice %q: %w\n%s", seg.voice, err, out)
 		}
-		// Insert 0.4s silence AIFF between segments
+		// Insert 0.4s silence between segments
 		if i > 0 {
-			silenceAiff := filepath.Join(tmpDir, fmt.Sprintf("%02d-silence.aiff", i))
-			silenceCmd := exec.Command("ffmpeg", "-y",
-				"-f", "lavfi", "-i", "aevalsrc=0:c=mono:s=22050:d=0.4",
-				"-c:a", "pcm_s16be", "-f", "aiff", silenceAiff)
-			silenceCmd.Stderr = nil
-			if err := silenceCmd.Run(); err != nil {
+			silenceFile := filepath.Join(tmpDir, fmt.Sprintf("%02d-silence%s", i, ext))
+			silence := silenceCmd(silenceFile, 0.4)
+			silence.Stderr = nil
+			if err := silence.Run(); err != nil {
 				return fmt.Errorf("silence gen failed: %w", err)
 			}
-			aiffFiles = append(aiffFiles, silenceAiff)
+			audioFiles = append(audioFiles, silenceFile)
 		}
-		aiffFiles = append(aiffFiles, aiff)
+		audioFiles = append(audioFiles, audio)
 	}
 	fmt.Println()
 
 	// --- Step 2: Build ffmpeg concat → mulaw stream ---
 	// Prime buffer: 0.5s silence at the very start so the camera's audio
 	// engine is warmed up before the first word.
-	primeAiff := filepath.Join(tmpDir, "00-prime.aiff")
-	primeCmd := exec.Command("ffmpeg", "-y",
-		"-f", "lavfi", "-i", "aevalsrc=0:c=mono:s=22050:d=0.5",
-		"-c:a", "pcm_s16be", "-f", "aiff", primeAiff)
-	primeCmd.Stderr = nil
-	if err := primeCmd.Run(); err != nil {
+	primeFile := filepath.Join(tmpDir, "00-prime"+ext)
+	prime := silenceCmd(primeFile, 0.5)
+	prime.Stderr = nil
+	if err := prime.Run(); err != nil {
 		return fmt.Errorf("prime silence failed: %w", err)
 	}
-	allFiles := append([]string{primeAiff}, aiffFiles...)
+	allFiles := append([]string{primeFile}, audioFiles...)
 
 	// Build filter_complex concat
 	var inputs []string

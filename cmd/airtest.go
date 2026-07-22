@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/signal"
 	"strconv"
@@ -16,6 +15,7 @@ import (
 	"github.com/jeeftor/camspeak/internal/cameras"
 	"github.com/jeeftor/camspeak/internal/config"
 	"github.com/jeeftor/camspeak/internal/logging"
+	"github.com/jeeftor/camspeak/internal/util"
 )
 
 var airtestCmd = &cobra.Command{
@@ -108,7 +108,7 @@ func runAirtest(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("camera IP is required (set TEST_CAM_IP / CAMSPEAK_AIRTEST_IP, -ip, or provide a camera with an IP)")
 	}
 
-	speaker, err := buildAirtestSpeaker(cam, log)
+	speaker, err := buildAirtestSpeaker(cfg, cam, camName, log)
 	if err != nil {
 		return err
 	}
@@ -237,32 +237,19 @@ func resolveAirtestAdvertiseIP(cfg *config.Config) string {
 	if cfg.AdvertiseIP != "" {
 		return cfg.AdvertiseIP
 	}
-	return firstNonLoopbackIP()
+	return util.FirstNonLoopbackIP()
 }
 
 // buildAirtestSpeaker creates a camera speaker wrapped in a buffer that captures
 // the received audio before sending it.
-func buildAirtestSpeaker(cam config.CameraConfig, log *clog.Logger) (airplay.Speaker, error) {
-	var camSpeaker cameras.Speaker
-	switch cam.Type {
-	case "hikvision":
-		camSpeaker = cameras.NewHikvisionClient(cam.IP, cam.User, cam.Pass, cam.Channel, "airtest")
-	case "onvif":
-		rtspURL := cam.Stream
-		if rtspURL == "" {
-			if cam.User != "" && cam.Pass != "" {
-				rtspURL = fmt.Sprintf("rtsp://%s:%s@%s:554/stream0", cam.User, cam.Pass, cam.IP)
-			} else {
-				rtspURL = fmt.Sprintf("rtsp://%s:554/stream0", cam.IP)
-			}
-		}
-		camSpeaker = cameras.NewOnvifClient(rtspURL, cam.IP, "airtest")
-	case "go2rtc":
-		return nil, fmt.Errorf("go2rtc cameras are not supported by airtest; use the full server instead")
-	case "reolink":
-		return nil, fmt.Errorf("reolink audio is not yet implemented")
-	default:
-		return nil, fmt.Errorf("unknown camera type %q", cam.Type)
+func buildAirtestSpeaker(cfg *config.Config, cam config.CameraConfig, camName string, log *clog.Logger) (airplay.Speaker, error) {
+	speakerName := camName
+	if speakerName == "" {
+		speakerName = "airtest"
+	}
+	camSpeaker, err := cameras.NewSpeaker(cam, speakerName, cfg.Go2rtcURL, cfg.AdvertiseIP)
+	if err != nil {
+		return nil, err
 	}
 
 	return &airtestBufferedSpeaker{
@@ -365,21 +352,4 @@ func airtestEnv(suffix string) string {
 		return v
 	}
 	return os.Getenv("TEST_CAM_" + suffix)
-}
-
-// firstNonLoopbackIP returns the first non-loopback IPv4 address, or an empty
-// string if none is found.
-func firstNonLoopbackIP() string {
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return ""
-	}
-	for _, addr := range addrs {
-		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-			if ipnet.IP.To4() != nil {
-				return ipnet.IP.String()
-			}
-		}
-	}
-	return ""
 }

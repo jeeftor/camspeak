@@ -7,7 +7,7 @@ import (
 func TestConfigSanitized(t *testing.T) {
 	cfg := Config{
 		TTS: TTSConfig{
-			URL:    "http://tts:8080/v1/audio/speech",
+			URL:    "http://user:pass@tts:8080/v1/audio/speech",
 			Model:  "kokoro",
 			APIKey: "secret-tts-key",
 		},
@@ -46,9 +46,12 @@ func TestConfigSanitized(t *testing.T) {
 		t.Errorf("Camera pass not redacted: %q", redacted.Cameras["backyard"].Pass)
 	}
 
-	// Ensure non-secret fields are preserved.
-	if redacted.TTS.URL != cfg.TTS.URL {
-		t.Errorf("TTS URL changed: got %q, want %q", redacted.TTS.URL, cfg.TTS.URL)
+	// Ensure URL credentials are stripped but the rest of the URL is preserved.
+	if redacted.TTS.URL != "http://tts:8080/v1/audio/speech" {
+		t.Errorf("TTS URL not redacted: got %q", redacted.TTS.URL)
+	}
+	if cfg.TTS.URL != "http://user:pass@tts:8080/v1/audio/speech" {
+		t.Error("original TTS URL was mutated")
 	}
 	if redacted.Cameras["backyard"].User != "admin" {
 		t.Errorf("Camera user changed: got %q, want %q", redacted.Cameras["backyard"].User, "admin")

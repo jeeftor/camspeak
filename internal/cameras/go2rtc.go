@@ -13,6 +13,8 @@ import (
 	"time"
 
 	clog "github.com/charmbracelet/log"
+
+	"github.com/jeeftor/camspeak/internal/util"
 )
 
 // Go2rtcClient plays audio on a camera via go2rtc's stream-to-camera API.
@@ -68,11 +70,9 @@ func (c *Go2rtcClient) SendRaw(rawFile string) error {
 	// Determine the IP that go2rtc can reach us on
 	hostIP := c.advertiseIP
 	if hostIP == "" {
-		var err error
-		hostIP, err = getLocalIP()
-		if err != nil {
-			listener.Close()
-			return fmt.Errorf("detecting local IP: %w", err)
+		hostIP = util.FirstNonLoopbackIP()
+		if hostIP == "" {
+			hostIP = "127.0.0.1"
 		}
 	}
 
@@ -212,22 +212,4 @@ func (c *Go2rtcClient) Stop() error {
 // Ping checks if the camera is reachable via TCP on port 80.
 func (c *Go2rtcClient) Ping() bool {
 	return tcpPing(c.ip, 80, 5*time.Second)
-}
-
-// getLocalIP returns the first non-loopback IPv4 address of this host.
-func getLocalIP() (string, error) {
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return "", err
-	}
-
-	for _, addr := range addrs {
-		if ipNet, ok := addr.(*net.IPNet); ok && !ipNet.IP.IsLoopback() {
-			if ipNet.IP.To4() != nil {
-				return ipNet.IP.String(), nil
-			}
-		}
-	}
-
-	return "127.0.0.1", nil
 }

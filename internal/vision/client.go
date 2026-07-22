@@ -18,8 +18,7 @@ var log = logging.New("vision", clog.InfoLevel)
 
 // SetLogLevel updates the vision client logger level.
 func SetLogLevel(level clog.Level) {
-	log.SetLevel(level)
-	log.SetReportCaller(level == clog.DebugLevel)
+	logging.SetLevel(log, level)
 }
 
 // Client calls an OpenAI-compatible /v1/chat/completions endpoint with image input.
