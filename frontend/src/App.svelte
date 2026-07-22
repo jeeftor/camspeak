@@ -24,6 +24,7 @@
   let urlEditValue = $state('')
   let globalVisionPrompt = $state('')
   let stoppingAll = $state(false)
+  let showApiMenu = $state(false)
 
   async function stopAll() {
     stoppingAll = true
@@ -95,13 +96,18 @@
     { id: 'events',      label: 'Events' },
     { id: 'broadcast',   label: 'Broadcast' },
     { id: 'frigate',     label: 'Frigate' },
-    { id: 'ha',          label: 'Home Assistant' },
     { id: 'config',      label: 'Config' },
     { id: 'vision-test', label: 'Vision Test' },
-    { id: 'rest',        label: 'REST' },
-    { id: 'swagger',     label: 'Swagger' },
-    { id: 'mcp',         label: 'MCP' },
   ]
+
+  // API sub-menu items (shown in dropdown under "API" button)
+  const apiTabs = [
+    { id: 'ha',      label: 'Home Assistant' },
+    { id: 'rest',    label: 'REST Docs' },
+    { id: 'mcp',     label: 'MCP' },
+  ]
+
+  const apiTabIds = new Set(apiTabs.map(t => t.id))
 </script>
 
 <div class="flex min-h-dvh flex-col bg-background">
@@ -127,6 +133,45 @@
             {t.label}
           </button>
         {/each}
+
+        <!-- API dropdown -->
+        <div class="relative flex-shrink-0">
+          <button
+            class="px-2.5 py-1.5 text-sm rounded-md font-medium whitespace-nowrap transition-colors
+              {apiTabIds.has(tab)
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted'}"
+            onclick={() => showApiMenu = !showApiMenu}
+          >
+            API ▾
+          </button>
+          {#if showApiMenu}
+            <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+            <div class="fixed inset-0 z-40" onclick={() => showApiMenu = false}></div>
+            <div class="absolute left-0 top-full mt-1 z-50 min-w-[10rem] rounded-lg border bg-card shadow-lg py-1">
+              {#each apiTabs as t}
+                <button
+                  class="w-full text-left px-3 py-1.5 text-sm transition-colors
+                    {tab === t.id
+                      ? 'bg-primary/10 text-primary font-medium'
+                      : 'text-foreground hover:bg-muted'}"
+                  onclick={() => { tab = t.id; showApiMenu = false }}
+                >
+                  {t.label}
+                </button>
+              {/each}
+              <div class="my-1 border-t"></div>
+              <a
+                href="/swagger"
+                target="_blank"
+                class="flex w-full items-center gap-1 px-3 py-1.5 text-sm text-foreground hover:bg-muted"
+                onclick={() => showApiMenu = false}
+              >
+                Swagger UI ↗
+              </a>
+            </div>
+          {/if}
+        </div>
       </nav>
 
       <!-- STOP ALL button — always visible, kills audio on all cameras -->
@@ -219,10 +264,6 @@
         <VisionTest cameras={cameras} globalPrompt={globalVisionPrompt} onSavePrompt={async (p) => { globalVisionPrompt = p }} />
       {:else if tab === 'rest'}
         <RestDocs />
-      {:else if tab === 'swagger'}
-        <div class="rounded-lg border overflow-hidden">
-          <iframe src="/swagger" class="w-full" style="height: calc(100vh - 120px); border: 0;" title="Swagger UI"></iframe>
-        </div>
       {:else if tab === 'mcp'}
         <McpDocs />
       {/if}
