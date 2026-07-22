@@ -48,6 +48,7 @@
   // AirPlay form
   let airplayEnabled = $state(false)
   let airplayBasePort = $state(5000)
+  let airplayPrimeSilenceMs = $state(500)
   let airplayStatus = $state('')
   let airplayCameras = $state([])   // [{name, airplay_enabled, airplay_running}]
   let airplayToggling = $state({})  // camera name → true while toggling
@@ -81,6 +82,7 @@
       const ap = await airplayRes.json()
       airplayEnabled = ap.enabled ?? false
       airplayBasePort = ap.base_port ?? 5000
+      airplayPrimeSilenceMs = ap.prime_silence_ms ?? 500
       airplayCameras = (ap.per_camera ?? []).sort((a, b) => a.name.localeCompare(b.name))
     } catch (e) {
       console.error('loadConfig error:', e)
@@ -279,6 +281,26 @@
     }
   }
 
+  let discoverStatus = $state('')
+  let discoverBusy = $state(false)
+
+  async function discoverCameras() {
+    discoverBusy = true
+    discoverStatus = ''
+    try {
+      const res = await fetch('/api/config/cameras/discover', { method: 'POST' })
+      if (!res.ok) throw new Error(await res.text())
+      const data = await res.json()
+      discoverStatus = `✓ Found ${data.discovered} camera${data.discovered === 1 ? '' : 's'}`
+      if (data.discovered > 0) loadConfig()
+    } catch (e) {
+      discoverStatus = '✗ ' + e.message
+    } finally {
+      discoverBusy = false
+      setTimeout(() => discoverStatus = '', 8000)
+    }
+  }
+
   async function saveAirPlay() {
     airplayStatus = ''
     try {
@@ -288,10 +310,11 @@
         body: JSON.stringify({
           enabled: airplayEnabled,
           base_port: parseInt(airplayBasePort) || 5000,
+          prime_silence_ms: parseInt(airplayPrimeSilenceMs) || 500,
         }),
       })
       if (!res.ok) throw new Error(await res.text())
-      airplayStatus = '✓ Saved — restart required'
+      airplayStatus = '✓ Saved'
       loadConfig()
     } catch (e) {
       airplayStatus = '✗ ' + e.message
@@ -426,7 +449,26 @@
             </div>
           {/each}
           {#if cameras.length === 0}
-            <p class="italic text-muted-foreground">No cameras configured. Run <code class="not-italic text-muted-foreground/80">camspeak discover --frigate &lt;url&gt;</code> or add one below.</p>
+            <div class="flex flex-wrap items-center gap-3">
+              <p class="italic text-muted-foreground text-sm">No cameras configured.</p>
+              {#if config?.frigate_url}
+                <Button size="sm" variant="outline" onclick={discoverCameras} disabled={discoverBusy}>
+                  {#if discoverBusy}Discovering…{:else}Discover from Frigate{/if}
+                </Button>
+              {:else}
+                <p class="text-sm text-muted-foreground">Set a Frigate URL in Settings to enable auto-discovery.</p>
+              {/if}
+              {#if discoverStatus}<span class="text-sm text-primary">{discoverStatus}</span>{/if}
+            </div>
+          {:else}
+            <div class="mb-2 flex items-center gap-3">
+              {#if config?.frigate_url}
+                <Button size="sm" variant="outline" onclick={discoverCameras} disabled={discoverBusy}>
+                  {#if discoverBusy}Discovering…{:else}Discover from Frigate{/if}
+                </Button>
+              {/if}
+              {#if discoverStatus}<span class="text-sm text-primary">{discoverStatus}</span>{/if}
+            </div>
           {/if}
         </div>
 
@@ -557,6 +599,11 @@
           <label class="flex items-center gap-2 text-xs text-muted-foreground">
             Base port
             <Input bind:value={airplayBasePort} type="number" min="1024" max="65535" class="w-24" />
+          </label>
+          <label class="flex items-center gap-2 text-xs text-muted-foreground">
+            Prime silence
+            <Input bind:value={airplayPrimeSilenceMs} type="number" min="0" max="5000" class="w-24" />
+            <span class="text-xs text-muted-foreground/70">ms</span>
           </label>
           <Button onclick={saveAirPlay} size="sm">Save</Button>
           {#if airplayStatus}<span class="text-sm text-primary">{airplayStatus}</span>{/if}

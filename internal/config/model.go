@@ -99,8 +99,9 @@ type Config struct {
 // AirPlayConfig controls the RAOP (AirPlay v1) receiver feature.
 // When enabled, each camera appears as a separate AirPlay target in the iOS picker.
 type AirPlayConfig struct {
-	Enabled  bool `json:"enabled"`   // if true, start AirPlay receivers for all cameras
-	BasePort int  `json:"base_port"` // starting port for RAOP listeners (default 5000)
+	Enabled        bool `json:"enabled"`          // if true, start AirPlay receivers for all cameras
+	BasePort       int  `json:"base_port"`        // starting port for RAOP listeners (default 5000)
+	PrimeSilenceMs int  `json:"prime_silence_ms"` // ms of silence to prepend on stream start to warm camera audio engine (default 500)
 }
 
 // Defaults.
@@ -229,9 +230,18 @@ func loadPreferences(db *sql.DB, cfg *Config) {
 			cfg.AirPlay.BasePort = p
 		}
 	}
+	if v, ok := prefs["airplay_prime_silence_ms"]; ok {
+		if p, err := strconv.Atoi(v); err == nil {
+			cfg.AirPlay.PrimeSilenceMs = p
+		}
+	}
 	// Default base port
 	if cfg.AirPlay.BasePort == 0 {
 		cfg.AirPlay.BasePort = defaultAirPlayBasePort
+	}
+	// Default prime silence
+	if cfg.AirPlay.PrimeSilenceMs == 0 {
+		cfg.AirPlay.PrimeSilenceMs = 500
 	}
 }
 
@@ -404,6 +414,11 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("CAMSPEAK_AIRPLAY_BASE_PORT"); v != "" {
 		if p, err := strconv.Atoi(v); err == nil {
 			cfg.AirPlay.BasePort = p
+		}
+	}
+	if v := os.Getenv("CAMSPEAK_AIRPLAY_PRIME_SILENCE_MS"); v != "" {
+		if p, err := strconv.Atoi(v); err == nil {
+			cfg.AirPlay.PrimeSilenceMs = p
 		}
 	}
 

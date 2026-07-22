@@ -9,6 +9,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/jeeftor/camspeak/internal/config"
+	"github.com/jeeftor/camspeak/internal/frigate"
 	"github.com/jeeftor/camspeak/internal/vision"
 )
 
@@ -378,9 +379,10 @@ func (h *Handlers) GetAirPlayConfig(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
-		"enabled":    ap.Enabled,
-		"base_port":  ap.BasePort,
-		"per_camera": perCamera,
+		"enabled":          ap.Enabled,
+		"base_port":        ap.BasePort,
+		"prime_silence_ms": ap.PrimeSilenceMs,
+		"per_camera":       perCamera,
 	})
 }
 
@@ -455,15 +457,82 @@ func (h *Handlers) UpdateAirPlayConfig(c echo.Context) error {
 		fmt.Sprintf("%d", req.BasePort)); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+	if req.PrimeSilenceMs < 0 {
+		req.PrimeSilenceMs = 0
+	}
+	if err := config.SetPreference(h.db, "airplay_prime_silence_ms",
+		fmt.Sprintf("%d", req.PrimeSilenceMs)); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
 
 	h.cfgMu.Lock()
 	h.cfg.AirPlay = req
 	h.cfgMu.Unlock()
 
-	h.log.Info("AirPlay config updated", "enabled", req.Enabled, "basePort", req.BasePort)
+	h.log.Info(
+		"AirPlay config updated",
+		"enabled",
+		req.Enabled,
+		"basePort",
+		req.BasePort,
+		"primeSilenceMs",
+		req.PrimeSilenceMs,
+	)
 	return c.JSON(http.StatusOK, map[string]interface{}{
-		"enabled":   req.Enabled,
-		"base_port": req.BasePort,
-		"note":      "restart required for changes to take effect",
+		"enabled":          req.Enabled,
+		"base_port":        req.BasePort,
+		"prime_silence_ms": req.PrimeSilenceMs,
+		"note":             "restart required for port/enabled changes; prime silence takes effect immediately",
+	})
+}
+
+// DiscoverCameras handles POST /api/cameras/discover — queries Frigate for cameras,
+// saves them to the database, and returns the discovered list.
+func (h *Handlers) DiscoverCameras(c echo.Context) error {
+	h.cfgMu.Lock()
+	frigateURL := h.cfg.FrigateURL
+	h.cfgMu.Unlock()
+
+	if frigateURL == "" {
+		return echo.NewHTTPError(http.StatusServiceUnavailable,
+			"frigate_url not configured — set it in Config → Settings")
+	}
+
+	d := frigate.NewDiscoverer(frigateURL)
+	cameras, err := d.Discover()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadGateway,
+			fmt.Sprintf("frigate discovery failed: %s", err))
+	}
+	if len(cameras) == 0 {
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"discovered": 0,
+			"cameras":    []interface{}{},
+			"note":       "no cameras found in Frigate config",
+		})
+	}
+
+	if err := frigate.SaveToDB(h.db, cameras); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	// Reload config so the new cameras are live
+	h.cfgMu.Lock()
+	for _, cam := range cameras {
+		h.cfg.Cameras[cam.Name] = config.CameraConfig{
+			Type:    cam.Type,
+			IP:      cam.IP,
+			User:    cam.User,
+			Pass:    cam.Pass,
+			Channel: cam.Channel,
+			Enabled: true,
+		}
+	}
+	h.cfgMu.Unlock()
+
+	h.log.Info("cameras discovered via Frigate", "count", len(cameras), "frigate", frigateURL)
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"discovered": len(cameras),
+		"cameras":    cameras,
 	})
 }

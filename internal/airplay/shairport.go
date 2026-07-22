@@ -65,7 +65,7 @@ func (s *ShairportServer) Start() error {
 	// Kill any stale instance left over from a previous unclean exit.
 	s.killStalePID()
 
-	stream, err := newAudioStream(s.speaker, s.log)
+	stream, err := newAudioStream(s.speaker, s.log, 0)
 	if err != nil {
 		return fmt.Errorf("audio stream: %w", err)
 	}

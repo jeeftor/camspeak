@@ -135,14 +135,34 @@ func (m *Manager) startLocked(name string) error {
 	}
 	displayName := cameraDisplayName(name)
 	// cameras.Speaker and airplay.Speaker define the same methods; wrap via adapter.
-	srv, err := NewShairportServer(displayName, port, m.cfg.AdvertiseIP, speakerAdapter{camSpeaker})
-	if err != nil {
-		return err
+	spk := speakerAdapter{camSpeaker}
+
+	// Prefer shairport-sync when available (handles FairPlay, ALAC natively).
+	// Fall back to the built-in pure-Go RAOP receiver (no external deps — good
+	// for local development and environments where shairport-sync isn't installed).
+	var srv Receiver
+	ssp, err := NewShairportServer(displayName, port, m.cfg.AdvertiseIP, spk)
+	if err == nil {
+		if startErr := ssp.Start(); startErr == nil {
+			srv = ssp
+		} else {
+			m.log.Info("shairport-sync unavailable, using built-in RAOP receiver",
+				"camera", name, "err", startErr)
+		}
 	}
+	if srv == nil {
+		goSrv, goErr := NewServer(displayName, port, m.cfg.AdvertiseIP, spk)
+		if goErr != nil {
+			return fmt.Errorf("starting built-in RAOP receiver: %w", goErr)
+		}
+		goSrv.primeSilenceMs = m.cfg.AirPlay.PrimeSilenceMs
+		if startErr := goSrv.Start(); startErr != nil {
+			return fmt.Errorf("starting built-in RAOP receiver: %w", startErr)
+		}
+		srv = goSrv
+	}
+
 	srv.SetLogLevel(m.log.GetLevel())
-	if err := srv.Start(); err != nil {
-		return err
-	}
 	m.receivers[name] = srv
 	m.log.Info("AirPlay receiver started", "camera", name, "port", port, "name", displayName)
 	return nil

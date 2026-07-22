@@ -46,6 +46,8 @@ type Server struct {
 	zeroconf    *zeroconf.Server // RAOP _raop._tcp
 	airplayZC   *zeroconf.Server // AirPlay _airplay._tcp
 
+	primeSilenceMs int // ms of silence to write before first real audio
+
 	// Active session
 	sessionMu sync.Mutex
 	session   *session
@@ -754,11 +756,12 @@ func (s *Server) handleAnnounce(req *rtspRequest, cseq string) *rtspResponse {
 
 	// Create new session
 	sess := &session{
-		aesKey:  aesKey,
-		aesIV:   aesIV,
-		fmtp:    fmtp,
-		log:     s.log,
-		speaker: s.speaker,
+		aesKey:         aesKey,
+		aesIV:          aesIV,
+		fmtp:           fmtp,
+		log:            s.log,
+		speaker:        s.speaker,
+		primeSilenceMs: s.primeSilenceMs,
 	}
 
 	// Initialize ALAC decoder
@@ -1040,11 +1043,12 @@ func formatMAC(hw string) string {
 
 // session holds the state of a single RAOP connection.
 type session struct {
-	aesKey  []byte
-	aesIV   []byte
-	fmtp    string
-	log     *clog.Logger
-	speaker Speaker
+	aesKey         []byte
+	aesIV          []byte
+	fmtp           string
+	log            *clog.Logger
+	speaker        Speaker
+	primeSilenceMs int
 
 	sessionID         string
 	clientIP          string
@@ -1115,7 +1119,7 @@ func (s *session) setupControlTiming() (int, int, error) {
 
 // startStreaming begins the audio receive → decode → transcode → camera pipeline.
 func (s *session) startStreaming() error {
-	stream, err := newAudioStream(s.speaker, s.log)
+	stream, err := newAudioStream(s.speaker, s.log, s.primeSilenceMs)
 	if err != nil {
 		return err
 	}
@@ -1379,7 +1383,7 @@ type audioStream struct {
 
 // newAudioStream starts ffmpeg and opens a single streaming session to the camera.
 // PCM written via writePCM flows: ffmpeg stdin → ffmpeg → io.Pipe → speaker.Stream.
-func newAudioStream(speaker Speaker, log *clog.Logger) (*audioStream, error) {
+func newAudioStream(speaker Speaker, log *clog.Logger, primeMs int) (*audioStream, error) {
 	as := &audioStream{
 		speaker:    speaker,
 		log:        log,
@@ -1416,6 +1420,15 @@ func newAudioStream(speaker Speaker, log *clog.Logger) (*audioStream, error) {
 
 	as.ffmpegCmd = cmd
 	as.ffmpegIn = stdin
+
+	// Write prime silence — zero PCM S16LE at 44100 Hz stereo.
+	// This warms the camera's audio engine so the first real audio isn't choppy.
+	if primeMs > 0 {
+		// 44100 samples/sec × 2 channels × 2 bytes/sample = 176400 bytes/sec
+		primeSamples := (44100 * primeMs) / 1000
+		silence := make([]byte, primeSamples*4) // 4 bytes per stereo frame
+		_, _ = stdin.Write(silence)
+	}
 
 	// Copy ffmpeg stdout → pipe writer; close pipe when ffmpeg exits.
 	go func() {

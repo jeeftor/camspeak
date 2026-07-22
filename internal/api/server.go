@@ -164,6 +164,7 @@ func New(
 	api.POST("/config/tts/:name/activate", h.ActivateTTSPreset)
 	api.GET("/config/cameras", h.ListCamerasConfig)
 	api.POST("/config/cameras", h.CreateCamera)
+	api.POST("/config/cameras/discover", h.DiscoverCameras)
 	api.PATCH("/config/cameras/:name/toggle", h.ToggleCamera)
 	api.DELETE("/config/cameras/:name", h.DeleteCameraConfig)
 	api.GET("/config/rules", h.ListRules)
