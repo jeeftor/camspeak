@@ -121,13 +121,20 @@ func (r *Registry) UpdateConfig(name string, cam config.CameraConfig) {
 }
 
 // Get returns the Speaker for a camera name.
+// If the camera is not registered (e.g. disabled for speak/broadcast) but has a
+// known config, it is registered on-demand so AirPlay can reach it.
 func (r *Registry) Get(name string) (Speaker, error) {
-	s, ok := r.cameras[name]
-	if !ok {
-		return nil, fmt.Errorf("camera %q not found (available: %v)", name, r.Names())
+	if s, ok := r.cameras[name]; ok {
+		return s, nil
 	}
-
-	return s, nil
+	// Camera may be disabled (not in r.cameras) but config is known — register on-demand.
+	if cam, ok := r.configs[name]; ok {
+		if err := r.register(name, cam); err != nil {
+			return nil, fmt.Errorf("camera %q not registered and on-demand init failed: %w", name, err)
+		}
+		return r.cameras[name], nil
+	}
+	return nil, fmt.Errorf("camera %q not found (available: %v)", name, r.Names())
 }
 
 // Names returns all configured camera names.

@@ -920,10 +920,12 @@
                     class="h-4 w-4 cursor-pointer rounded border-input accent-primary disabled:cursor-wait"
                     title={cam.airplay_enabled ? 'Disable AirPlay for this camera' : 'Enable AirPlay for this camera'}
                   />
-                  <span class="font-semibold">{cam.name}</span>
-                  {#if cam.airplay_name}
-                    <span class="text-xs text-muted-foreground">→ "{cam.airplay_name}"</span>
-                  {/if}
+                  <div class="flex flex-col leading-tight">
+                    <span class="font-semibold">{cam.name}</span>
+                    <span class="text-xs text-muted-foreground">
+                      {cam.airplay_name || (cam.name.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) + ' Camera')}
+                    </span>
+                  </div>
                 </div>
                 <div class="flex items-center gap-2">
                   {#if cam.airplay_running}
@@ -936,6 +938,10 @@
                   {:else}
                     <span class="text-xs text-muted-foreground italic">disabled</span>
                   {/if}
+                  <Button variant="outline" size="sm" class="h-7 px-2" title="Edit AirPlay name"
+                    onclick={() => { const c = cameras.find(x => x.name === cam.name); if (c) editCamera(c) }}>
+                    <Pencil class="h-4 w-4" />
+                  </Button>
                 </div>
               </div>
             {/each}
