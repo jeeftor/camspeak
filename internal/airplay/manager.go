@@ -133,7 +133,11 @@ func (m *Manager) startLocked(name string) error {
 	if err != nil {
 		return fmt.Errorf("getting speaker: %w", err)
 	}
-	displayName := cameraDisplayName(name)
+	cam := m.cfg.Cameras[name]
+	displayName := cam.AirPlayName
+	if displayName == "" {
+		displayName = cameraDisplayName(name)
+	}
 	// cameras.Speaker and airplay.Speaker define the same methods; wrap via adapter.
 	spk := speakerAdapter{camSpeaker}
 

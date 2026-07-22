@@ -41,6 +41,7 @@ type CameraConfig struct {
 	Stream         string `json:"stream"`          // go2rtc stream name (e.g. "garage_2way") or RTSP path for onvif
 	Enabled        bool   `json:"enabled"`         // if false, camera is loaded but skipped for speak/broadcast
 	AirPlayEnabled bool   `json:"airplay_enabled"` // if false, no shairport-sync receiver for this camera
+	AirPlayName    string `json:"airplay_name"`    // custom AirPlay display name; empty = auto ("Backyard Camera")
 	VisionPrompt   string `json:"vision_prompt"`   // default prompt for vision/describe; empty = generic
 }
 
@@ -308,7 +309,7 @@ func seedDefaultPresets(db *sql.DB) {
 func loadCameras(db *sql.DB, cfg *Config) {
 	rows, err := db.Query(
 		`SELECT name, type, ip, user, pass, channel, stream, enabled, vision_prompt,
-		        COALESCE(airplay_enabled, 1) FROM cameras`,
+		        COALESCE(airplay_enabled, 1), COALESCE(airplay_name, '') FROM cameras`,
 	)
 	if err != nil {
 		return
@@ -321,7 +322,7 @@ func loadCameras(db *sql.DB, cfg *Config) {
 		var enabled, airplayEnabled int
 		if err := rows.Scan(
 			&name, &cam.Type, &cam.IP, &cam.User, &cam.Pass,
-			&cam.Channel, &cam.Stream, &enabled, &cam.VisionPrompt, &airplayEnabled,
+			&cam.Channel, &cam.Stream, &enabled, &cam.VisionPrompt, &airplayEnabled, &cam.AirPlayName,
 		); err != nil {
 			continue
 		}
@@ -468,13 +469,13 @@ func SaveCamera(db *sql.DB, name string, cam CameraConfig) error {
 	}
 	_, err := db.Exec(
 		`INSERT INTO cameras
-		   (name, type, ip, user, pass, channel, stream, enabled, vision_prompt, airplay_enabled)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		   (name, type, ip, user, pass, channel, stream, enabled, vision_prompt, airplay_enabled, airplay_name)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(name) DO UPDATE SET
 		   type = excluded.type, ip = excluded.ip, user = excluded.user,
 		   pass = excluded.pass, channel = excluded.channel, stream = excluded.stream,
 		   enabled = excluded.enabled, vision_prompt = excluded.vision_prompt,
-		   airplay_enabled = excluded.airplay_enabled`,
+		   airplay_enabled = excluded.airplay_enabled, airplay_name = excluded.airplay_name`,
 		name,
 		cam.Type,
 		cam.IP,
@@ -485,6 +486,7 @@ func SaveCamera(db *sql.DB, name string, cam CameraConfig) error {
 		enabled,
 		cam.VisionPrompt,
 		airplayEnabled,
+		cam.AirPlayName,
 	)
 	if err != nil {
 		return fmt.Errorf("saving camera %s: %w", name, err)

@@ -150,10 +150,12 @@ func (h *Handlers) ListCamerasConfig(c echo.Context) error {
 			"name":            name,
 			"type":            cam.Type,
 			"ip":              cam.IP,
+			"user":            cam.User,
 			"channel":         cam.Channel,
 			"stream":          cam.Stream,
 			"enabled":         cam.Enabled,
 			"airplay_enabled": cam.AirPlayEnabled,
+			"airplay_name":    cam.AirPlayName,
 			"airplay_running": apStatus[name],
 			"vision_prompt":   cam.VisionPrompt,
 		})
@@ -172,6 +174,7 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 		Channel      int    `json:"channel"`
 		Stream       string `json:"stream"`
 		Enabled      *bool  `json:"enabled"` // pointer so we can distinguish unset from false
+		AirPlayName  string `json:"airplay_name"`
 		VisionPrompt string `json:"vision_prompt"`
 	}
 	if err := c.Bind(&req); err != nil {
@@ -208,6 +211,7 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 		Channel:      req.Channel,
 		Stream:       req.Stream,
 		Enabled:      enabled,
+		AirPlayName:  req.AirPlayName,
 		VisionPrompt: visionPrompt,
 	}
 	if err := config.SaveCamera(h.db, req.Name, cam); err != nil {
@@ -223,7 +227,24 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 	} else {
 		h.reg.DisableCamera(req.Name)
 	}
-	h.log.Info("camera saved", "name", req.Name, "type", req.Type, "enabled", enabled)
+	// If the AirPlay name changed, restart the receiver so the new name is advertised.
+	if h.airplayMgr != nil && cam.AirPlayEnabled && cam.Enabled {
+		h.airplayMgr.Disable(req.Name)
+		if err := h.airplayMgr.Enable(req.Name); err != nil {
+			h.log.Warn("AirPlay restart after name change failed", "camera", req.Name, "err", err)
+		}
+	}
+	h.log.Info(
+		"camera saved",
+		"name",
+		req.Name,
+		"type",
+		req.Type,
+		"enabled",
+		enabled,
+		"airplay_name",
+		req.AirPlayName,
+	)
 	return c.JSON(http.StatusCreated, map[string]interface{}{
 		"name":          req.Name,
 		"type":          req.Type,
@@ -231,6 +252,7 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 		"channel":       req.Channel,
 		"stream":        req.Stream,
 		"enabled":       enabled,
+		"airplay_name":  req.AirPlayName,
 		"vision_prompt": visionPrompt,
 	})
 }

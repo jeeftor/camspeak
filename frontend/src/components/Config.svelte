@@ -42,6 +42,7 @@
   let camChannel = $state(1)
   let camStream = $state('')
   let camEnabled = $state(false)
+  let camAirPlayName = $state('')
   let camVisionPrompt = $state('')
   let camStatus = $state('')
 
@@ -187,7 +188,8 @@
         body: JSON.stringify({
           name: camName, type: camType, ip: camIP,
           user: camUser, pass: camPass, channel: parseInt(camChannel) || 1,
-          stream: camStream, enabled: camEnabled, vision_prompt: camVisionPrompt,
+          stream: camStream, enabled: camEnabled,
+          airplay_name: camAirPlayName, vision_prompt: camVisionPrompt,
         }),
       })
       if (!res.ok) throw new Error(await res.text())
@@ -236,7 +238,7 @@
 
   function openAddCamera() {
     camName = ''; camType = 'hikvision'; camIP = ''; camUser = ''; camPass = ''
-    camChannel = 1; camStream = ''; camEnabled = false; camVisionPrompt = ''
+    camChannel = 1; camStream = ''; camEnabled = false; camAirPlayName = ''; camVisionPrompt = ''
     camStatus = ''; testCamStatus = ''
     camFormOpen = true
   }
@@ -250,6 +252,7 @@
     camChannel = cam.channel || 1
     camStream = cam.stream || ''
     camEnabled = cam.enabled ?? false
+    camAirPlayName = cam.airplay_name ?? ''
     camVisionPrompt = cam.vision_prompt ?? ''
     camStatus = ''; testCamStatus = ''
     camFormOpen = true
@@ -497,7 +500,13 @@
     <!-- TTS Presets -->
     {#if tab === 'settings'}
       <section class="rounded-lg border bg-card p-5">
-        <h3 class="mb-1 text-base font-semibold text-primary">General Settings</h3>
+        <div class="mb-4 flex items-center justify-between gap-4">
+          <h3 class="text-base font-semibold text-primary">General Settings</h3>
+          <div class="flex items-center gap-2">
+            {#if settingsStatus}<span class="text-sm text-primary">{settingsStatus}</span>{/if}
+            <Button onclick={saveSettings} size="sm">Save</Button>
+          </div>
+        </div>
         <p class="mb-4 text-sm text-muted-foreground">
           Integration URLs for Frigate NVR, go2rtc, and network advertising.
         </p>
@@ -533,8 +542,6 @@
             <span class="text-[11px] opacity-60">Force a specific LAN IP for AirPlay mDNS (useful in Docker with host networking).</span>
           </div>
         </div>
-        <Button onclick={saveSettings} class="mt-4">Save Settings</Button>
-        {#if settingsStatus}<span class="ml-2 text-sm text-primary">{settingsStatus}</span>{/if}
       </section>
 
     {:else if tab === 'tts'}
@@ -697,6 +704,11 @@
           {/if}
         </div>
         <label class="mt-3 flex flex-col gap-1 text-xs text-muted-foreground">
+          AirPlay Name (optional)
+          <Input bind:value={camAirPlayName} placeholder={camName ? camName.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) + ' Camera' : 'Backyard Camera'} />
+          <span class="text-[11px] opacity-60">Name shown in iOS AirPlay picker. Auto-derived from camera name if left empty. Saving restarts the AirPlay receiver.</span>
+        </label>
+        <label class="mt-3 flex flex-col gap-1 text-xs text-muted-foreground">
           Vision Prompt (optional)
           <textarea
             bind:value={camVisionPrompt}
@@ -726,7 +738,13 @@
     <!-- Vision -->
     {:else if tab === 'vision'}
       <section class="rounded-lg border bg-card p-5">
-        <h3 class="mb-1 text-base font-semibold text-primary">Vision Model</h3>
+        <div class="mb-4 flex items-center justify-between gap-4">
+          <h3 class="text-base font-semibold text-primary">Vision Model</h3>
+          <div class="flex items-center gap-2">
+            {#if visionStatus}<span class="text-sm text-primary">{visionStatus}</span>{/if}
+            <Button onclick={saveVision} size="sm">Save</Button>
+          </div>
+        </div>
         <p class="mb-4 text-sm text-muted-foreground">
           OpenAI-compatible vision endpoint for the Describe and Vision endpoints.
           The default prompt is used when neither the request nor the camera specifies one.
@@ -760,16 +778,18 @@
             Leave empty to use the hardcoded default.
           </span>
         </label>
-        <Button onclick={saveVision} class="mt-3">
-          Save Vision Config
-        </Button>
-        {#if visionStatus}<span class="ml-2 text-sm text-primary">{visionStatus}</span>{/if}
       </section>
 
     <!-- AirPlay -->
     {:else if tab === 'airplay'}
       <section class="rounded-lg border bg-card p-5">
-        <h3 class="mb-1 text-base font-semibold text-primary">AirPlay Receivers</h3>
+        <div class="mb-4 flex items-center justify-between gap-4">
+          <h3 class="text-base font-semibold text-primary">AirPlay Receivers</h3>
+          <div class="flex items-center gap-2">
+            {#if airplayStatus}<span class="text-sm text-primary">{airplayStatus}</span>{/if}
+            <Button onclick={saveAirPlay} size="sm">Save</Button>
+          </div>
+        </div>
         <p class="mb-4 text-sm text-muted-foreground">
           When enabled, each camera appears as a separate AirPlay target in the iOS AirPlay picker.
           Audio from your iPhone is decoded by shairport-sync and sent to the camera speaker.
@@ -794,8 +814,6 @@
             <Input bind:value={airplayPrimeSilenceMs} type="number" min="0" max="5000" class="w-24" />
             <span class="text-xs text-muted-foreground/70">ms</span>
           </label>
-          <Button onclick={saveAirPlay} size="sm">Save</Button>
-          {#if airplayStatus}<span class="text-sm text-primary">{airplayStatus}</span>{/if}
         </div>
 
         <!-- Per-camera toggles -->
