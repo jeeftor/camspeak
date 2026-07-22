@@ -19,6 +19,14 @@ type SpeakFunc func(cameras []string, text, preset, voice string)
 // MsgHook is called for every received MQTT message before rule matching.
 type MsgHook func(topic string, payload []byte)
 
+// LogLevel controls the MQTT subscriber log level. Set by cmd at startup.
+var LogLevel = clog.InfoLevel
+
+// SetLogLevel sets the log level for all new MQTT subscribers.
+func SetLogLevel(level clog.Level) {
+	LogLevel = level
+}
+
 // Subscriber listens to MQTT and triggers SpeakFunc on rule matches.
 type Subscriber struct {
 	cfg     config.MQTTConfig
@@ -35,7 +43,7 @@ func New(cfg config.MQTTConfig, rules []config.Rule, fn SpeakFunc) *Subscriber {
 		cfg:   cfg,
 		rules: rules,
 		speak: fn,
-		log:   logging.New("mqtt", clog.InfoLevel),
+		log:   logging.New("mqtt", LogLevel),
 	}
 }
 

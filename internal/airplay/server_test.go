@@ -187,6 +187,32 @@ func TestParseSDPWithWhitespace(t *testing.T) {
 	}
 }
 
+func TestRedactSDP(t *testing.T) {
+	sdp := []byte("v=0\r\n" +
+		"m=audio 0 RTP/AVP 96\r\n" +
+		"a=rtpmap:96 AppleLossless\r\n" +
+		"a=rsaaeskey:5QYIqmdZGTONY5SHjEJrqAhaa0W9wzDC5i6q221mdGZJ5ubO6Kg\r\n" +
+		"yhC6U83wpY87TFdPRdfPQl2kVC7+Uefmx1bXdIUo07ZcJsqMbgtje4w2JQw0b\r\n" +
+		"a=aesiv:5b+YZi9Ikb845BmNhaVo+Q\r\n")
+
+	redacted := redactSDP(sdp)
+	if strings.Contains(redacted, "5QYIqmd") {
+		t.Errorf("redacted SDP still contains rsaaeskey value")
+	}
+	if strings.Contains(redacted, "5b+YZi9") {
+		t.Errorf("redacted SDP still contains aesiv value")
+	}
+	if !strings.Contains(redacted, "a=rsaaeskey:[redacted]") {
+		t.Errorf("rsaaeskey not marked redacted")
+	}
+	if !strings.Contains(redacted, "a=aesiv:[redacted]") {
+		t.Errorf("aesiv not marked redacted")
+	}
+	if !strings.Contains(redacted, "a=rtpmap:96 AppleLossless") {
+		t.Errorf("non-sensitive attributes should be preserved")
+	}
+}
+
 // --- Transport Port Parsing Tests ---
 
 func TestParseTransportPorts(t *testing.T) {

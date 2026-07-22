@@ -100,7 +100,7 @@ func (c *Go2rtcClient) SendRaw(rawFile string) error {
 		url.QueryEscape(srcURL),
 	)
 
-	c.log.Info("streaming to camera", "stream", c.stream, "file", fileName, "src", srcURL)
+	c.log.Info("send: streaming to camera", "stream", c.stream, "file", fileName, "src", srcURL)
 
 	// Get file size for timeout calculation
 	info, err := os.Stat(rawFile)
@@ -148,7 +148,7 @@ func (c *Go2rtcClient) SendRaw(rawFile string) error {
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 512))
 	if err != nil {
-		c.log.Warn("go2rtc: reading response body failed", "err", err)
+		c.log.Warn("send: reading response body failed", "err", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {

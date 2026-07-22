@@ -649,7 +649,7 @@ func (s *Server) handleAppleChallenge(req *rtspRequest) (string, bool) {
 // and creates a new session.
 func (s *Server) handleAnnounce(req *rtspRequest, cseq string) *rtspResponse {
 	sdp := parseSDP(req.body)
-	s.log.Debug("ANNOUNCE SDP", "sdp", string(req.body))
+	s.log.Debug("ANNOUNCE SDP", "sdp", redactSDP(req.body))
 
 	// Handle Apple-Challenge (RSA authentication) — may appear in ANNOUNCE too
 	var appleResponse string
@@ -693,8 +693,7 @@ func (s *Server) handleAnnounce(req *rtspRequest, cseq string) *rtspResponse {
 			}
 		}
 		s.log.Info("ANNOUNCE: FairPlay AES key decrypted",
-			"blob_prefix", fmt.Sprintf("%x", fpBlob[:min(52, len(fpBlob))]),
-			"audio_aes_key", fmt.Sprintf("%x", aesKey),
+			"blob_len", len(fpBlob),
 		)
 	} else if rsaAesKey, ok := sdp["rsaaeskey"]; ok {
 		// Legacy RSA path
@@ -963,6 +962,44 @@ func (s *Server) handleTeardown(req *rtspRequest, cseq string) *rtspResponse {
 		headers: map[string]string{"CSeq": cseq},
 		close:   true,
 	}
+}
+
+// redactSDP returns a sanitized copy of an ANNOUNCE SDP body with key
+// material (fpaeskey, rsaaeskey, aesiv) replaced so it can be logged safely.
+func redactSDP(body []byte) string {
+	var out strings.Builder
+	var lastKey string
+	for _, line := range strings.Split(string(body), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			lastKey = ""
+			out.WriteString(line + "\n")
+			continue
+		}
+
+		if len(trimmed) > 2 && trimmed[1] == '=' {
+			if strings.HasPrefix(trimmed, "a=") {
+				kv := strings.SplitN(trimmed[2:], ":", 2)
+				if len(kv) == 2 {
+					lastKey = strings.TrimSpace(kv[0])
+					if lastKey == "fpaeskey" || lastKey == "rsaaeskey" || lastKey == "aesiv" {
+						out.WriteString("a=" + lastKey + ":[redacted]\n")
+						continue
+					}
+				} else {
+					lastKey = ""
+				}
+			} else {
+				lastKey = ""
+			}
+		} else if lastKey != "" &&
+			(lastKey == "fpaeskey" || lastKey == "rsaaeskey" || lastKey == "aesiv") {
+			// Drop continuation lines for redacted keys.
+			continue
+		}
+		out.WriteString(line + "\n")
+	}
+	return strings.TrimRight(out.String(), "\n")
 }
 
 // parseSDP extracts key SDP attributes into a map.

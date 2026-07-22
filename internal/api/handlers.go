@@ -50,6 +50,14 @@ func (h *Handlers) SetAirPlayManager(m *airplay.Manager) {
 	h.airplayMgr = m
 }
 
+// logger returns the handler logger augmented with the Echo request ID.
+func (h *Handlers) logger(c echo.Context) *clog.Logger {
+	if rid := c.Response().Header().Get(echo.HeaderXRequestID); rid != "" {
+		return h.log.With("request_id", rid)
+	}
+	return h.log
+}
+
 // speakReq is the body for POST /api/speak.
 type speakReq struct {
 	Camera string  `json:"camera"`
@@ -85,13 +93,15 @@ type genPresetReq struct {
 
 // Speak handles POST /api/speak — TTS → camera.
 func (h *Handlers) Speak(c echo.Context) error {
+	log := h.logger(c)
+
 	var req speakReq
 	err := c.Bind(&req)
 	if err != nil || req.Camera == "" || req.Text == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "camera and text required")
 	}
 
-	h.log.Info(
+	log.Info(
 		"speak: request",
 		"camera",
 		req.Camera,
@@ -104,25 +114,27 @@ func (h *Handlers) Speak(c echo.Context) error {
 	)
 	start := time.Now()
 
-	err = h.speakText(req.Camera, req.Text, req.Voice, req.Gain)
+	err = h.speakText(log, req.Camera, req.Text, req.Voice, req.Gain)
 	if err != nil {
-		h.log.Error("speak: failed", "camera", req.Camera, "elapsed", time.Since(start), "err", err)
+		log.Error("speak: failed", "camera", req.Camera, "elapsed", time.Since(start), "err", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	h.log.Info("speak: done", "camera", req.Camera, "elapsed", time.Since(start))
+	log.Info("speak: done", "camera", req.Camera, "elapsed", time.Since(start))
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // Play handles POST /api/play — preset → camera.
 func (h *Handlers) Play(c echo.Context) error {
+	log := h.logger(c)
+
 	var req playReq
 	err := c.Bind(&req)
 	if err != nil || req.Camera == "" || req.Preset == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "camera and preset required")
 	}
 
-	h.log.Info(
+	log.Info(
 		"play: request",
 		"camera",
 		req.Camera,
@@ -135,9 +147,9 @@ func (h *Handlers) Play(c echo.Context) error {
 	)
 	start := time.Now()
 
-	err = h.playPreset(req.Camera, req.Category, req.Preset, req.Gain)
+	err = h.playPreset(log, req.Camera, req.Category, req.Preset, req.Gain)
 	if err != nil {
-		h.log.Error(
+		log.Error(
 			"play: failed",
 			"camera",
 			req.Camera,
@@ -151,7 +163,7 @@ func (h *Handlers) Play(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	h.log.Info(
+	log.Info(
 		"play: done",
 		"camera",
 		req.Camera,
@@ -165,6 +177,8 @@ func (h *Handlers) Play(c echo.Context) error {
 
 // PlayURL handles POST /api/play-url — download URL → transcode → camera.
 func (h *Handlers) PlayURL(c echo.Context) error {
+	log := h.logger(c)
+
 	var req struct {
 		Camera string  `json:"camera"`
 		URL    string  `json:"url"`
@@ -178,7 +192,16 @@ func (h *Handlers) PlayURL(c echo.Context) error {
 		req.Gain = 3.0
 	}
 
-	h.log.Info("play-url: request", "camera", req.Camera, "url", req.URL, "gain", req.Gain)
+	// Validate URL scheme to prevent SSRF (only http/https allowed), and
+	// derive a redacted URL for logging/event storage.
+	parsedURL, err := neturl.Parse(req.URL)
+	if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
+		return echo.NewHTTPError(http.StatusBadRequest, "url must be http or https")
+	}
+
+	redactedURL := redactURL(parsedURL)
+
+	log.Info("play-url: request", "camera", req.Camera, "url", redactedURL, "gain", req.Gain)
 	start := time.Now()
 
 	cam, err := h.reg.Get(req.Camera)
@@ -186,27 +209,20 @@ func (h *Handlers) PlayURL(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
 
-	// Download to temp file
-	// Validate URL scheme to prevent SSRF (only http/https allowed)
-	parsedURL, err := neturl.Parse(req.URL)
-	if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
-		return echo.NewHTTPError(http.StatusBadRequest, "url must be http or https")
-	}
-
 	resp, err := http.Get(req.URL)
 	if err != nil {
-		h.log.Error("play-url: download failed", "camera", req.Camera, "url", req.URL, "err", err)
+		log.Error("play-url: download failed", "camera", req.Camera, "url", redactedURL, "err", err)
 		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("download failed: %s", err))
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		h.log.Error(
+		log.Error(
 			"play-url: download bad status",
 			"camera",
 			req.Camera,
 			"url",
-			req.URL,
+			redactedURL,
 			"status",
 			resp.StatusCode,
 		)
@@ -252,9 +268,9 @@ func (h *Handlers) PlayURL(c echo.Context) error {
 
 	defer os.Remove(rawName)
 
-	h.log.Debug("play-url: sending to camera", "camera", req.Camera, "url", req.URL)
+	log.Debug("play-url: sending to camera", "camera", req.Camera, "url", redactedURL)
 	if err := cam.SendRaw(rawName); err != nil {
-		h.log.Error(
+		log.Error(
 			"play-url: send failed",
 			"camera",
 			req.Camera,
@@ -266,8 +282,8 @@ func (h *Handlers) PlayURL(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	h.log.Info("play-url: done", "camera", req.Camera, "url", req.URL, "elapsed", time.Since(start))
-	h.events.publish(event{Camera: req.Camera, Action: "play-url", Text: req.URL, At: time.Now()})
+	log.Info("play-url: done", "camera", req.Camera, "url", redactedURL, "elapsed", time.Since(start))
+	h.events.publish(event{Camera: req.Camera, Action: "play-url", Text: redactedURL, At: time.Now()})
 
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
@@ -276,6 +292,8 @@ func (h *Handlers) PlayURL(c echo.Context) error {
 // If the request body contains a "camera" field, only that camera is stopped.
 // Otherwise (empty body or no camera field), all cameras are stopped.
 func (h *Handlers) Stop(c echo.Context) error {
+	log := h.logger(c)
+
 	var req struct {
 		Camera string `json:"camera"`
 	}
@@ -284,23 +302,25 @@ func (h *Handlers) Stop(c echo.Context) error {
 
 	if req.Camera != "" {
 		if err := h.reg.Stop(req.Camera); err != nil {
-			h.log.Warn("stop: camera not found", "camera", req.Camera, "err", err)
+			log.Warn("stop: camera not found", "camera", req.Camera, "err", err)
 			return echo.NewHTTPError(http.StatusNotFound, err.Error())
 		}
-		h.log.Info("stop: stopped camera", "camera", req.Camera)
+		log.Info("stop: stopped camera", "camera", req.Camera)
 		h.events.publish(event{Camera: req.Camera, Action: "stop", At: time.Now()})
 		return c.JSON(http.StatusOK, map[string]string{"status": "stopped", "camera": req.Camera})
 	}
 
 	// Stop all cameras
 	h.reg.StopAll()
-	h.log.Info("stop: stopped all cameras")
+	log.Info("stop: stopped all cameras")
 	h.events.publish(event{Action: "stop-all", At: time.Now()})
 	return c.JSON(http.StatusOK, map[string]string{"status": "stopped", "camera": "all"})
 }
 
 // Beep handles POST /api/beep — 800Hz test tone → camera.
 func (h *Handlers) Beep(c echo.Context) error {
+	log := h.logger(c)
+
 	var req struct {
 		Camera string `json:"camera"`
 	}
@@ -310,22 +330,22 @@ func (h *Handlers) Beep(c echo.Context) error {
 
 	cam, err := h.reg.Get(req.Camera)
 	if err != nil {
-		h.log.Warn("beep: camera not found", "camera", req.Camera, "err", err)
+		log.Warn("beep: camera not found", "camera", req.Camera, "err", err)
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
 
 	raw, err := GenerateBeep(h.tmpDir)
 	if err != nil {
-		h.log.Error("beep: generating tone failed", "camera", req.Camera, "err", err)
+		log.Error("beep: generating tone failed", "camera", req.Camera, "err", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	defer os.Remove(raw)
 
-	h.log.Info("beep: sending", "camera", req.Camera, "type", h.cfg.Cameras[req.Camera].Type)
+	log.Info("beep: sending", "camera", req.Camera, "type", h.cfg.Cameras[req.Camera].Type)
 	start := time.Now()
 
 	if err := cam.SendRaw(raw); err != nil {
-		h.log.Error(
+		log.Error(
 			"beep: send failed",
 			"camera",
 			req.Camera,
@@ -337,7 +357,7 @@ func (h *Handlers) Beep(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	h.log.Info("beep: sent", "camera", req.Camera, "elapsed", time.Since(start))
+	log.Info("beep: sent", "camera", req.Camera, "elapsed", time.Since(start))
 	h.events.publish(event{Camera: req.Camera, Action: "beep", At: time.Now()})
 
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
@@ -394,6 +414,8 @@ func resolveVisionPrompt(reqPrompt string, camOk bool, camPrompt, globalPrompt s
 // Vision handles POST /api/vision — Frigate snapshot → vision model → description.
 // No TTS, no camera send. Useful for cameras without speakers.
 func (h *Handlers) Vision(c echo.Context) error {
+	log := h.logger(c)
+
 	var req struct {
 		Camera string `json:"camera"`
 		Prompt string `json:"prompt"`
@@ -443,11 +465,11 @@ func (h *Handlers) Vision(c echo.Context) error {
 	prompt := resolveVisionPrompt(req.Prompt, camOk, cam.VisionPrompt, globalPrompt)
 	description, err := visionClient.Describe(imageBytes, "image/jpeg", prompt)
 	if err != nil {
-		h.log.Error("vision: failed", "camera", req.Camera, "err", err)
+		log.Error("vision: failed", "camera", req.Camera, "err", err)
 		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("vision: %s", err))
 	}
 
-	h.log.Info("vision: done", "camera", req.Camera, "text", description)
+	log.Info("vision: done", "camera", req.Camera, "text", description)
 	h.events.publish(
 		event{Camera: req.Camera, Action: "describe", Text: description, At: time.Now()},
 	)
@@ -465,6 +487,8 @@ func (h *Handlers) Vision(c echo.Context) error {
 //   - JSON: {camera, prompt, image} where image is a base64 data URI
 //   - Multipart form: "prompt" field + "image" file upload
 func (h *Handlers) VisionTest(c echo.Context) error {
+	log := h.logger(c)
+
 	var camera, prompt, imageB64 string
 
 	contentType := c.Request().Header.Get("Content-Type")
@@ -560,11 +584,11 @@ func (h *Handlers) VisionTest(c echo.Context) error {
 
 	description, err := visionClient.Describe(imageBytes, "image/jpeg", prompt)
 	if err != nil {
-		h.log.Error("vision-test: failed", "camera", camera, "err", err)
+		log.Error("vision-test: failed", "camera", camera, "err", err)
 		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("vision: %s", err))
 	}
 
-	h.log.Info(
+	log.Info(
 		"vision-test: done",
 		"camera",
 		camera,
@@ -592,6 +616,8 @@ func indexOf(s string, ch byte) int {
 
 // Describe handles POST /api/describe — Frigate snapshot → vision model → TTS → camera.
 func (h *Handlers) Describe(c echo.Context) error {
+	log := h.logger(c)
+
 	var req struct {
 		Camera string  `json:"camera"`
 		Prompt string  `json:"prompt"`
@@ -617,25 +643,25 @@ func (h *Handlers) Describe(c echo.Context) error {
 	}
 
 	start := time.Now()
-	h.log.Info("describe: request", "camera", req.Camera)
+	log.Info("describe: request", "camera", req.Camera)
 
 	// 1. Fetch snapshot from Frigate
 	snapURL := fmt.Sprintf("%s/api/%s/latest.jpg?h=720", frigateURL, req.Camera)
 	snapStart := time.Now()
 	snapReq, err := http.NewRequestWithContext(c.Request().Context(), http.MethodGet, snapURL, nil)
 	if err != nil {
-		h.log.Error("describe: build snapshot request failed", "camera", req.Camera, "err", err)
+		log.Error("describe: build snapshot request failed", "camera", req.Camera, "err", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	snapResp, err := (&http.Client{Timeout: 30 * time.Second}).Do(snapReq)
 	if err != nil {
-		h.log.Error("describe: snapshot failed", "camera", req.Camera, "err", err)
+		log.Error("describe: snapshot failed", "camera", req.Camera, "err", err)
 		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("frigate snapshot: %s", err))
 	}
 	defer snapResp.Body.Close()
 
 	if snapResp.StatusCode != 200 {
-		h.log.Error(
+		log.Error(
 			"describe: snapshot bad status",
 			"camera",
 			req.Camera,
@@ -655,7 +681,7 @@ func (h *Handlers) Describe(c echo.Context) error {
 			fmt.Sprintf("reading snapshot: %s", err),
 		)
 	}
-	h.log.Debug(
+	log.Debug(
 		"describe: snapshot fetched",
 		"camera",
 		req.Camera,
@@ -670,10 +696,10 @@ func (h *Handlers) Describe(c echo.Context) error {
 	visionStart := time.Now()
 	description, err := visionClient.Describe(imageBytes, "image/jpeg", prompt)
 	if err != nil {
-		h.log.Error("describe: vision failed", "camera", req.Camera, "err", err)
+		log.Error("describe: vision failed", "camera", req.Camera, "err", err)
 		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("vision: %s", err))
 	}
-	h.log.Info(
+	log.Info(
 		"describe: vision result",
 		"camera",
 		req.Camera,
@@ -688,10 +714,10 @@ func (h *Handlers) Describe(c echo.Context) error {
 	ttsStart := time.Now()
 	wav, err := h.tts.Speak(description, voice)
 	if err != nil {
-		h.log.Error("describe: TTS failed", "camera", req.Camera, "err", err)
+		log.Error("describe: TTS failed", "camera", req.Camera, "err", err)
 		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("TTS: %s", err))
 	}
-	h.log.Debug(
+	log.Debug(
 		"describe: TTS generated",
 		"camera",
 		req.Camera,
@@ -723,10 +749,10 @@ func (h *Handlers) Describe(c echo.Context) error {
 
 	sendStart := time.Now()
 	if err := cam.SendRaw(rawPath); err != nil {
-		h.log.Error("describe: send failed", "camera", req.Camera, "err", err)
+		log.Error("describe: send failed", "camera", req.Camera, "err", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	h.log.Debug(
+	log.Debug(
 		"describe: camera send complete",
 		"camera",
 		req.Camera,
@@ -734,7 +760,7 @@ func (h *Handlers) Describe(c echo.Context) error {
 		time.Since(sendStart),
 	)
 
-	h.log.Info("describe: done", "camera", req.Camera, "elapsed", time.Since(start))
+	log.Info("describe: done", "camera", req.Camera, "elapsed", time.Since(start))
 	h.events.publish(
 		event{Camera: req.Camera, Action: "describe", Text: description, At: time.Now()},
 	)
@@ -749,6 +775,8 @@ func (h *Handlers) Describe(c echo.Context) error {
 
 // Broadcast handles POST /api/broadcast — TTS or preset → all cameras in parallel.
 func (h *Handlers) Broadcast(c echo.Context) error {
+	log := h.logger(c)
+
 	var req broadcastReq
 	err := c.Bind(&req)
 	if err != nil {
@@ -764,7 +792,7 @@ func (h *Handlers) Broadcast(c echo.Context) error {
 	if req.Preset != "" {
 		mode = "preset"
 	}
-	h.log.Info("broadcast: starting", "mode", mode, "cameras", names, "text_len", len(req.Text))
+	log.Info("broadcast: starting", "mode", mode, "cameras", names, "text_len", len(req.Text))
 	start := time.Now()
 
 	var (
@@ -783,16 +811,16 @@ func (h *Handlers) Broadcast(c echo.Context) error {
 			camStart := time.Now()
 			var err error
 			if req.Preset != "" {
-				err = h.playPreset(cam, req.Category, req.Preset, req.Gain)
+				err = h.playPreset(log, cam, req.Category, req.Preset, req.Gain)
 			} else {
-				err = h.speakText(cam, req.Text, req.Voice, req.Gain)
+				err = h.speakText(log, cam, req.Text, req.Voice, req.Gain)
 			}
 
 			mu.Lock()
 			defer mu.Unlock()
 
 			if err != nil {
-				h.log.Error(
+				log.Error(
 					"broadcast: camera failed",
 					"camera",
 					cam,
@@ -803,7 +831,7 @@ func (h *Handlers) Broadcast(c echo.Context) error {
 				)
 				errs = append(errs, fmt.Sprintf("%s: %s", cam, err))
 			} else {
-				h.log.Info("broadcast: camera done", "camera", cam, "elapsed", time.Since(camStart))
+				log.Info("broadcast: camera done", "camera", cam, "elapsed", time.Since(camStart))
 				succeeded = append(succeeded, cam)
 			}
 		}(name)
@@ -811,7 +839,7 @@ func (h *Handlers) Broadcast(c echo.Context) error {
 
 	wg.Wait()
 
-	h.log.Info(
+	log.Info(
 		"broadcast: complete",
 		"succeeded",
 		len(succeeded),
@@ -1041,6 +1069,8 @@ func (h *Handlers) Health(c echo.Context) error {
 
 // Events handles GET /api/events — SSE stream of speak events.
 func (h *Handlers) Events(c echo.Context) error {
+	log := h.logger(c)
+
 	c.Response().Header().Set("Content-Type", "text/event-stream")
 	c.Response().Header().Set("Cache-Control", "no-cache")
 	c.Response().WriteHeader(http.StatusOK)
@@ -1050,7 +1080,7 @@ func (h *Handlers) Events(c echo.Context) error {
 		for _, v := range slices.Backward(recent) {
 			data, err := json.Marshal(v)
 			if err != nil {
-				h.log.Error("events: marshal recent failed", "err", err)
+				log.Error("events: marshal recent failed", "err", err)
 				continue
 			}
 			fmt.Fprintf(c.Response(), "data: %s\n\n", data)
@@ -1067,7 +1097,7 @@ func (h *Handlers) Events(c echo.Context) error {
 		case ev := <-ch:
 			data, err := json.Marshal(ev)
 			if err != nil {
-				h.log.Error("events: marshal event failed", "err", err)
+				log.Error("events: marshal event failed", "err", err)
 				continue
 			}
 			fmt.Fprintf(c.Response(), "data: %s\n\n", data)
@@ -1080,7 +1110,7 @@ func (h *Handlers) Events(c echo.Context) error {
 
 // --- Internal helpers ---
 
-func (h *Handlers) speakText(cameraName, text, voice string, gain float64) error {
+func (h *Handlers) speakText(log *clog.Logger, cameraName, text, voice string, gain float64) error {
 	cam, err := h.reg.Get(cameraName)
 	if err != nil {
 		return err
@@ -1099,7 +1129,7 @@ func (h *Handlers) speakText(cameraName, text, voice string, gain float64) error
 	if err != nil {
 		return fmt.Errorf("TTS: %w", err)
 	}
-	h.log.Debug(
+	log.Debug(
 		"speak: TTS generated",
 		"camera",
 		cameraName,
@@ -1117,12 +1147,12 @@ func (h *Handlers) speakText(cameraName, text, voice string, gain float64) error
 	}
 	defer os.Remove(rawPath)
 
-	h.log.Debug("speak: sending to camera", "camera", cameraName)
+	log.Debug("speak: sending to camera", "camera", cameraName)
 	sendStart := time.Now()
 	if err := cam.SendRaw(rawPath); err != nil {
 		return fmt.Errorf("sending to camera: %w", err)
 	}
-	h.log.Debug(
+	log.Debug(
 		"speak: camera send complete",
 		"camera",
 		cameraName,
@@ -1135,7 +1165,7 @@ func (h *Handlers) speakText(cameraName, text, voice string, gain float64) error
 	return nil
 }
 
-func (h *Handlers) playPreset(cameraName, category, presetName string, gain float64) error {
+func (h *Handlers) playPreset(log *clog.Logger, cameraName, category, presetName string, gain float64) error {
 	cam, err := h.reg.Get(cameraName)
 	if err != nil {
 		return err
@@ -1159,14 +1189,14 @@ func (h *Handlers) playPreset(cameraName, category, presetName string, gain floa
 	if gain > 0 && gain != 3.0 {
 		boosted, err := boostRawGain(preset.RawPath, h.tmpDir, gain)
 		if err != nil {
-			h.log.Warn("play: gain boost failed, sending original", "err", err)
+			log.Warn("play: gain boost failed, sending original", "err", err)
 		} else {
 			defer os.Remove(boosted)
 			sendPath = boosted
 		}
 	}
 
-	h.log.Debug(
+	log.Debug(
 		"play: sending preset",
 		"camera",
 		cameraName,
@@ -1181,7 +1211,7 @@ func (h *Handlers) playPreset(cameraName, category, presetName string, gain floa
 	if err := cam.SendRaw(sendPath); err != nil {
 		return fmt.Errorf("sending to camera: %w", err)
 	}
-	h.log.Debug(
+	log.Debug(
 		"play: camera send complete",
 		"camera",
 		cameraName,
@@ -1203,9 +1233,9 @@ func (h *Handlers) SpeakForMQTT(cams []string, text, preset, voice string) {
 			defer wg.Done()
 
 			if preset != "" {
-				h.playPreset(c, "", preset, 3.0) //nolint:errcheck
+				h.playPreset(h.log, c, "", preset, 3.0) //nolint:errcheck
 			} else if text != "" {
-				h.speakText(c, text, voice, 3.0) //nolint:errcheck
+				h.speakText(h.log, c, text, voice, 3.0) //nolint:errcheck
 			}
 		}(cam)
 	}

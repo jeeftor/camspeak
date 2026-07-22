@@ -15,7 +15,10 @@ import (
 
 // GetConfig handles GET /api/config — returns the current runtime config.
 func (h *Handlers) GetConfig(c echo.Context) error {
-	return c.JSON(http.StatusOK, h.cfg)
+	h.cfgMu.Lock()
+	cfg := h.cfg.Sanitized()
+	h.cfgMu.Unlock()
+	return c.JSON(http.StatusOK, cfg)
 }
 
 // GetVisionConfig handles GET /api/config/vision — returns vision config.
@@ -49,7 +52,7 @@ func (h *Handlers) UpdateVisionConfig(c echo.Context) error {
 	h.vision = vision.NewClient(req.URL, req.Model, req.APIKey)
 	h.cfgMu.Unlock()
 
-	h.log.Info(
+	h.logger(c).Info(
 		"vision config updated",
 		"url", req.URL,
 		"model", req.Model,
@@ -75,7 +78,7 @@ func (h *Handlers) TestVisionConfig(c echo.Context) error {
 	} else {
 		base = strings.TrimRight(base, "/") + "/v1/models"
 	}
-	h.log.Info("testing vision endpoint", "url", base)
+	h.logger(c).Info("testing vision endpoint", "url", base)
 
 	httpReq, err := http.NewRequest(http.MethodGet, base, nil)
 	if err != nil {
@@ -86,7 +89,7 @@ func (h *Handlers) TestVisionConfig(c echo.Context) error {
 	}
 	resp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
-		h.log.Warn("vision endpoint test failed", "url", base, "err", err)
+		h.logger(c).Warn("vision endpoint test failed", "url", base, "err", err)
 		return c.JSON(http.StatusOK, map[string]interface{}{"ok": false, "message": err.Error()})
 	}
 	defer resp.Body.Close()
@@ -95,7 +98,7 @@ func (h *Handlers) TestVisionConfig(c echo.Context) error {
 	_ = json.NewDecoder(resp.Body).Decode(&data)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		h.log.Warn("vision endpoint HTTP error", "url", base, "status", resp.StatusCode)
+		h.logger(c).Warn("vision endpoint HTTP error", "url", base, "status", resp.StatusCode)
 		return c.JSON(
 			http.StatusOK,
 			map[string]interface{}{"ok": false, "message": fmt.Sprintf("HTTP %d", resp.StatusCode)},
@@ -107,7 +110,7 @@ func (h *Handlers) TestVisionConfig(c echo.Context) error {
 	if d, ok := data["data"].([]interface{}); ok {
 		count = len(d)
 	}
-	h.log.Info("vision endpoint test ok", "url", base, "models", count)
+	h.logger(c).Info("vision endpoint test ok", "url", base, "models", count)
 	return c.JSON(http.StatusOK, map[string]interface{}{"ok": true, "models": count, "data": data})
 }
 
@@ -275,7 +278,7 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 	h.reg.UpdateConfig(req.Name, cam)
 	if cam.Enabled {
 		if err := h.reg.EnableCamera(req.Name, cam); err != nil {
-			h.log.Error("camera enable failed", "name", req.Name, "err", err)
+			h.logger(c).Error("camera enable failed", "name", req.Name, "err", err)
 		}
 	} else {
 		h.reg.DisableCamera(req.Name)
@@ -284,10 +287,10 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 	if h.airplayMgr != nil && cam.AirPlayEnabled && cam.Enabled {
 		h.airplayMgr.Disable(req.Name)
 		if err := h.airplayMgr.Enable(req.Name); err != nil {
-			h.log.Warn("AirPlay restart after name change failed", "camera", req.Name, "err", err)
+			h.logger(c).Warn("AirPlay restart after name change failed", "camera", req.Name, "err", err)
 		}
 	}
-	h.log.Info(
+	h.logger(c).Info(
 		"camera saved",
 		"name",
 		req.Name,
@@ -336,12 +339,12 @@ func (h *Handlers) ToggleCamera(c echo.Context) error {
 	h.reg.UpdateConfig(name, cam)
 	if cam.Enabled {
 		if err := h.reg.EnableCamera(name, cam); err != nil {
-			h.log.Error("camera enable failed", "name", name, "err", err)
+			h.logger(c).Error("camera enable failed", "name", name, "err", err)
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 		if h.airplayMgr != nil && cam.AirPlayEnabled {
 			if err := h.airplayMgr.Enable(name); err != nil {
-				h.log.Warn("AirPlay enable failed", "camera", name, "err", err)
+				h.logger(c).Warn("AirPlay enable failed", "camera", name, "err", err)
 			}
 		}
 	} else {
@@ -350,7 +353,7 @@ func (h *Handlers) ToggleCamera(c echo.Context) error {
 			h.airplayMgr.Disable(name)
 		}
 	}
-	h.log.Info("camera toggled", "name", name, "enabled", cam.Enabled)
+	h.logger(c).Info("camera toggled", "name", name, "enabled", cam.Enabled)
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"name":    name,
 		"enabled": cam.Enabled,
@@ -378,7 +381,7 @@ func (h *Handlers) CreateVisionPrompt(c echo.Context) error {
 	if err := config.SaveVisionPrompt(h.db, p); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	h.log.Info("vision prompt saved", "name", p.Name)
+	h.logger(c).Info("vision prompt saved", "name", p.Name)
 	return c.JSON(http.StatusCreated, p)
 }
 
@@ -388,7 +391,7 @@ func (h *Handlers) DeleteVisionPrompt(c echo.Context) error {
 	if err := config.DeleteVisionPrompt(h.db, name); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	h.log.Info("vision prompt deleted", "name", name)
+	h.logger(c).Info("vision prompt deleted", "name", name)
 	return c.JSON(http.StatusOK, map[string]string{"deleted": name})
 }
 
@@ -485,7 +488,7 @@ func (h *Handlers) ToggleAirPlay(c echo.Context) error {
 	if h.airplayMgr != nil {
 		if cam.AirPlayEnabled && cam.Enabled {
 			if err := h.airplayMgr.Enable(name); err != nil {
-				h.log.Warn("AirPlay enable failed", "camera", name, "err", err)
+				h.logger(c).Warn("AirPlay enable failed", "camera", name, "err", err)
 			}
 		} else {
 			h.airplayMgr.Disable(name)
@@ -493,7 +496,7 @@ func (h *Handlers) ToggleAirPlay(c echo.Context) error {
 		running = h.airplayMgr.IsRunning(name)
 	}
 
-	h.log.Info(
+	h.logger(c).Info(
 		"AirPlay toggled",
 		"camera",
 		name,
@@ -545,7 +548,7 @@ func (h *Handlers) UpdateAirPlayConfig(c echo.Context) error {
 	h.cfg.AirPlay = req
 	h.cfgMu.Unlock()
 
-	h.log.Info(
+	h.logger(c).Info(
 		"AirPlay config updated",
 		"enabled",
 		req.Enabled,
@@ -606,7 +609,7 @@ func (h *Handlers) DiscoverCameras(c echo.Context) error {
 	}
 	h.cfgMu.Unlock()
 
-	h.log.Info("cameras discovered via Frigate", "count", len(cameras), "frigate", frigateURL)
+	h.logger(c).Info("cameras discovered via Frigate", "count", len(cameras), "frigate", frigateURL)
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"discovered": len(cameras),
 		"cameras":    cameras,
@@ -648,7 +651,7 @@ func (h *Handlers) UpdateSettings(c echo.Context) error {
 	h.cfg.Go2rtcURL = req.Go2rtcURL
 	h.cfg.AdvertiseIP = req.AdvertiseIP
 	h.cfgMu.Unlock()
-	h.log.Info("settings updated",
+	h.logger(c).Info("settings updated",
 		"frigate_url", req.FrigateURL,
 		"go2rtc_url", req.Go2rtcURL,
 		"advertise_ip", req.AdvertiseIP,
@@ -683,11 +686,11 @@ func (h *Handlers) TestSettingsURL(c echo.Context) error {
 	default: // "frigate"
 		target = base + "/api/"
 	}
-	h.log.Info("testing settings URL", "type", req.Type, "url", target)
+	h.logger(c).Info("testing settings URL", "type", req.Type, "url", target)
 
 	resp, err := http.Get(target) //nolint:noctx
 	if err != nil {
-		h.log.Warn("settings URL test failed", "type", req.Type, "url", target, "err", err)
+		h.logger(c).Warn("settings URL test failed", "type", req.Type, "url", target, "err", err)
 		return c.JSON(http.StatusOK, map[string]interface{}{"ok": false, "message": err.Error()})
 	}
 	defer resp.Body.Close()
@@ -696,13 +699,13 @@ func (h *Handlers) TestSettingsURL(c echo.Context) error {
 	_ = json.NewDecoder(resp.Body).Decode(&data)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		h.log.Warn("settings URL test HTTP error", "type", req.Type, "status", resp.StatusCode)
+		h.logger(c).Warn("settings URL test HTTP error", "type", req.Type, "status", resp.StatusCode)
 		return c.JSON(
 			http.StatusOK,
 			map[string]interface{}{"ok": false, "message": fmt.Sprintf("HTTP %d", resp.StatusCode)},
 		)
 	}
 
-	h.log.Info("settings URL test ok", "type", req.Type, "url", target, "status", resp.StatusCode)
+	h.logger(c).Info("settings URL test ok", "type", req.Type, "url", target, "status", resp.StatusCode)
 	return c.JSON(http.StatusOK, map[string]interface{}{"ok": true, "data": data})
 }

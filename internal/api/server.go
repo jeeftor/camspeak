@@ -87,12 +87,14 @@ func New(
 	e.HideBanner = true
 	e.HidePort = true
 	e.Use(middleware.Recover())
+	e.Use(middleware.RequestID())
 	e.Use(rateLimitMiddleware)
 	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
-		LogStatus:  true,
-		LogMethod:  true,
-		LogURI:     true,
-		LogLatency: true,
+		LogStatus:    true,
+		LogMethod:    true,
+		LogURI:       true,
+		LogLatency:   true,
+		LogRequestID: true,
 		Skipper: func(c echo.Context) bool {
 			// Skip health checks and SSE streams
 			uri := c.Request().URL.Path
@@ -104,6 +106,7 @@ func New(
 				"uri", v.URI,
 				"status", v.Status,
 				"latency", v.Latency,
+				"request_id", v.RequestID,
 			)
 			return nil
 		},

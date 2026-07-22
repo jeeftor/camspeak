@@ -117,7 +117,7 @@ func (c *OnvifClient) SendRaw(rawFile string) error {
 		)
 	}
 
-	c.log.Info("found backchannel",
+	c.log.Info("stream: found backchannel",
 		"mulaw", forma.MULaw,
 		"sample_rate", forma.ClockRate(),
 		"channels", forma.ChannelCount,
@@ -213,7 +213,7 @@ func (c *OnvifClient) SendRaw(rawFile string) error {
 		sentSamples += n
 	}
 
-	c.log.Info("audio sent", "samples", sentSamples, "duration_ms", sentSamples/8)
+	c.log.Info("send: complete", "samples", sentSamples, "duration_ms", sentSamples/8)
 
 	return nil
 }

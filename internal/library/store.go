@@ -14,6 +14,7 @@ import (
 	clog "github.com/charmbracelet/log"
 
 	"github.com/jeeftor/camspeak/internal/db"
+	"github.com/jeeftor/camspeak/internal/logging"
 )
 
 // Meta holds metadata for a preset alongside its .raw file.
@@ -33,6 +34,8 @@ type Preset struct {
 
 	RawPath string `json:"-"`
 }
+
+var log = logging.New("library", clog.InfoLevel)
 
 // Store manages the preset library on disk + SQLite metadata.
 type Store struct {
@@ -250,7 +253,7 @@ func (s *Store) Delete(category, name string) error {
 	}
 
 	if err := os.Remove(preset.RawPath); err != nil {
-		clog.Warn("library: failed to remove raw file", "path", preset.RawPath, "err", err)
+		log.Warn("failed to remove raw file", "path", preset.RawPath, "err", err)
 	}
 
 	return nil

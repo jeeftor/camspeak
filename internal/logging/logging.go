@@ -35,6 +35,7 @@ func New(prefix string, level clog.Level) *clog.Logger {
 	l := clog.NewWithOptions(os.Stderr, clog.Options{
 		Prefix:          prefix,
 		ReportTimestamp: true,
+		ReportCaller:    level == clog.DebugLevel,
 		Level:           level,
 	})
 	if prefix != "" {

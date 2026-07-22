@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,6 +26,20 @@ func sanitizeFilename(name string) string {
 	}
 
 	return base
+}
+
+// redactURL returns a URL string with any embedded credentials removed.
+// It only strips the userinfo portion (user:pass@host); the rest of the URL
+// is preserved for diagnostics.
+func redactURL(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+
+	redacted := *u
+	redacted.User = nil
+
+	return redacted.String()
 }
 
 // GenerateBeep creates a temporary 800Hz 2s G.711ulaw raw file via ffmpeg.

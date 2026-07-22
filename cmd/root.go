@@ -12,21 +12,14 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/jeeftor/camspeak/internal/db"
+	"github.com/jeeftor/camspeak/internal/logging"
 )
 
 var (
 	dataDir string
 	version = "dev"
-	appLog  = clog.NewWithOptions(os.Stderr, clog.Options{
-		ReportTimestamp: true,
-		Level:           logLevel(),
-	})
+	appLog  = logging.New("cmd", logLevel())
 )
-
-func init() {
-	// Set the global default level so all clog.New() calls inherit it
-	clog.SetLevel(logLevel())
-}
 
 // logLevel returns the log level from CAMSPEAK_LOG_LEVEL env var,
 // defaulting to Info. Valid values: debug, info, warn, error.

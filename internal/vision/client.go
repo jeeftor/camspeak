@@ -9,7 +9,18 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	clog "github.com/charmbracelet/log"
+	"github.com/jeeftor/camspeak/internal/logging"
 )
+
+var log = logging.New("vision", clog.InfoLevel)
+
+// SetLogLevel updates the vision client logger level.
+func SetLogLevel(level clog.Level) {
+	log.SetLevel(level)
+	log.SetReportCaller(level == clog.DebugLevel)
+}
 
 // Client calls an OpenAI-compatible /v1/chat/completions endpoint with image input.
 type Client struct {
@@ -46,6 +57,13 @@ func (c *Client) Describe(imageBytes []byte, mimeType, prompt string) (string, e
 		prompt = "Describe what you see in one or two sentences. Be concise and factual."
 	}
 
+	log.Debug("vision request",
+		"url", c.url,
+		"model", c.model,
+		"image_bytes", len(imageBytes),
+		"prompt_len", len(prompt),
+	)
+
 	body := fmt.Sprintf(`{
 		"model": %q,
 		"messages": [{
@@ -68,6 +86,7 @@ func (c *Client) Describe(imageBytes []byte, mimeType, prompt string) (string, e
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 
+	start := time.Now()
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("vision request: %w", err)
@@ -97,6 +116,8 @@ func (c *Client) Describe(imageBytes []byte, mimeType, prompt string) (string, e
 	if len(result.Choices) == 0 || result.Choices[0].Message.Content == "" {
 		return "", fmt.Errorf("vision API returned empty response: %s", string(respBody))
 	}
+
+	log.Debug("vision response", "text_len", len(result.Choices[0].Message.Content), "elapsed", time.Since(start))
 
 	return result.Choices[0].Message.Content, nil
 }

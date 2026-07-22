@@ -8,7 +8,18 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	clog "github.com/charmbracelet/log"
+	"github.com/jeeftor/camspeak/internal/logging"
 )
+
+var log = logging.New("tts", clog.InfoLevel)
+
+// SetLogLevel updates the TTS client logger level.
+func SetLogLevel(level clog.Level) {
+	log.SetLevel(level)
+	log.SetReportCaller(level == clog.DebugLevel)
+}
 
 // Client calls an OpenAI-compatible /v1/audio/speech endpoint.
 type Client struct {
@@ -42,6 +53,8 @@ func (c *Client) Speak(text, voice string) ([]byte, error) {
 		voice = "af_sky"
 	}
 
+	log.Debug("TTS request", "url", c.URL, "model", c.Model, "voice", voice, "text_len", len(text))
+
 	payload, err := json.Marshal(speechRequest{
 		Model:          c.Model,
 		Input:          text,
@@ -52,6 +65,7 @@ func (c *Client) Speak(text, voice string) ([]byte, error) {
 		return nil, fmt.Errorf("marshaling TTS request: %w", err)
 	}
 
+	start := time.Now()
 	resp, err := c.client.Post(c.URL, "application/json", bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("TTS request failed: %w", err)
@@ -68,6 +82,8 @@ func (c *Client) Speak(text, voice string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading TTS response: %w", err)
 	}
+
+	log.Debug("TTS response", "bytes", len(wav), "elapsed", time.Since(start))
 
 	return wav, nil
 }

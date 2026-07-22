@@ -13,6 +13,8 @@ import (
 
 	clog "github.com/charmbracelet/log"
 	"github.com/joho/godotenv"
+
+	"github.com/jeeftor/camspeak/internal/logging"
 )
 
 // TTSConfig holds connection details for the OpenAI-compatible TTS endpoint.
@@ -104,6 +106,24 @@ type AirPlayConfig struct {
 	BasePort       int  `json:"base_port"`        // starting port for RAOP listeners (default 5000)
 	PrimeSilenceMs int  `json:"prime_silence_ms"` // ms of silence to prepend on stream start to warm camera audio engine (default 500)
 }
+
+// Sanitized returns a copy of cfg with secrets (API keys and passwords) redacted.
+func (cfg Config) Sanitized() Config {
+	out := cfg
+	out.TTS.APIKey = ""
+	out.Vision.APIKey = ""
+	out.MQTT.Pass = ""
+	if len(cfg.Cameras) > 0 {
+		out.Cameras = make(map[string]CameraConfig, len(cfg.Cameras))
+		for name, cam := range cfg.Cameras {
+			cam.Pass = ""
+			out.Cameras[name] = cam
+		}
+	}
+	return out
+}
+
+var log = logging.New("config", clog.InfoLevel)
 
 // Defaults.
 const (
@@ -300,7 +320,7 @@ func seedDefaultPresets(db *sql.DB) {
 			p.Description,
 			isActive,
 		); err != nil {
-			clog.Error("config: seeding default TTS preset failed", "name", p.Name, "err", err)
+			log.Error("seeding default TTS preset failed", "name", p.Name, "err", err)
 		}
 	}
 }

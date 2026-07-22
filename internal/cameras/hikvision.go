@@ -160,8 +160,8 @@ func (c *HikvisionClient) SendRaw(rawFile string) error {
 	openStart := time.Now()
 	sessionID, err := c.openChannel()
 	if err != nil {
-		c.log.Error("send: open channel failed", "ip", c.ip, "err", err)
-		return fmt.Errorf("open channel: %w", err)
+		c.log.Debug("send: open channel failed", "ip", c.ip, "err", err)
+		return fmt.Errorf("open channel for %s: %w", c.ip, err)
 	}
 	c.log.Debug("send: channel opened", "session", sessionID, "elapsed", time.Since(openStart))
 
@@ -182,8 +182,8 @@ func (c *HikvisionClient) SendRaw(rawFile string) error {
 	sendStart := time.Now()
 
 	if err := c.sendAudioRaw(sessionID, data); err != nil {
-		c.log.Error("send: upload failed", "ip", c.ip, "err", err)
-		return fmt.Errorf("sending audio: %w", err)
+		c.log.Debug("send: upload failed", "ip", c.ip, "err", err)
+		return fmt.Errorf("sending audio to %s: %w", c.ip, err)
 	}
 
 	c.log.Info("send: complete", "ip", c.ip, "bytes", size, "elapsed", time.Since(sendStart))

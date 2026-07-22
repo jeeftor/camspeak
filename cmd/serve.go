@@ -18,6 +18,7 @@ import (
 	"github.com/jeeftor/camspeak/internal/library"
 	"github.com/jeeftor/camspeak/internal/mqtt"
 	"github.com/jeeftor/camspeak/internal/tts"
+	"github.com/jeeftor/camspeak/internal/vision"
 )
 
 var serveCmd = &cobra.Command{
@@ -37,6 +38,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	level := logLevel()
 	api.SetLogLevel(level)
 	cameras.SetLogLevel(level)
+	mqtt.SetLogLevel(level)
+	tts.SetLogLevel(level)
+	vision.SetLogLevel(level)
 
 	database, dir, err := openDB()
 	if err != nil {

@@ -204,3 +204,20 @@ lsof -i :5100
 - **iOS connects but no audio**: Check debug logs for `audio: RTP packet` lines — if none, UDP ports may be blocked by firewall
 - **ALAC decode returns empty**: The `fmtp` parameters in SDP may not match what the ALAC decoder expects
 - **ffmpeg not found**: AirPlay audio pipeline requires ffmpeg in PATH
+
+## Logging
+
+- Use `github.com/jeeftor/camspeak/internal/logging` for all new loggers:
+  ```go
+  var log = logging.New("mypackage", clog.InfoLevel)
+  ```
+- Do **not** call package-level `clog.Info/Error/Warn/Debug` directly; always use a logger from `logging.New` so timestamps, colored prefixes, and caller reporting are consistent.
+- `CAMSPEAK_LOG_LEVEL` (debug, info, warn, error) is read by `cmd` and propagated to `api`, `cameras`, `mqtt`, `airplay`, `tts`, and `vision` at startup.
+- Caller reporting (`file:line`) is enabled automatically when the level is `debug`.
+- **Request IDs**: all API handlers receive an `X-Request-ID` and should log with the per-request logger from `h.logger(c)`. Internal helpers that run outside a request (e.g. `SpeakForMQTT`) use the package logger.
+- **Error boundary**: synchronous HTTP handlers are the boundary for `Error` logs; lower-level clients should wrap errors and log them at `Debug`. This avoids double-logging the same failure.
+- **Sanitize before logging**:
+  - Strip embedded credentials from user-supplied URLs with `redactURL` (see `internal/api/util.go`).
+  - Redact AirPlay SDP `fpaeskey`, `rsaaeskey`, and `aesiv` values before logging (`internal/airplay/server.go`).
+  - Never log decrypted AES keys, API keys, or camera passwords.
+- **Config redaction**: `GET /api/config` returns a sanitized copy (`Config.Sanitized()`) with `TTS.APIKey`, `Vision.APIKey`, `MQTT.Pass`, and camera passwords removed.
