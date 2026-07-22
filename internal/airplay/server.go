@@ -60,6 +60,7 @@ type Server struct {
 // This matches cameras.Speaker but we define it locally to avoid import cycles.
 type Speaker interface {
 	SendRaw(rawFile string) error
+	Stream(r io.Reader) error
 	Stop() error
 }
 
@@ -1305,12 +1306,8 @@ func (s *session) controlLoop() {
 	}
 }
 
-// flush stops the current audio stream but keeps the session alive.
-func (s *session) flush() {
-	if s.stream != nil {
-		s.stream.flush()
-	}
-}
+// flush is a no-op in streaming mode — the session stays alive until teardown.
+func (s *session) flush() {}
 
 // teardown closes all connections and sends accumulated audio to the camera.
 func (s *session) teardown() {
@@ -1368,68 +1365,29 @@ func alacDecodeSafe(d *alacDecoder, frame []byte) (pcm []byte) {
 	return d.Decode(frame)
 }
 
-// chunkInterval is how often accumulated audio is flushed to the camera speaker.
-// Shorter = lower latency but more ffmpeg process overhead.
-const chunkInterval = 1 * time.Second
-
-// audioStream manages the pipeline: PCM → ffmpeg → G.711ulaw → temp file → camera.
-// A ticker flushes chunks every chunkInterval for near-real-time playback.
+// audioStream manages the pipeline: PCM → ffmpeg → G.711ulaw → camera (streaming).
+// One ffmpeg process and one camera session are kept alive for the entire AirPlay
+// session, eliminating the per-chunk open/close overhead of the old ticker approach.
 type audioStream struct {
 	speaker    Speaker
 	log        *clog.Logger
 	ffmpegCmd  *exec.Cmd
 	ffmpegIn   io.WriteCloser
-	ffmpegOut  io.ReadCloser
-	rawFile    *os.File
-	rawPath    string
-	chunkCount int
+	streamDone chan error
 	mu         sync.Mutex
-	stopTick   chan struct{}
 }
 
-// newAudioStream starts an ffmpeg process that converts PCM 44100Hz stereo
-// to G.711ulaw 8000Hz mono, writing to a temp file.
-// A background ticker flushes completed chunks to the camera every chunkInterval.
+// newAudioStream starts ffmpeg and opens a single streaming session to the camera.
+// PCM written via writePCM flows: ffmpeg stdin → ffmpeg → io.Pipe → speaker.Stream.
 func newAudioStream(speaker Speaker, log *clog.Logger) (*audioStream, error) {
 	as := &audioStream{
-		speaker:  speaker,
-		log:      log,
-		stopTick: make(chan struct{}),
+		speaker:    speaker,
+		log:        log,
+		streamDone: make(chan error, 1),
 	}
 
-	if err := as.startChunk(); err != nil {
-		return nil, err
-	}
+	pr, pw := io.Pipe()
 
-	go as.tickerLoop()
-	return as, nil
-}
-
-// tickerLoop flushes a completed audio chunk to the camera every chunkInterval.
-func (as *audioStream) tickerLoop() {
-	ticker := time.NewTicker(chunkInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			as.flush()
-		case <-as.stopTick:
-			return
-		}
-	}
-}
-
-// startChunk begins a new ffmpeg process and temp file for the next audio chunk.
-func (as *audioStream) startChunk() error {
-	// Create temp file for G.711ulaw output
-	tmpFile, err := os.CreateTemp("", "airplay-*.raw")
-	if err != nil {
-		return fmt.Errorf("creating temp file: %w", err)
-	}
-	as.rawFile = tmpFile
-	as.rawPath = tmpFile.Name()
-
-	// Start ffmpeg: PCM s16le 44100Hz stereo → G.711ulaw 8000Hz mono
 	cmd := exec.Command(
 		"ffmpeg",
 		"-f", "s16le",
@@ -1442,111 +1400,67 @@ func (as *audioStream) startChunk() error {
 		"-f", "mulaw",
 		"pipe:1",
 	)
-
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		tmpFile.Close()
-		os.Remove(as.rawPath)
-		return fmt.Errorf("ffmpeg stdin: %w", err)
+		return nil, fmt.Errorf("ffmpeg stdin: %w", err)
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		tmpFile.Close()
-		os.Remove(as.rawPath)
-		return fmt.Errorf("ffmpeg stdout: %w", err)
+		return nil, fmt.Errorf("ffmpeg stdout: %w", err)
 	}
-	cmd.Stderr = nil // suppress ffmpeg noise
+	cmd.Stderr = nil
 
 	if err := cmd.Start(); err != nil {
-		tmpFile.Close()
-		os.Remove(as.rawPath)
-		return fmt.Errorf("starting ffmpeg: %w", err)
+		return nil, fmt.Errorf("starting ffmpeg: %w", err)
 	}
 
 	as.ffmpegCmd = cmd
 	as.ffmpegIn = stdin
-	as.ffmpegOut = stdout
 
-	// Goroutine to read ffmpeg output → temp file
+	// Copy ffmpeg stdout → pipe writer; close pipe when ffmpeg exits.
 	go func() {
-		_, _ = io.Copy(as.rawFile, as.ffmpegOut)
+		_, _ = io.Copy(pw, stdout)
+		_ = cmd.Wait()
+		pw.Close()
 	}()
 
-	return nil
+	// Stream pipe reader → camera (one long-lived session).
+	go func() {
+		as.log.Info("stream: opening camera session")
+		err := speaker.Stream(pr)
+		if err != nil {
+			as.log.Warn("stream: camera session closed", "err", err)
+		} else {
+			as.log.Info("stream: camera session closed")
+		}
+		as.streamDone <- err
+	}()
+
+	return as, nil
 }
 
-// writePCM feeds 16-bit PCM samples to the ffmpeg transcoder.
+// writePCM feeds raw S16LE PCM into the ffmpeg transcoder.
 func (as *audioStream) writePCM(pcm []byte) {
 	as.mu.Lock()
 	defer as.mu.Unlock()
 	if as.ffmpegIn != nil {
-		as.ffmpegIn.Write(pcm) //nolint:errcheck // best-effort write
+		_, _ = as.ffmpegIn.Write(pcm)
 	}
 }
 
-// flush resets the stream for a new chunk (called on FLUSH).
-func (as *audioStream) flush() {
+// finish closes ffmpeg stdin, waits for the stream to drain, then returns.
+func (as *audioStream) finish() {
 	as.mu.Lock()
-	defer as.mu.Unlock()
-	// Close current chunk and send to camera
-	as.closeChunk()
-	// Start new chunk
-	if err := as.startChunk(); err != nil {
-		as.log.Warn("flush: failed to start new chunk", "err", err)
-	}
-}
-
-// closeChunk finishes the current ffmpeg process and sends the audio to the camera.
-func (as *audioStream) closeChunk() {
 	if as.ffmpegIn != nil {
-		as.ffmpegIn.Close()
+		_ = as.ffmpegIn.Close()
 		as.ffmpegIn = nil
 	}
-	if as.ffmpegCmd != nil {
-		_ = as.ffmpegCmd.Wait()
-		as.ffmpegCmd = nil
+	as.mu.Unlock()
+
+	// Wait for the streaming goroutine to finish (max 10s).
+	select {
+	case <-as.streamDone:
+	case <-time.After(10 * time.Second):
+		as.log.Warn("stream: timed out waiting for camera session to close")
 	}
-	if as.rawFile != nil {
-		as.rawFile.Close()
-		as.rawFile = nil
-	}
-
-	// Check if we have audio to send
-	info, err := os.Stat(as.rawPath)
-	if err != nil || info.Size() == 0 {
-		if as.rawPath != "" {
-			os.Remove(as.rawPath)
-		}
-		return
-	}
-
-	as.chunkCount++
-	as.log.Info(
-		"sending audio chunk to camera",
-		"chunk",
-		as.chunkCount,
-		"bytes",
-		info.Size(),
-		"file",
-		as.rawPath,
-	)
-
-	// Send to camera in a goroutine (non-blocking)
-	rawPath := as.rawPath
-	go func() {
-		if err := as.speaker.SendRaw(rawPath); err != nil {
-			as.log.Warn("camera SendRaw failed", "err", err, "chunk", as.chunkCount)
-		}
-		os.Remove(rawPath)
-	}()
-
-	as.rawPath = ""
-}
-
-// finish stops the ticker and sends any remaining audio to the camera.
-func (as *audioStream) finish() {
-	close(as.stopTick) // stop ticker goroutine
-	as.mu.Lock()
-	defer as.mu.Unlock()
-	as.closeChunk()
 }

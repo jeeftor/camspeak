@@ -3,6 +3,7 @@ package cameras
 import (
 	"crypto/rand"
 	"fmt"
+	"io"
 	"os"
 	"sync"
 	"time"
@@ -215,6 +216,21 @@ func (c *OnvifClient) SendRaw(rawFile string) error {
 	c.log.Info("audio sent", "samples", sentSamples, "duration_ms", sentSamples/8)
 
 	return nil
+}
+
+// Stream is not yet implemented for ONVIF; it buffers r and calls SendRaw.
+func (c *OnvifClient) Stream(r io.Reader) error {
+	tmp, err := os.CreateTemp("", "camspeak-onvif-*.raw")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := io.Copy(tmp, r); err != nil {
+		tmp.Close()
+		return err
+	}
+	tmp.Close()
+	return c.SendRaw(tmp.Name())
 }
 
 // Stop immediately stops audio playback by closing the active RTSP client.

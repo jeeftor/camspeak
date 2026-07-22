@@ -179,6 +179,156 @@ func (c *HikvisionClient) SendRaw(rawFile string) error {
 	return nil
 }
 
+// Stream opens a single long-lived ISAPI two-way audio session and copies r
+// to the camera speaker at 8000 bytes/sec until r returns EOF.
+// This is the preferred method for AirPlay; it avoids per-chunk open/close overhead.
+func (c *HikvisionClient) Stream(r io.Reader) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.activeMu.Lock()
+	c.stopped = false
+	c.activeMu.Unlock()
+
+	sessionID, err := c.openChannel()
+	if err != nil {
+		return fmt.Errorf("open channel: %w", err)
+	}
+	defer c.closeChannel(sessionID)
+
+	path := fmt.Sprintf(
+		"/ISAPI/System/TwoWayAudio/channels/%d/audioData?sessionId=%s",
+		c.channel, sessionID,
+	)
+
+	authHeader, err := c.getDigestAuth(path)
+	if err != nil {
+		return fmt.Errorf("digest auth: %w", err)
+	}
+
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(c.ip, "80"), 5*time.Second)
+	if err != nil {
+		return fmt.Errorf("dial: %w", err)
+	}
+	defer conn.Close()
+
+	c.activeMu.Lock()
+	c.activeConn = conn
+	c.activeSession = sessionID
+	c.activeMu.Unlock()
+	defer func() {
+		c.activeMu.Lock()
+		c.activeConn = nil
+		c.activeSession = ""
+		c.activeMu.Unlock()
+	}()
+
+	// Use a large Content-Length (1 hour); we close the TCP connection early when done.
+	const maxBytes = 3600 * 8000
+	headers := fmt.Sprintf("PUT %s HTTP/1.1\r\n", path)
+	headers += fmt.Sprintf("Host: %s\r\n", c.ip)
+	headers += "Content-Type: application/octet-stream\r\n"
+	headers += fmt.Sprintf("Content-Length: %d\r\n", maxBytes)
+	if authHeader != "" {
+		headers += fmt.Sprintf("Authorization: %s\r\n", authHeader)
+	}
+	headers += "Connection: close\r\n\r\n"
+
+	if _, err := conn.Write([]byte(headers)); err != nil {
+		return fmt.Errorf("write headers: %w", err)
+	}
+
+	c.log.Info("stream: session open", "ip", c.ip, "session", sessionID)
+	err = copyAt8kBps(conn, r, &c.stopped, &c.activeMu)
+	c.log.Info("stream: session closed", "ip", c.ip, "session", sessionID)
+	return err
+}
+
+// getDigestAuth performs the 401 challenge/response handshake for the given path
+// and returns the Authorization header value.
+func (c *HikvisionClient) getDigestAuth(path string) (string, error) {
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(c.ip, "80"), 5*time.Second)
+	if err != nil {
+		return "", err
+	}
+	defer conn.Close()
+
+	probe := fmt.Sprintf("PUT %s HTTP/1.1\r\nHost: %s\r\nContent-Length: 0\r\n\r\n", path, c.ip)
+	if _, err := conn.Write([]byte(probe)); err != nil {
+		return "", err
+	}
+
+	r := bufio.NewReader(conn)
+	if _, err := r.ReadString('\n'); err != nil {
+		return "", err
+	}
+	var wwwAuth string
+	for {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			break
+		}
+		line = strings.TrimSpace(line)
+		if line == "" {
+			break
+		}
+		if strings.HasPrefix(strings.ToLower(line), "www-authenticate:") {
+			wwwAuth = strings.TrimSpace(line[len("www-authenticate:"):])
+		}
+	}
+	if wwwAuth == "" {
+		return "", nil
+	}
+	chal, err := digest.FindChallenge(http.Header{"Www-Authenticate": []string{wwwAuth}})
+	if err != nil {
+		return "", err
+	}
+	cred, err := digest.Digest(chal, digest.Options{
+		Method:   http.MethodPut,
+		URI:      path,
+		Username: c.user,
+		Password: c.pass,
+	})
+	if err != nil {
+		return "", err
+	}
+	return cred.String(), nil
+}
+
+// copyAt8kBps copies r → w paced at 8000 bytes/sec (G.711 mulaw real-time rate).
+func copyAt8kBps(w io.Writer, r io.Reader, stopped *bool, mu *sync.Mutex) error {
+	const chunkSize = 800 // 100ms at 8000 bytes/sec
+	const interval = 100 * time.Millisecond
+
+	buf := make([]byte, chunkSize)
+	next := time.Now()
+
+	for {
+		n, err := io.ReadFull(r, buf)
+		if n > 0 {
+			if _, werr := w.Write(buf[:n]); werr != nil {
+				mu.Lock()
+				s := *stopped
+				mu.Unlock()
+				if s {
+					return nil
+				}
+				return werr
+			}
+			next = next.Add(interval)
+			if sleep := time.Until(next); sleep > 0 {
+				time.Sleep(sleep)
+			}
+		}
+		if err == io.EOF || err == io.ErrUnexpectedEOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+	}
+}
+
 // Stop immediately stops audio playback by closing the active TCP connection
 // and the ISAPI two-way audio channel.
 func (c *HikvisionClient) Stop() error {

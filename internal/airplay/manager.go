@@ -2,6 +2,7 @@ package airplay
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strings"
@@ -163,6 +164,7 @@ func (m *Manager) stopLocked(name string) {
 type speakerAdapter struct{ cameras.Speaker }
 
 func (a speakerAdapter) SendRaw(rawFile string) error { return a.Speaker.SendRaw(rawFile) }
+func (a speakerAdapter) Stream(r io.Reader) error     { return a.Speaker.Stream(r) }
 func (a speakerAdapter) Stop() error                  { return a.Speaker.Stop() }
 
 // cameraDisplayName converts a camera key like "backyard" to "Backyard Camera".

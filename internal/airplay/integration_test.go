@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// mockSpeaker is a test Speaker that records SendRaw calls.
+// mockSpeaker is a test Speaker that records calls.
 type mockSpeaker struct {
 	rawFiles []string
 	stopErr  error
@@ -22,6 +22,11 @@ type mockSpeaker struct {
 
 func (m *mockSpeaker) SendRaw(rawFile string) error {
 	m.rawFiles = append(m.rawFiles, rawFile)
+	return nil
+}
+
+func (m *mockSpeaker) Stream(r io.Reader) error {
+	_, _ = io.ReadAll(r) // drain so the pipeline doesn't block
 	return nil
 }
 

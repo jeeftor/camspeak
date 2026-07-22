@@ -2,6 +2,7 @@ package cameras
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -33,6 +34,7 @@ func newLogger(prefix string) *clog.Logger {
 // Speaker is the interface all camera types implement.
 type Speaker interface {
 	SendRaw(rawFile string) error
+	Stream(r io.Reader) error
 	Ping() bool
 	Stop() error
 }

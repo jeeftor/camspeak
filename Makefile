@@ -32,6 +32,9 @@ airplay-dev-modern: ## Run AirPlay debug receiver in modern mode (pk/pi)
 airplay: ## Run server with AirPlay enabled (shairport-sync must be installed)
 	CAMSPEAK_AIRPLAY_ENABLED=1 CAMSPEAK_AIRPLAY_BASE_PORT=5100 go run main.go serve
 
+test-speaker: ## Stream test tones to a camera speaker (args: IP=x.x.x.x USER=xx PASS=xx)
+	go run . test-speaker --ip $(IP) --user $(or $(USER),Operator) --pass $(PASS)
+
 clean: ## Remove build artifacts
 	rm -f $(BINARY)
 	rm -rf frontend/dist

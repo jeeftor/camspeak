@@ -2,6 +2,7 @@ package cameras
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 )
@@ -28,6 +29,11 @@ func NewReolinkClient(ip, user, pass string) *ReolinkClient {
 func (c *ReolinkClient) SendRaw(rawFile string) error {
 	return fmt.Errorf("reolink audio not yet implemented for %s — "+
 		"open an issue at github.com/jeeftor/camspeak", c.ip)
+}
+
+// Stream is not yet implemented for Reolink.
+func (c *ReolinkClient) Stream(_ io.Reader) error {
+	return fmt.Errorf("reolink streaming not yet implemented for %s", c.ip)
 }
 
 // Stop is a no-op for Reolink (audio not yet implemented).

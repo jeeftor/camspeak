@@ -165,6 +165,21 @@ func (c *Go2rtcClient) SendRaw(rawFile string) error {
 	return nil
 }
 
+// Stream is not yet implemented for go2rtc; it buffers r and calls SendRaw.
+func (c *Go2rtcClient) Stream(r io.Reader) error {
+	tmp, err := os.CreateTemp("", "camspeak-go2rtc-*.raw")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := io.Copy(tmp, r); err != nil {
+		tmp.Close()
+		return err
+	}
+	tmp.Close()
+	return c.SendRaw(tmp.Name())
+}
+
 // Stop immediately stops audio playback by cancelling the active go2rtc API call
 // and sending a stop command to go2rtc.
 func (c *Go2rtcClient) Stop() error {
