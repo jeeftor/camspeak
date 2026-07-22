@@ -208,6 +208,14 @@ func buildAirtestCamera(cfg *config.Config, name string, log *clog.Logger) confi
 		cam.Channel = 1
 	}
 
+	log.Debug("resolved airtest camera",
+		"type", cam.Type,
+		"ip", cam.IP,
+		"user", cam.User,
+		"channel", cam.Channel,
+		"stream", cam.Stream,
+	)
+
 	return cam
 }
 

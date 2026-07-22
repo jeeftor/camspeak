@@ -26,6 +26,9 @@ docker: ## Build the multi-arch Docker image
 airplay: ## Run server with AirPlay enabled (shairport-sync must be installed)
 	CAMSPEAK_AIRPLAY_ENABLED=1 CAMSPEAK_AIRPLAY_BASE_PORT=5100 go run main.go serve
 
+airtest: ## Run one-off AirPlay test receiver (args: CAMERA=name [AIRTEST_ARGS=--no-send])
+	CAMSPEAK_LOG_LEVEL=debug go run . airtest $(CAMERA) $(AIRTEST_ARGS)
+
 test-speaker: ## Stream test tones to a camera speaker (args: IP=x.x.x.x USER=xx PASS=xx)
 	go run . test-speaker --ip $(IP) --user $(or $(USER),Operator) --pass $(PASS)
 
