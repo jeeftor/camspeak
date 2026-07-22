@@ -306,37 +306,69 @@ func (c *HikvisionClient) getDigestAuth(path string) (string, error) {
 	return cred.String(), nil
 }
 
+// deadliner is implemented by *os.File (returned by cmd.StdoutPipe).
+type deadliner interface {
+	SetReadDeadline(t time.Time) error
+}
+
 // copyAt8kBps copies r → w paced at 8000 bytes/sec (G.711 mulaw real-time rate).
+// It polls the stopped flag every 200 ms so SendRaw preemption is responsive
+// even when the reader has no data (e.g. AirPlay is selected but silent).
 func copyAt8kBps(w io.Writer, r io.Reader, stopped *bool, mu *sync.Mutex) error {
 	const chunkSize = 800 // 100ms at 8000 bytes/sec
 	const interval = 100 * time.Millisecond
+	const readTimeout = 200 * time.Millisecond
 
+	dl, _ := r.(deadliner)
 	buf := make([]byte, chunkSize)
+	pending := 0
 	next := time.Now()
 
 	for {
-		n, err := io.ReadFull(r, buf)
-		if n > 0 {
-			if _, werr := w.Write(buf[:n]); werr != nil {
+		mu.Lock()
+		s := *stopped
+		mu.Unlock()
+		if s {
+			return fmt.Errorf("stream interrupted")
+		}
+
+		if dl != nil {
+			_ = dl.SetReadDeadline(time.Now().Add(readTimeout))
+		}
+		n, err := r.Read(buf[pending:])
+		pending += n
+
+		if pending >= chunkSize {
+			if dl != nil {
+				_ = dl.SetReadDeadline(time.Time{}) // clear deadline before write
+			}
+			if _, werr := w.Write(buf[:chunkSize]); werr != nil {
 				mu.Lock()
 				s := *stopped
 				mu.Unlock()
 				if s {
-					// Interrupted by SendRaw preemption — return non-nil so the
-					// audioStream reconnect loop reopens the session after the send.
 					return fmt.Errorf("stream interrupted")
 				}
 				return werr
 			}
+			copy(buf, buf[chunkSize:pending])
+			pending -= chunkSize
 			next = next.Add(interval)
 			if sleep := time.Until(next); sleep > 0 {
 				time.Sleep(sleep)
 			}
 		}
-		if err == io.EOF || err == io.ErrUnexpectedEOF {
-			return nil
-		}
+
 		if err != nil {
+			if dl != nil {
+				type timeouter interface{ Timeout() bool }
+				if t, ok := err.(timeouter); ok && t.Timeout() {
+					continue // just a read deadline — check stopped and retry
+				}
+			}
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				return nil
+			}
 			return err
 		}
 	}
