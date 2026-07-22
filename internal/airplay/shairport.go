@@ -60,6 +60,17 @@ func (s *ShairportServer) SetLogLevel(level clog.Level) {
 	s.log.SetLevel(level)
 }
 
+// KillAllStale kills every shairport-sync process on this host.
+// Called once at manager startup to clear any leftover processes from a
+// previous unclean exit, regardless of which port they were using.
+func KillAllStale() {
+	// Best-effort: ignore errors (process may not exist or pkill unavailable).
+	if err := exec.Command("pkill", "-x", "shairport-sync").Run(); err == nil {
+		// Remove any stale PID files so Start() doesn't try to re-kill them.
+		_ = exec.Command("sh", "-c", "rm -f /tmp/shairport-*.pid").Run()
+	}
+}
+
 // Start launches shairport-sync and starts reading PCM into the audio pipeline.
 func (s *ShairportServer) Start() error {
 	// Kill any stale instance left over from a previous unclean exit.

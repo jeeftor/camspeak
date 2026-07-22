@@ -52,6 +52,9 @@ func NewManager(cfg *config.Config, reg *cameras.Registry) *Manager {
 		port++
 	}
 
+	// Kill any stale shairport-sync processes from a previous unclean exit.
+	KillAllStale()
+
 	// Start receivers for cameras that have AirPlay enabled.
 	for _, name := range names {
 		cam := cfg.Cameras[name]
