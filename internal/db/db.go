@@ -58,7 +58,9 @@ CREATE TABLE IF NOT EXISTS cameras (
     channel       INTEGER DEFAULT 1,
     stream        TEXT DEFAULT '',
     enabled       INTEGER DEFAULT 0,
-    vision_prompt TEXT DEFAULT ''
+    vision_prompt TEXT DEFAULT '',
+    airplay_enabled INTEGER DEFAULT 1,
+    airplay_name  TEXT DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS rules (
@@ -149,5 +151,11 @@ func migrate(db *sql.DB) {
 	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cameras') WHERE name='airplay_enabled'`).Scan(&apCol); err == nil &&
 		apCol == 0 {
 		_, _ = db.Exec(`ALTER TABLE cameras ADD COLUMN airplay_enabled INTEGER DEFAULT 1`)
+	}
+	// Add 'airplay_name' column to cameras if missing (added in v2.3.17).
+	var apNameCol int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cameras') WHERE name='airplay_name'`).Scan(&apNameCol); err == nil &&
+		apNameCol == 0 {
+		_, _ = db.Exec(`ALTER TABLE cameras ADD COLUMN airplay_name TEXT DEFAULT ''`)
 	}
 }

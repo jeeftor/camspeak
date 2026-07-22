@@ -158,6 +158,7 @@ func New(
 	api.POST("/config/settings/test", h.TestSettingsURL)
 	api.GET("/config/vision", h.GetVisionConfig)
 	api.PUT("/config/vision", h.UpdateVisionConfig)
+	api.POST("/config/vision/test", h.TestVisionConfig)
 	api.GET("/config/vision-prompts", h.ListVisionPrompts)
 	api.POST("/config/vision-prompts", h.CreateVisionPrompt)
 	api.DELETE("/config/vision-prompts/:name", h.DeleteVisionPrompt)

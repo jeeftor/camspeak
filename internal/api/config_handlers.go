@@ -58,6 +58,59 @@ func (h *Handlers) UpdateVisionConfig(c echo.Context) error {
 	return c.JSON(http.StatusOK, req)
 }
 
+// TestVisionConfig handles POST /api/config/vision/test — probes the vision endpoint from the server.
+func (h *Handlers) TestVisionConfig(c echo.Context) error {
+	var req struct {
+		URL    string `json:"url"`
+		APIKey string `json:"api_key"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid JSON body")
+	}
+	// Derive models endpoint from the chat completions URL.
+	// e.g. http://host/v1/chat/completions → http://host/v1/models
+	base := req.URL
+	if idx := strings.Index(base, "/v1/"); idx >= 0 {
+		base = base[:idx+4] + "models"
+	} else {
+		base = strings.TrimRight(base, "/") + "/v1/models"
+	}
+	h.log.Info("testing vision endpoint", "url", base)
+
+	httpReq, err := http.NewRequest(http.MethodGet, base, nil)
+	if err != nil {
+		return c.JSON(http.StatusOK, map[string]interface{}{"ok": false, "message": err.Error()})
+	}
+	if req.APIKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+req.APIKey)
+	}
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		h.log.Warn("vision endpoint test failed", "url", base, "err", err)
+		return c.JSON(http.StatusOK, map[string]interface{}{"ok": false, "message": err.Error()})
+	}
+	defer resp.Body.Close()
+
+	var data map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&data)
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		h.log.Warn("vision endpoint HTTP error", "url", base, "status", resp.StatusCode)
+		return c.JSON(
+			http.StatusOK,
+			map[string]interface{}{"ok": false, "message": fmt.Sprintf("HTTP %d", resp.StatusCode)},
+		)
+	}
+
+	// Count models if response has "data" array.
+	count := 0
+	if d, ok := data["data"].([]interface{}); ok {
+		count = len(d)
+	}
+	h.log.Info("vision endpoint test ok", "url", base, "models", count)
+	return c.JSON(http.StatusOK, map[string]interface{}{"ok": true, "models": count, "data": data})
+}
+
 // ListTTSPresets handles GET /api/config/tts — returns all TTS presets.
 func (h *Handlers) ListTTSPresets(c echo.Context) error {
 	presets, err := config.ListTTSPresets(h.db)
@@ -396,6 +449,7 @@ func (h *Handlers) GetAirPlayConfig(c echo.Context) error {
 		perCamera = append(perCamera, map[string]interface{}{
 			"name":            name,
 			"airplay_enabled": cam.AirPlayEnabled,
+			"airplay_name":    cam.AirPlayName,
 			"airplay_running": status[name],
 		})
 	}

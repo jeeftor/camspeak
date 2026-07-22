@@ -52,6 +52,12 @@
   let visionAPIKey = $state('')
   let visionPrompt = $state('')
   let visionStatus = $state('')
+  let visionTestStatus = $state('')
+  let visionTestBusy = $state(false)
+
+  // Camera pending-enabled batch state (checkbox → local, Save commits)
+  let pendingEnabled = $state({}) // name → bool
+  let camerasDirty = $derived(Object.keys(pendingEnabled).length > 0)
 
   // General settings
   let frigateURL = $state('')
@@ -303,6 +309,56 @@
     ttsFormOpen = true
   }
 
+  // --- Cameras (batch enable) ---
+  function getCamEnabled(cam) {
+    return cam.name in pendingEnabled ? pendingEnabled[cam.name] : cam.enabled
+  }
+
+  function localToggleCamera(cam) {
+    const current = getCamEnabled(cam)
+    // If toggled back to original, remove from pending
+    if (current === cam.enabled) {
+      pendingEnabled = { ...pendingEnabled, [cam.name]: !current }
+    } else {
+      const { [cam.name]: _, ...rest } = pendingEnabled
+      pendingEnabled = rest
+    }
+  }
+
+  let camerasSaving = $state(false)
+  let camerasStatus = $state('')
+
+  async function saveCamerasEnabled() {
+    camerasSaving = true
+    camerasStatus = ''
+    try {
+      const changed = Object.entries(pendingEnabled)
+      for (const [name, enabled] of changed) {
+        const cam = cameras.find(c => c.name === name)
+        if (!cam) continue
+        const res = await fetch('/api/config/cameras', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name, type: cam.type, ip: cam.ip, user: cam.user,
+            pass: cam.pass, channel: cam.channel, stream: cam.stream || '',
+            enabled, airplay_name: cam.airplay_name || '', vision_prompt: cam.vision_prompt || '',
+          }),
+        })
+        if (!res.ok) throw new Error(await res.text())
+      }
+      pendingEnabled = {}
+      camerasStatus = '✓ Saved'
+      loadConfig()
+      onRefresh?.()
+    } catch (e) {
+      camerasStatus = '✗ ' + e.message
+    } finally {
+      camerasSaving = false
+      setTimeout(() => camerasStatus = '', 4000)
+    }
+  }
+
   // --- Vision ---
   async function saveVision() {
     visionStatus = ''
@@ -324,6 +380,29 @@
       visionStatus = '✗ ' + e.message
     } finally {
       setTimeout(() => visionStatus = '', 4000)
+    }
+  }
+
+  async function testVision() {
+    visionTestBusy = true
+    visionTestStatus = ''
+    try {
+      const res = await fetch('/api/config/vision/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: visionURL, api_key: visionAPIKey }),
+      })
+      const data = await res.json()
+      if (data.ok) {
+        visionTestStatus = `✓ Connected (${data.models} model${data.models === 1 ? '' : 's'})`
+      } else {
+        visionTestStatus = '✗ ' + data.message
+      }
+    } catch (e) {
+      visionTestStatus = '✗ ' + e.message
+    } finally {
+      visionTestBusy = false
+      setTimeout(() => visionTestStatus = '', 8000)
     }
   }
 
@@ -622,27 +701,33 @@
     <!-- Cameras -->
     {:else if tab === 'cameras'}
       <section class="rounded-lg border bg-card p-5">
-        <div class="mb-3 flex items-center justify-between">
+        <div class="mb-3 flex items-center justify-between gap-4">
           <h3 class="text-base font-semibold text-primary">Cameras</h3>
           <div class="flex items-center gap-2">
+            {#if camerasStatus}<span class="text-sm text-primary">{camerasStatus}</span>{/if}
+            {#if camerasDirty}
+              <Button size="sm" onclick={saveCamerasEnabled} disabled={camerasSaving}>
+                {camerasSaving ? 'Saving…' : 'Save'}
+              </Button>
+            {/if}
             <Button size="sm" variant="outline" onclick={discoverCameras} disabled={discoverBusy} title={frigateURL ? 'Discover cameras from Frigate NVR' : 'Set a Frigate URL in Settings first'}>
-              {#if discoverBusy}Discovering…{:else}Discover from Frigate{/if}
+              {#if discoverBusy}Discovering…{:else}Discover{/if}
             </Button>
-            <Button size="sm" onclick={openAddCamera}>Add Camera</Button>
+            <Button size="sm" onclick={openAddCamera}>Add</Button>
           </div>
         </div>
         {#if discoverStatus}<p class="mb-2 text-sm text-primary">{discoverStatus}</p>{/if}
 
         <div class="flex flex-col gap-1.5">
           {#each cameras as cam}
-            <div class="flex items-center justify-between rounded-lg border bg-background px-3 py-2 {!cam.enabled ? 'opacity-50' : ''}">
+            <div class="flex items-center justify-between rounded-lg border bg-background px-3 py-2 {!getCamEnabled(cam) ? 'opacity-50' : ''}">
               <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                 <input
                   type="checkbox"
-                  checked={cam.enabled}
-                  onchange={() => toggleCamera(cam)}
+                  checked={getCamEnabled(cam)}
+                  onchange={() => localToggleCamera(cam)}
                   class="h-4 w-4 cursor-pointer rounded border-input accent-primary"
-                  title={cam.enabled ? 'Disable' : 'Enable'}
+                  title={getCamEnabled(cam) ? 'Disable (click Save to commit)' : 'Enable (click Save to commit)'}
                 />
                 <span class="font-semibold">{cam.name}</span>
                 <span class="text-sm text-muted-foreground">{cam.type}</span>
@@ -652,7 +737,7 @@
               </div>
               <div class="flex shrink-0 items-center gap-1">
                 {#if testStatus[cam.name]}<span class="mr-1 text-sm text-primary">{testStatus[cam.name]}</span>{/if}
-                <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => testCamera(cam.name)} title="Test beep" aria-label="Test beep" disabled={!cam.enabled}><Bell class="h-4 w-4" /></Button>
+                <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => testCamera(cam.name)} title="Test beep" aria-label="Test beep" disabled={!getCamEnabled(cam)}><Bell class="h-4 w-4" /></Button>
                 <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => editCamera(cam)} title="Edit camera settings" aria-label="Edit camera"><Pencil class="h-4 w-4" /></Button>
                 <Button variant="outline" size="sm" class="h-7 px-2 hover:border-destructive hover:text-destructive" onclick={() => deleteCamera(cam.name)} title="Delete" aria-label="Delete camera"><X class="h-4 w-4" /></Button>
               </div>
@@ -741,7 +826,11 @@
         <div class="mb-4 flex items-center justify-between gap-4">
           <h3 class="text-base font-semibold text-primary">Vision Model</h3>
           <div class="flex items-center gap-2">
+            {#if visionTestStatus}<span class="text-sm text-primary">{visionTestStatus}</span>{/if}
             {#if visionStatus}<span class="text-sm text-primary">{visionStatus}</span>{/if}
+            <Button variant="outline" size="sm" onclick={testVision} disabled={visionTestBusy}>
+              {visionTestBusy ? 'Testing…' : 'Test'}
+            </Button>
             <Button onclick={saveVision} size="sm">Save</Button>
           </div>
         </div>
@@ -832,6 +921,9 @@
                     title={cam.airplay_enabled ? 'Disable AirPlay for this camera' : 'Enable AirPlay for this camera'}
                   />
                   <span class="font-semibold">{cam.name}</span>
+                  {#if cam.airplay_name}
+                    <span class="text-xs text-muted-foreground">→ "{cam.airplay_name}"</span>
+                  {/if}
                 </div>
                 <div class="flex items-center gap-2">
                   {#if cam.airplay_running}
