@@ -19,6 +19,7 @@ import (
 	"github.com/jeeftor/camspeak/internal/cameras"
 	"github.com/jeeftor/camspeak/internal/config"
 	"github.com/jeeftor/camspeak/internal/library"
+	"github.com/jeeftor/camspeak/internal/logging"
 	"github.com/jeeftor/camspeak/internal/tts"
 	"github.com/jeeftor/camspeak/internal/vision"
 )
@@ -79,7 +80,7 @@ func New(
 		mqttMsgBus: newMQTTMsgBus(),
 		db:         database,
 		tmpDir:     tmpDir,
-		log:        clog.NewWithOptions(os.Stderr, clog.Options{Prefix: "api", Level: apiLogLevel}),
+		log:        logging.New("api", apiLogLevel),
 	}
 
 	e := echo.New()
@@ -226,7 +227,7 @@ func New(
 	return &Server{
 		echo:     e,
 		handlers: h,
-		log:      clog.NewWithOptions(os.Stderr, clog.Options{Prefix: "api"}),
+		log:      logging.New("api", apiLogLevel),
 	}
 }
 

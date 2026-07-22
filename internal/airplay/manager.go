@@ -3,7 +3,6 @@ package airplay
 import (
 	"fmt"
 	"io"
-	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/jeeftor/camspeak/internal/cameras"
 	"github.com/jeeftor/camspeak/internal/config"
+	"github.com/jeeftor/camspeak/internal/logging"
 )
 
 // Manager tracks per-camera shairport-sync instances and supports live enable/disable
@@ -33,11 +33,7 @@ func NewManager(cfg *config.Config, reg *cameras.Registry) *Manager {
 		ports:     make(map[string]int),
 		cfg:       cfg,
 		reg:       reg,
-		log: clog.NewWithOptions(os.Stderr, clog.Options{
-			Prefix:          "airplay",
-			ReportTimestamp: true,
-			Level:           clog.InfoLevel,
-		}),
+		log:       logging.New("airplay", clog.InfoLevel),
 	}
 
 	// Assign ports in sorted order so they are deterministic across restarts.

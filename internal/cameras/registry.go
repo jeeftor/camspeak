@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"os/exec"
 	"time"
 
 	clog "github.com/charmbracelet/log"
 	"github.com/jeeftor/camspeak/internal/config"
+	"github.com/jeeftor/camspeak/internal/logging"
 	"github.com/jeeftor/camspeak/internal/tts"
 )
 
@@ -24,11 +24,7 @@ func SetLogLevel(level clog.Level) {
 
 // newLogger creates a charmbracelet logger with the given prefix and global LogLevel.
 func newLogger(prefix string) *clog.Logger {
-	return clog.NewWithOptions(os.Stderr, clog.Options{
-		Prefix:          prefix,
-		ReportTimestamp: true,
-		Level:           LogLevel,
-	})
+	return logging.New(prefix, LogLevel)
 }
 
 // Speaker is the interface all camera types implement.

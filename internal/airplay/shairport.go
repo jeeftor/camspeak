@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	clog "github.com/charmbracelet/log"
+	"github.com/jeeftor/camspeak/internal/logging"
 )
 
 // ShairportServer wraps a shairport-sync subprocess and feeds its PCM output
@@ -47,11 +48,7 @@ func NewShairportServer(
 		port:    port,
 		speaker: speaker,
 		pidPath: fmt.Sprintf("/tmp/shairport-%s-%d.pid", safeName, port),
-		log: clog.NewWithOptions(os.Stderr, clog.Options{
-			Prefix:          fmt.Sprintf("shairport[%s]", name),
-			ReportTimestamp: true,
-			Level:           clog.InfoLevel,
-		}),
+		log:     logging.New(fmt.Sprintf("shairport[%s]", name), clog.InfoLevel),
 	}, nil
 }
 

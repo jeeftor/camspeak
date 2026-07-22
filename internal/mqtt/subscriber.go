@@ -4,13 +4,13 @@ package mqtt
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
 	clog "github.com/charmbracelet/log"
 	paho "github.com/eclipse/paho.mqtt.golang"
 	"github.com/jeeftor/camspeak/internal/config"
+	"github.com/jeeftor/camspeak/internal/logging"
 )
 
 // SpeakFunc is called when a rule matches. It handles TTS or preset playback.
@@ -35,7 +35,7 @@ func New(cfg config.MQTTConfig, rules []config.Rule, fn SpeakFunc) *Subscriber {
 		cfg:   cfg,
 		rules: rules,
 		speak: fn,
-		log:   clog.NewWithOptions(os.Stderr, clog.Options{Prefix: "mqtt"}),
+		log:   logging.New("mqtt", clog.InfoLevel),
 	}
 }
 

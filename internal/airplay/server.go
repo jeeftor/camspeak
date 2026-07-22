@@ -17,7 +17,6 @@ import (
 	"io"
 	"net"
 	"net/url"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -27,6 +26,8 @@ import (
 	"github.com/alicebob/alac"
 	clog "github.com/charmbracelet/log"
 	"github.com/grandcat/zeroconf"
+
+	"github.com/jeeftor/camspeak/internal/logging"
 )
 
 // Server is a RAOP (AirPlay v1) receiver that listens for AirPlay connections
@@ -110,11 +111,7 @@ func NewServer(name string, port int, advertiseIP string, speaker Speaker) (*Ser
 		pkHex:       pkHex,
 		piUUID:      piUUID,
 		speaker:     speaker,
-		log: clog.NewWithOptions(os.Stderr, clog.Options{
-			Prefix:          fmt.Sprintf("airplay[%s]", name),
-			ReportTimestamp: true,
-			Level:           clog.InfoLevel,
-		}),
+		log:         logging.New(fmt.Sprintf("airplay[%s]", name), clog.InfoLevel),
 	}, nil
 }
 
@@ -1370,27 +1367,29 @@ func alacDecodeSafe(d *alacDecoder, frame []byte) (pcm []byte) {
 }
 
 // audioStream manages the pipeline: PCM → ffmpeg → G.711ulaw → camera (streaming).
-// One ffmpeg process and one camera session are kept alive for the entire AirPlay
-// session, eliminating the per-chunk open/close overhead of the old ticker approach.
+// ffmpeg stdout is passed directly to speaker.Stream. If the camera closes the
+// connection (e.g. idle timeout), the stream goroutine reconnects automatically.
 type audioStream struct {
 	speaker    Speaker
 	log        *clog.Logger
 	ffmpegCmd  *exec.Cmd
 	ffmpegIn   io.WriteCloser
 	streamDone chan error
+	quit       chan struct{} // closed by finish() to stop the reconnect loop
 	mu         sync.Mutex
 }
 
-// newAudioStream starts ffmpeg and opens a single streaming session to the camera.
-// PCM written via writePCM flows: ffmpeg stdin → ffmpeg → io.Pipe → speaker.Stream.
+// newAudioStream starts ffmpeg and streams its output to the camera.
+// PCM written via writePCM flows: ffmpeg stdin → ffmpeg stdout → speaker.Stream.
+// If the camera closes the connection (e.g. idle timeout), speaker.Stream is
+// called again automatically so the next audio burst works without intervention.
 func newAudioStream(speaker Speaker, log *clog.Logger, primeMs int) (*audioStream, error) {
 	as := &audioStream{
 		speaker:    speaker,
 		log:        log,
 		streamDone: make(chan error, 1),
+		quit:       make(chan struct{}),
 	}
-
-	pr, pw := io.Pipe()
 
 	cmd := exec.Command(
 		"ffmpeg",
@@ -1424,29 +1423,42 @@ func newAudioStream(speaker Speaker, log *clog.Logger, primeMs int) (*audioStrea
 	// Write prime silence — zero PCM S16LE at 44100 Hz stereo.
 	// This warms the camera's audio engine so the first real audio isn't choppy.
 	if primeMs > 0 {
-		// 44100 samples/sec × 2 channels × 2 bytes/sample = 176400 bytes/sec
 		primeSamples := (44100 * primeMs) / 1000
 		silence := make([]byte, primeSamples*4) // 4 bytes per stereo frame
 		_, _ = stdin.Write(silence)
 	}
 
-	// Copy ffmpeg stdout → pipe writer; close pipe when ffmpeg exits.
+	// Reconnect loop: pass ffmpeg stdout directly to speaker.Stream.
+	// If the camera closes the session (idle timeout, network blip), reopen it
+	// so the next audio burst reaches the camera without a manual restart.
 	go func() {
-		_, _ = io.Copy(pw, stdout)
-		_ = cmd.Wait()
-		pw.Close()
-	}()
+		defer func() { _ = cmd.Wait() }()
+		for {
+			log.Info("stream: opening camera session")
+			err := speaker.Stream(stdout)
 
-	// Stream pipe reader → camera (one long-lived session).
-	go func() {
-		as.log.Info("stream: opening camera session")
-		err := speaker.Stream(pr)
-		if err != nil {
-			as.log.Warn("stream: camera session closed", "err", err)
-		} else {
-			as.log.Info("stream: camera session closed")
+			// Check whether finish() has been called before deciding to reconnect.
+			select {
+			case <-as.quit:
+				as.streamDone <- nil
+				return
+			default:
+			}
+
+			if err == nil {
+				// ffmpeg stdout closed cleanly — we're done.
+				as.streamDone <- nil
+				return
+			}
+
+			log.Warn("stream: camera session lost, reconnecting in 2s", "err", err)
+			select {
+			case <-time.After(2 * time.Second):
+			case <-as.quit:
+				as.streamDone <- nil
+				return
+			}
 		}
-		as.streamDone <- err
 	}()
 
 	return as, nil
@@ -1461,7 +1473,7 @@ func (as *audioStream) writePCM(pcm []byte) {
 	}
 }
 
-// finish closes ffmpeg stdin, waits for the stream to drain, then returns.
+// finish signals the reconnect loop to stop and waits for it to exit.
 func (as *audioStream) finish() {
 	as.mu.Lock()
 	if as.ffmpegIn != nil {
@@ -1470,7 +1482,17 @@ func (as *audioStream) finish() {
 	}
 	as.mu.Unlock()
 
-	// Wait for the streaming goroutine to finish (max 10s).
+	// Signal reconnect loop to stop, then kill ffmpeg so stdout closes
+	// and speaker.Stream returns promptly even if mid-session.
+	select {
+	case <-as.quit:
+	default:
+		close(as.quit)
+	}
+	if as.ffmpegCmd != nil && as.ffmpegCmd.Process != nil {
+		_ = as.ffmpegCmd.Process.Kill()
+	}
+
 	select {
 	case <-as.streamDone:
 	case <-time.After(10 * time.Second):
