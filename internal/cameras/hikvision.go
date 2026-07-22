@@ -234,7 +234,9 @@ func (c *HikvisionClient) Stream(r io.Reader) error {
 		c.activeMu.Unlock()
 	}()
 
-	// Use a large Content-Length (1 hour); we close the TCP connection early when done.
+	// Use a large Content-Length so the camera keeps reading.
+	// Do NOT send Connection: close — that tells the camera to close after
+	// the response, which breaks the long-lived streaming connection.
 	const maxBytes = 3600 * 8000
 	headers := fmt.Sprintf("PUT %s HTTP/1.1\r\n", path)
 	headers += fmt.Sprintf("Host: %s\r\n", c.ip)
@@ -243,14 +245,38 @@ func (c *HikvisionClient) Stream(r io.Reader) error {
 	if authHeader != "" {
 		headers += fmt.Sprintf("Authorization: %s\r\n", authHeader)
 	}
-	headers += "Connection: close\r\n\r\n"
+	headers += "\r\n"
 
 	if _, err := conn.Write([]byte(headers)); err != nil {
 		return fmt.Errorf("write headers: %w", err)
 	}
 
-	c.log.Info("stream: session open", "ip", c.ip, "session", sessionID)
+	// Read the HTTP response status in a background goroutine so we can log
+	// it without blocking the streaming write path.
+	// The camera sends "HTTP/1.1 200 OK" after the first chunk arrives;
+	// any non-200 (e.g. 401) indicates an auth/session problem.
+	responseCh := make(chan string, 1)
+	go func() {
+		br := bufio.NewReader(conn)
+		status, err := br.ReadString('\n')
+		if err != nil {
+			responseCh <- fmt.Sprintf("(read response error: %v)", err)
+		} else {
+			responseCh <- strings.TrimSpace(status)
+		}
+	}()
+
+	c.log.Info("stream: session open, streaming audio", "ip", c.ip, "session", sessionID)
 	err = copyAt8kBps(conn, r, &c.stopped, &c.activeMu)
+
+	// Log the camera's HTTP response for diagnostics.
+	select {
+	case resp := <-responseCh:
+		c.log.Info("stream: camera HTTP response", "ip", c.ip, "status", resp)
+	default:
+		c.log.Debug("stream: camera HTTP response not yet received")
+	}
+
 	c.log.Info("stream: session closed", "ip", c.ip, "session", sessionID)
 	return err
 }

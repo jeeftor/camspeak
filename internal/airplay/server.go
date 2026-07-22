@@ -252,7 +252,7 @@ func (s *Server) acceptLoop() {
 func (s *Server) handleConn(conn net.Conn) {
 	defer conn.Close()
 	remote := conn.RemoteAddr().String()
-	s.log.Debug("connection opened", "from", remote)
+	s.log.Info("AirPlay: client connected", "from", remote)
 
 	reader := bufio.NewReader(conn)
 	for {
@@ -262,7 +262,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			if err != io.EOF {
 				s.log.Debug("read error", "err", err, "from", remote)
 			}
-			s.log.Debug("connection closed", "from", remote)
+			s.log.Info("AirPlay: client disconnected", "from", remote)
 			return
 		}
 		line = strings.TrimSpace(line)
@@ -907,7 +907,7 @@ func (s *Server) handleRecord(req *rtspRequest, cseq string) *rtspResponse {
 		}
 	}
 
-	s.log.Info("RECORD — streaming started")
+	s.log.Info("AirPlay: RECORD — client started audio playback")
 
 	return &rtspResponse{
 		status: 200,
