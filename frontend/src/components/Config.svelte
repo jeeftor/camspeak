@@ -6,10 +6,11 @@
   import { Select } from '$lib/components/ui/select'
   import { Badge } from '$lib/components/ui/badge'
   import JsonCode from '$lib/components/JsonCode.svelte'
+  import Modal from '$lib/components/Modal.svelte'
 
   let { onRefresh } = $props()
 
-  let tab = $state('tts')
+  let tab = $state('settings')
   let config = $state(null)
   let ttsPresets = $state([])
   let activeTTS = $state('')
@@ -26,10 +27,13 @@
   let ttsDesc = $state('')
   let ttsStatus = $state('')
 
-  // Camera form
+  // Camera modal
   let camFormOpen = $state(false)
   let testCamStatus = $state('')
   let testCamBusy = $state(false)
+
+  // TTS modal
+  let ttsFormOpen = $state(false)
   let camName = $state('')
   let camType = $state('hikvision')
   let camIP = $state('')
@@ -48,6 +52,12 @@
   let visionPrompt = $state('')
   let visionStatus = $state('')
 
+  // General settings
+  let frigateURL = $state('')
+  let go2rtcURL = $state('')
+  let advertiseIP = $state('')
+  let settingsStatus = $state('')
+
   // AirPlay form
   let airplayEnabled = $state(false)
   let airplayBasePort = $state(5000)
@@ -63,13 +73,14 @@
   async function loadConfig() {
     loading = true
     try {
-      const [cfgRes, ttsRes, camRes, voiceRes, visionRes, airplayRes] = await Promise.all([
+      const [cfgRes, ttsRes, camRes, voiceRes, visionRes, airplayRes, settingsRes] = await Promise.all([
         fetch('/api/config'),
         fetch('/api/config/tts'),
         fetch('/api/config/cameras'),
         fetch('/api/voices'),
         fetch('/api/config/vision'),
         fetch('/api/config/airplay'),
+        fetch('/api/config/settings'),
       ])
       config = await cfgRes.json()
       const ttsData = await ttsRes.json()
@@ -87,6 +98,10 @@
       airplayBasePort = ap.base_port ?? 5000
       airplayPrimeSilenceMs = ap.prime_silence_ms ?? 500
       airplayCameras = (ap.per_camera ?? []).sort((a, b) => a.name.localeCompare(b.name))
+      const st = await settingsRes.json()
+      frigateURL = st.frigate_url ?? ''
+      go2rtcURL = st.go2rtc_url ?? ''
+      advertiseIP = st.advertise_ip ?? ''
     } catch (e) {
       console.error('loadConfig error:', e)
     } finally {
@@ -111,6 +126,7 @@
       })
       if (!res.ok) throw new Error(await res.text())
       ttsStatus = '✓ Saved'
+      ttsFormOpen = false
       ttsName = ''; ttsEndpoint = ''; ttsModel = ''; ttsVoice = ''; ttsKey = ''; ttsDesc = ''
       loadConfig()
     } catch (e) {
@@ -172,6 +188,7 @@
       })
       if (!res.ok) throw new Error(await res.text())
       camStatus = '✓ Saved'
+      camFormOpen = false
       camName = ''; camIP = ''; camUser = ''; camPass = ''; camChannel = 1; camStream = ''; camVisionPrompt = ''
       loadConfig()
       onRefresh?.()
@@ -213,6 +230,13 @@
     }, 5000)
   }
 
+  function openAddCamera() {
+    camName = ''; camType = 'hikvision'; camIP = ''; camUser = ''; camPass = ''
+    camChannel = 1; camStream = ''; camEnabled = false; camVisionPrompt = ''
+    camStatus = ''; testCamStatus = ''
+    camFormOpen = true
+  }
+
   function editCamera(cam) {
     camName = cam.name
     camType = cam.type
@@ -223,6 +247,7 @@
     camStream = cam.stream || ''
     camEnabled = cam.enabled ?? false
     camVisionPrompt = cam.vision_prompt ?? ''
+    camStatus = ''; testCamStatus = ''
     camFormOpen = true
   }
 
@@ -254,12 +279,21 @@
     }
   }
 
+  function openAddTTS() {
+    ttsName = ''; ttsEndpoint = ''; ttsModel = ''; ttsVoice = ''; ttsKey = ''; ttsDesc = ''
+    ttsStatus = ''
+    ttsFormOpen = true
+  }
+
   function editTTS(p) {
     ttsName = p.name
     ttsEndpoint = p.endpoint
     ttsModel = p.model
     ttsVoice = p.default_voice
+    ttsKey = ''
     ttsDesc = p.description
+    ttsStatus = ''
+    ttsFormOpen = true
   }
 
   // --- Vision ---
@@ -344,7 +378,26 @@
     }
   }
 
+  async function saveSettings() {
+    settingsStatus = ''
+    try {
+      const res = await fetch('/api/config/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ frigate_url: frigateURL, go2rtc_url: go2rtcURL, advertise_ip: advertiseIP }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      settingsStatus = '✓ Saved'
+      loadConfig()
+    } catch (e) {
+      settingsStatus = '✗ ' + e.message
+    } finally {
+      setTimeout(() => settingsStatus = '', 4000)
+    }
+  }
+
   const configTabs = [
+    { id: 'settings', label: 'Settings' },
     { id: 'tts', label: 'TTS Presets' },
     { id: 'cameras', label: 'Cameras' },
     { id: 'vision', label: 'Vision' },
@@ -371,15 +424,45 @@
     </div>
 
     <!-- TTS Presets -->
-    {#if tab === 'tts'}
+    {#if tab === 'settings'}
+      <section class="rounded-lg border bg-card p-5">
+        <h3 class="mb-1 text-base font-semibold text-primary">General Settings</h3>
+        <p class="mb-4 text-sm text-muted-foreground">
+          Integration URLs for Frigate NVR, go2rtc, and network advertising.
+        </p>
+        <div class="grid grid-cols-1 gap-3 max-w-lg">
+          <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+            Frigate URL
+            <Input bind:value={frigateURL} placeholder="http://10.0.0.x:5000" />
+            <span class="text-[11px] opacity-60">Used for camera discovery and snapshot thumbnails.</span>
+          </label>
+          <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+            go2rtc URL
+            <Input bind:value={go2rtcURL} placeholder="http://10.0.0.x:1984" />
+            <span class="text-[11px] opacity-60">Required for go2rtc-type cameras.</span>
+          </label>
+          <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+            AirPlay Advertise IP
+            <Input bind:value={advertiseIP} placeholder="auto-detect" />
+            <span class="text-[11px] opacity-60">Force a specific LAN IP for AirPlay mDNS (useful in Docker with host networking).</span>
+          </label>
+        </div>
+        <Button onclick={saveSettings} class="mt-4">Save Settings</Button>
+        {#if settingsStatus}<span class="ml-2 text-sm text-primary">{settingsStatus}</span>{/if}
+      </section>
+
+    {:else if tab === 'tts'}
       <section class="rounded-lg border bg-card p-5">
         <div class="mb-3 flex items-center justify-between">
           <h3 class="text-base font-semibold text-primary">TTS Presets</h3>
-          <Button variant="outline" size="sm" onclick={testTTS}>Test Connection</Button>
+          <div class="flex items-center gap-2">
+            {#if testStatus.tts}<span class="text-sm text-primary">{testStatus.tts}</span>{/if}
+            <Button variant="outline" size="sm" onclick={testTTS}>Test Connection</Button>
+            <Button size="sm" onclick={openAddTTS}>Add Preset</Button>
+          </div>
         </div>
-        {#if testStatus.tts}<span class="mr-2 text-sm text-primary">{testStatus.tts}</span>{/if}
 
-        <div class="mb-4 flex flex-col gap-1.5">
+        <div class="flex flex-col gap-1.5">
           {#each ttsPresets as p}
             <div class="flex items-center justify-between rounded-lg border bg-background px-3 py-2 {p.is_active ? 'border-primary bg-primary/5' : ''}">
               <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
@@ -401,50 +484,63 @@
             <p class="italic text-muted-foreground">No TTS presets configured.</p>
           {/if}
         </div>
-
-        <details class="border-t pt-3">
-          <summary class="cursor-pointer py-1.5 text-sm text-primary hover:text-primary/80">{ttsName ? 'Edit' : 'Add'} TTS Preset</summary>
-          <div class="mt-3 grid grid-cols-2 gap-2.5 max-sm:grid-cols-1">
-            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-              Name
-              <Input bind:value={ttsName} placeholder="lemonade-local" />
-            </label>
-            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-              Endpoint
-              <Input bind:value={ttsEndpoint} placeholder="http://10.0.0.x:13305/v1/audio/speech" />
-            </label>
-            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-              Model
-              <Input bind:value={ttsModel} placeholder="kokoro" />
-            </label>
-            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-              Default Voice
-              <Select bind:value={ttsVoice}>
-                <option value="">default</option>
-                {#each voices as v}<option>{v}</option>{/each}
-              </Select>
-            </label>
-            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-              API Key (optional)
-              <Input bind:value={ttsKey} type="password" placeholder="sk-..." />
-            </label>
-            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-              Description
-              <Input bind:value={ttsDesc} placeholder="Local Lemonade instance" />
-            </label>
-          </div>
-          <Button onclick={saveTTS} disabled={!ttsName || !ttsEndpoint} class="mt-3">
-            Save Preset
-          </Button>
-          {#if ttsStatus}<span class="ml-2 text-sm text-primary">{ttsStatus}</span>{/if}
-        </details>
       </section>
+
+      <!-- TTS Edit Modal -->
+      <Modal bind:open={ttsFormOpen} title={ttsName ? `Edit TTS Preset — ${ttsName}` : 'Add TTS Preset'}>
+        <div class="grid grid-cols-2 gap-2.5 max-sm:grid-cols-1">
+          <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+            Name
+            <Input bind:value={ttsName} placeholder="lemonade-local" />
+          </label>
+          <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+            Endpoint
+            <Input bind:value={ttsEndpoint} placeholder="http://10.0.0.x:13305/v1/audio/speech" />
+          </label>
+          <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+            Model
+            <Input bind:value={ttsModel} placeholder="kokoro" />
+          </label>
+          <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+            Default Voice
+            <Select bind:value={ttsVoice}>
+              <option value="">default</option>
+              {#each voices as v}<option>{v}</option>{/each}
+            </Select>
+          </label>
+          <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+            API Key (optional)
+            <Input bind:value={ttsKey} type="password" placeholder="sk-..." />
+          </label>
+          <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+            Description
+            <Input bind:value={ttsDesc} placeholder="Local Lemonade instance" />
+          </label>
+        </div>
+        <div class="mt-4 flex flex-wrap items-center gap-2 border-t pt-4">
+          <Button onclick={saveTTS} disabled={!ttsName || !ttsEndpoint}>Save Preset</Button>
+          <Button variant="outline" onclick={testTTS}>Test Connection</Button>
+          <Button variant="ghost" onclick={() => ttsFormOpen = false}>Cancel</Button>
+          {#if ttsStatus}<span class="text-sm text-primary">{ttsStatus}</span>{/if}
+          {#if testStatus.tts}<span class="text-sm text-primary">{testStatus.tts}</span>{/if}
+        </div>
+      </Modal>
 
     <!-- Cameras -->
     {:else if tab === 'cameras'}
       <section class="rounded-lg border bg-card p-5">
-        <h3 class="mb-3 text-base font-semibold text-primary">Cameras</h3>
-        <div class="mb-4 flex flex-col gap-1.5">
+        <div class="mb-3 flex items-center justify-between">
+          <h3 class="text-base font-semibold text-primary">Cameras</h3>
+          <div class="flex items-center gap-2">
+            <Button size="sm" variant="outline" onclick={discoverCameras} disabled={discoverBusy} title={frigateURL ? 'Discover cameras from Frigate NVR' : 'Set a Frigate URL in Settings first'}>
+              {#if discoverBusy}Discovering…{:else}Discover from Frigate{/if}
+            </Button>
+            <Button size="sm" onclick={openAddCamera}>Add Camera</Button>
+          </div>
+        </div>
+        {#if discoverStatus}<p class="mb-2 text-sm text-primary">{discoverStatus}</p>{/if}
+
+        <div class="flex flex-col gap-1.5">
           {#each cameras as cam}
             <div class="flex items-center justify-between rounded-lg border bg-background px-3 py-2 {!cam.enabled ? 'opacity-50' : ''}">
               <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
@@ -469,80 +565,77 @@
               </div>
             </div>
           {/each}
-          <div class="mb-2 flex flex-wrap items-center gap-3">
-            <Button size="sm" variant="outline" onclick={discoverCameras} disabled={discoverBusy} title={config?.frigate_url ? 'Discover cameras from Frigate NVR' : 'Set a Frigate URL in Settings first'}>
-              {#if discoverBusy}Discovering…{:else}Discover from Frigate{/if}
-            </Button>
-            {#if discoverStatus}<span class="text-sm text-primary">{discoverStatus}</span>{/if}
-          </div>
           {#if cameras.length === 0}
-            <p class="italic text-muted-foreground text-sm">No cameras configured. Use Discover or add one below.</p>
+            <p class="italic text-muted-foreground text-sm">No cameras configured. Use Discover or Add Camera.</p>
           {/if}
         </div>
-
-        <details class="border-t pt-3" bind:open={camFormOpen}>
-          <summary class="cursor-pointer py-1.5 text-sm text-primary hover:text-primary/80">{camName ? 'Edit' : 'Add'} Camera</summary>
-          <div class="mt-3 grid grid-cols-2 gap-2.5 max-sm:grid-cols-1">
-            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-              Name
-              <Input bind:value={camName} placeholder="backyard" />
-            </label>
-            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-              Type
-              <Select bind:value={camType}>
-                <option value="hikvision">hikvision</option>
-                <option value="reolink">reolink</option>
-                <option value="go2rtc">go2rtc</option>
-                <option value="onvif">onvif</option>
-              </Select>
-            </label>
-            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-              IP
-              <Input bind:value={camIP} placeholder="10.0.0.x" />
-            </label>
-            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-              Username
-              <Input bind:value={camUser} placeholder="Operator" />
-            </label>
-            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-              Password
-              <Input bind:value={camPass} type="password" placeholder="password" />
-            </label>
-            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-              Channel
-              <Input bind:value={camChannel} type="number" min="1" />
-            </label>
-            {#if camType === 'go2rtc' || camType === 'onvif'}
-            <label class="flex flex-col gap-1 text-xs text-muted-foreground col-span-2">
-              {camType === 'go2rtc' ? 'go2rtc Stream Name' : 'RTSP URL'}
-              <Input bind:value={camStream} placeholder={camType === 'go2rtc' ? 'garage_2way' : 'rtsp://user:pass@ip:554/stream0'} />
-            </label>
-            {/if}
-          </div>
-          <label class="flex flex-col gap-1 text-xs text-muted-foreground col-span-2 mt-1">
-            Vision Prompt (optional default for Describe)
-            <textarea
-              bind:value={camVisionPrompt}
-              rows="2"
-              placeholder="Describe what you see. Focus on people, vehicles, and animals."
-              class="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm
-                     placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1
-                     focus-visible:ring-ring disabled:opacity-50 resize-none"
-            ></textarea>
-            <span class="text-[11px] opacity-60">Used when clicking Describe on this camera. Can be overridden per-session in the camera card.</span>
-          </label>
-          <label class="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
-            <input type="checkbox" bind:checked={camEnabled} class="h-4 w-4 cursor-pointer rounded border-input accent-primary" />
-            Enabled (camera will receive speak/broadcast)
-          </label>
-          <div class="mt-3 flex flex-wrap items-center gap-2">
-            <Button onclick={saveCamera} disabled={!camName || !camIP}>Save Camera</Button>
-            <Button variant="outline" onclick={() => pingCamera(camName)} disabled={!camName || testCamBusy}>Test Connection</Button>
-            {#if camStatus}<span class="text-sm text-primary">{camStatus}</span>{/if}
-            {#if testCamStatus}<span class="text-sm text-primary">{testCamStatus}</span>{/if}
-          </div>
-        </details>
       </section>
+
+      <!-- Camera Edit Modal -->
+      <Modal bind:open={camFormOpen} title={camName ? `Edit Camera — ${camName}` : 'Add Camera'}>
+        <div class="grid grid-cols-2 gap-2.5 max-sm:grid-cols-1">
+          <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+            Name
+            <Input bind:value={camName} placeholder="backyard" />
+          </label>
+          <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+            Type
+            <Select bind:value={camType}>
+              <option value="hikvision">hikvision</option>
+              <option value="reolink">reolink</option>
+              <option value="go2rtc">go2rtc</option>
+              <option value="onvif">onvif</option>
+            </Select>
+          </label>
+          <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+            IP
+            <Input bind:value={camIP} placeholder="10.0.0.x" />
+          </label>
+          <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+            Username
+            <Input bind:value={camUser} placeholder="Operator" />
+          </label>
+          <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+            Password
+            <Input bind:value={camPass} type="password" placeholder="password" />
+          </label>
+          <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+            Channel
+            <Input bind:value={camChannel} type="number" min="1" />
+          </label>
+          {#if camType === 'go2rtc' || camType === 'onvif'}
+          <label class="flex flex-col gap-1 text-xs text-muted-foreground col-span-2">
+            {camType === 'go2rtc' ? 'go2rtc Stream Name' : 'RTSP URL'}
+            <Input bind:value={camStream} placeholder={camType === 'go2rtc' ? 'garage_2way' : 'rtsp://user:pass@ip:554/stream0'} />
+          </label>
+          {/if}
+        </div>
+        <label class="mt-3 flex flex-col gap-1 text-xs text-muted-foreground">
+          Vision Prompt (optional)
+          <textarea
+            bind:value={camVisionPrompt}
+            rows="2"
+            placeholder="Describe what you see. Focus on people, vehicles, and animals."
+            class="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm
+                   placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1
+                   focus-visible:ring-ring disabled:opacity-50 resize-none"
+          ></textarea>
+          <span class="text-[11px] opacity-60">Used when clicking Describe on this camera. Can be overridden per-session.</span>
+        </label>
+        <label class="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+          <input type="checkbox" bind:checked={camEnabled} class="h-4 w-4 cursor-pointer rounded border-input accent-primary" />
+          Enabled (camera will receive speak/broadcast)
+        </label>
+        <div class="mt-4 flex flex-wrap items-center gap-2 border-t pt-4">
+          <Button onclick={saveCamera} disabled={!camName || !camIP}>Save Camera</Button>
+          <Button variant="outline" onclick={() => pingCamera(camName)} disabled={!camName || testCamBusy}>
+            {#if testCamBusy}Testing…{:else}Test Connection{/if}
+          </Button>
+          <Button variant="ghost" onclick={() => camFormOpen = false}>Cancel</Button>
+          {#if camStatus}<span class="text-sm text-primary">{camStatus}</span>{/if}
+          {#if testCamStatus}<span class="text-sm text-primary">{testCamStatus}</span>{/if}
+        </div>
+      </Modal>
 
     <!-- Vision -->
     {:else if tab === 'vision'}

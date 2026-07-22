@@ -536,3 +536,50 @@ func (h *Handlers) DiscoverCameras(c echo.Context) error {
 		"cameras":    cameras,
 	})
 }
+
+// GetSettings handles GET /api/config/settings — returns general settings.
+func (h *Handlers) GetSettings(c echo.Context) error {
+	h.cfgMu.Lock()
+	defer h.cfgMu.Unlock()
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"frigate_url":  h.cfg.FrigateURL,
+		"go2rtc_url":   h.cfg.Go2rtcURL,
+		"advertise_ip": h.cfg.AdvertiseIP,
+	})
+}
+
+// UpdateSettings handles PUT /api/config/settings — saves general settings.
+func (h *Handlers) UpdateSettings(c echo.Context) error {
+	var req struct {
+		FrigateURL  string `json:"frigate_url"`
+		Go2rtcURL   string `json:"go2rtc_url"`
+		AdvertiseIP string `json:"advertise_ip"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid JSON body")
+	}
+	if err := config.SetPreference(h.db, "frigate_url", req.FrigateURL); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if err := config.SetPreference(h.db, "go2rtc_url", req.Go2rtcURL); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if err := config.SetPreference(h.db, "advertise_ip", req.AdvertiseIP); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	h.cfgMu.Lock()
+	h.cfg.FrigateURL = req.FrigateURL
+	h.cfg.Go2rtcURL = req.Go2rtcURL
+	h.cfg.AdvertiseIP = req.AdvertiseIP
+	h.cfgMu.Unlock()
+	h.log.Info("settings updated",
+		"frigate_url", req.FrigateURL,
+		"go2rtc_url", req.Go2rtcURL,
+		"advertise_ip", req.AdvertiseIP,
+	)
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"frigate_url":  req.FrigateURL,
+		"go2rtc_url":   req.Go2rtcURL,
+		"advertise_ip": req.AdvertiseIP,
+	})
+}
