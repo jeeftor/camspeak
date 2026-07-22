@@ -417,9 +417,10 @@
 
   <!-- Vision prompt popup -->
   {#if showPromptPopup}
-    <!-- svelte-ignore a11y_click_events_have_key_handlers, a11y_no_static_element_interactions -->
-    <div class="fixed inset-0 z-50" onclick={() => showPromptPopup = false}></div>
-    <div class="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-lg border bg-popover shadow-2xl p-4 flex flex-col gap-3 w-[400px] max-w-[calc(100vw-2rem)]">
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+    <!-- Backdrop: dims page and closes popup on click -->
+    <div class="fixed inset-0 z-[100] bg-black/60" onclick={() => showPromptPopup = false}></div>
+    <div class="fixed z-[101] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-card shadow-2xl p-4 flex flex-col gap-3 w-[400px] max-w-[calc(100vw-2rem)]">
       <div class="flex items-center justify-between">
         <h4 class="text-sm font-semibold text-foreground">Vision Prompt</h4>
         <Button variant="ghost" size="icon" class="h-6 w-6" onclick={() => showPromptPopup = false} title="Close">
