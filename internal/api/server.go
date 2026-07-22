@@ -155,6 +155,7 @@ func New(
 	api.GET("/config", h.GetConfig)
 	api.GET("/config/settings", h.GetSettings)
 	api.PUT("/config/settings", h.UpdateSettings)
+	api.POST("/config/settings/test", h.TestSettingsURL)
 	api.GET("/config/vision", h.GetVisionConfig)
 	api.PUT("/config/vision", h.UpdateVisionConfig)
 	api.GET("/config/vision-prompts", h.ListVisionPrompts)

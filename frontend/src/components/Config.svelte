@@ -382,17 +382,30 @@
     }
   }
 
+  // Normalize a bare host/IP to a full URL (add http:// if no scheme)
+  function normalizeURL(url) {
+    if (!url) return url
+    url = url.trim()
+    if (!/^https?:\/\//i.test(url)) url = 'http://' + url
+    return url
+  }
+
   async function testFrigate() {
     if (!frigateURL) { frigateTestStatus = '✗ No URL set'; return }
     frigateTestBusy = true
     frigateTestStatus = ''
     try {
-      const res = await fetch(`${frigateURL.replace(/\/$/, '')}/api/`)
-      if (res.ok) {
-        const data = await res.json()
-        frigateTestStatus = `✓ Frigate ${data.version ?? 'connected'}`
+      const url = normalizeURL(frigateURL)
+      const res = await fetch('/api/config/settings/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'frigate', url }),
+      })
+      const data = await res.json()
+      if (data.ok) {
+        frigateTestStatus = `✓ Frigate ${data.data?.version ?? 'connected'}`
       } else {
-        frigateTestStatus = `✗ HTTP ${res.status}`
+        frigateTestStatus = '✗ ' + data.message
       }
     } catch (e) {
       frigateTestStatus = '✗ ' + (e.message ?? 'unreachable')
@@ -407,13 +420,18 @@
     go2rtcTestBusy = true
     go2rtcTestStatus = ''
     try {
-      const res = await fetch(`${go2rtcURL.replace(/\/$/, '')}/api/`)
-      if (res.ok) {
-        const data = await res.json()
-        const count = Object.keys(data ?? {}).length
+      const url = normalizeURL(go2rtcURL)
+      const res = await fetch('/api/config/settings/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'go2rtc', url }),
+      })
+      const data = await res.json()
+      if (data.ok) {
+        const count = Object.keys(data.data ?? {}).length
         go2rtcTestStatus = `✓ go2rtc (${count} stream${count === 1 ? '' : 's'})`
       } else {
-        go2rtcTestStatus = `✗ HTTP ${res.status}`
+        go2rtcTestStatus = '✗ ' + data.message
       }
     } catch (e) {
       go2rtcTestStatus = '✗ ' + (e.message ?? 'unreachable')
@@ -426,7 +444,7 @@
   function inferGo2rtcFromFrigate() {
     if (!frigateURL) return
     try {
-      const u = new URL(frigateURL)
+      const u = new URL(normalizeURL(frigateURL))
       go2rtcURL = `${u.protocol}//${u.hostname}:1984`
     } catch {}
   }
@@ -437,7 +455,7 @@
       const res = await fetch('/api/config/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ frigate_url: frigateURL, go2rtc_url: go2rtcURL, advertise_ip: advertiseIP }),
+        body: JSON.stringify({ frigate_url: normalizeURL(frigateURL), go2rtc_url: normalizeURL(go2rtcURL), advertise_ip: advertiseIP }),
       })
       if (!res.ok) throw new Error(await res.text())
       settingsStatus = '✓ Saved'

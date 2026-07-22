@@ -583,3 +583,50 @@ func (h *Handlers) UpdateSettings(c echo.Context) error {
 		"advertise_ip": req.AdvertiseIP,
 	})
 }
+
+// TestSettingsURL handles POST /api/config/settings/test — probes a Frigate or go2rtc URL
+// from the server side so the request appears in logs and avoids browser CORS issues.
+func (h *Handlers) TestSettingsURL(c echo.Context) error {
+	var req struct {
+		Type string `json:"type"` // "frigate" or "go2rtc"
+		URL  string `json:"url"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid JSON body")
+	}
+	if req.URL == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "url is required")
+	}
+
+	base := strings.TrimRight(req.URL, "/")
+	// Each service has a different health/info endpoint.
+	var target string
+	switch req.Type {
+	case "go2rtc":
+		target = base + "/api/streams"
+	default: // "frigate"
+		target = base + "/api/"
+	}
+	h.log.Info("testing settings URL", "type", req.Type, "url", target)
+
+	resp, err := http.Get(target) //nolint:noctx
+	if err != nil {
+		h.log.Warn("settings URL test failed", "type", req.Type, "url", target, "err", err)
+		return c.JSON(http.StatusOK, map[string]interface{}{"ok": false, "message": err.Error()})
+	}
+	defer resp.Body.Close()
+
+	var data map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&data)
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		h.log.Warn("settings URL test HTTP error", "type", req.Type, "status", resp.StatusCode)
+		return c.JSON(
+			http.StatusOK,
+			map[string]interface{}{"ok": false, "message": fmt.Sprintf("HTTP %d", resp.StatusCode)},
+		)
+	}
+
+	h.log.Info("settings URL test ok", "type", req.Type, "url", target, "status", resp.StatusCode)
+	return c.JSON(http.StatusOK, map[string]interface{}{"ok": true, "data": data})
+}
