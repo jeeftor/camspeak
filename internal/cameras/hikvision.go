@@ -88,6 +88,11 @@ func (c *HikvisionClient) openChannel() (string, error) {
 
 	var result openResponse
 	if err := xml.Unmarshal(body, &result); err != nil || result.SessionID == "" {
+		if resp.StatusCode == http.StatusUnauthorized {
+			return "", fmt.Errorf(
+				"camera authentication failed (HTTP 401) — check username/password in Config → Cameras",
+			)
+		}
 		return "", fmt.Errorf("no sessionId in response (HTTP %d): %s", resp.StatusCode, body)
 	}
 
