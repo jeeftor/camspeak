@@ -57,6 +57,10 @@
   let go2rtcURL = $state('')
   let advertiseIP = $state('')
   let settingsStatus = $state('')
+  let frigateTestStatus = $state('')
+  let frigateTestBusy = $state(false)
+  let go2rtcTestStatus = $state('')
+  let go2rtcTestBusy = $state(false)
 
   // AirPlay form
   let airplayEnabled = $state(false)
@@ -378,6 +382,55 @@
     }
   }
 
+  async function testFrigate() {
+    if (!frigateURL) { frigateTestStatus = '✗ No URL set'; return }
+    frigateTestBusy = true
+    frigateTestStatus = ''
+    try {
+      const res = await fetch(`${frigateURL.replace(/\/$/, '')}/api/`)
+      if (res.ok) {
+        const data = await res.json()
+        frigateTestStatus = `✓ Frigate ${data.version ?? 'connected'}`
+      } else {
+        frigateTestStatus = `✗ HTTP ${res.status}`
+      }
+    } catch (e) {
+      frigateTestStatus = '✗ ' + (e.message ?? 'unreachable')
+    } finally {
+      frigateTestBusy = false
+      setTimeout(() => frigateTestStatus = '', 6000)
+    }
+  }
+
+  async function testGo2rtc() {
+    if (!go2rtcURL) { go2rtcTestStatus = '✗ No URL set'; return }
+    go2rtcTestBusy = true
+    go2rtcTestStatus = ''
+    try {
+      const res = await fetch(`${go2rtcURL.replace(/\/$/, '')}/api/`)
+      if (res.ok) {
+        const data = await res.json()
+        const count = Object.keys(data ?? {}).length
+        go2rtcTestStatus = `✓ go2rtc (${count} stream${count === 1 ? '' : 's'})`
+      } else {
+        go2rtcTestStatus = `✗ HTTP ${res.status}`
+      }
+    } catch (e) {
+      go2rtcTestStatus = '✗ ' + (e.message ?? 'unreachable')
+    } finally {
+      go2rtcTestBusy = false
+      setTimeout(() => go2rtcTestStatus = '', 6000)
+    }
+  }
+
+  function inferGo2rtcFromFrigate() {
+    if (!frigateURL) return
+    try {
+      const u = new URL(frigateURL)
+      go2rtcURL = `${u.protocol}//${u.hostname}:1984`
+    } catch {}
+  }
+
   async function saveSettings() {
     settingsStatus = ''
     try {
@@ -430,22 +483,37 @@
         <p class="mb-4 text-sm text-muted-foreground">
           Integration URLs for Frigate NVR, go2rtc, and network advertising.
         </p>
-        <div class="grid grid-cols-1 gap-3 max-w-lg">
-          <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-            Frigate URL
-            <Input bind:value={frigateURL} placeholder="http://10.0.0.x:5000" />
+        <div class="grid grid-cols-1 gap-4 max-w-lg">
+          <div class="flex flex-col gap-1 text-xs text-muted-foreground">
+            <span class="font-medium">Frigate URL</span>
+            <div class="flex gap-2">
+              <Input bind:value={frigateURL} placeholder="http://10.0.0.x:5000" class="flex-1" />
+              <Button variant="outline" size="sm" onclick={testFrigate} disabled={frigateTestBusy} class="shrink-0">
+                {frigateTestBusy ? 'Testing…' : 'Test'}
+              </Button>
+            </div>
+            {#if frigateTestStatus}<span class="text-[11px] text-primary">{frigateTestStatus}</span>{/if}
             <span class="text-[11px] opacity-60">Used for camera discovery and snapshot thumbnails.</span>
-          </label>
-          <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-            go2rtc URL
-            <Input bind:value={go2rtcURL} placeholder="http://10.0.0.x:1984" />
-            <span class="text-[11px] opacity-60">Required for go2rtc-type cameras.</span>
-          </label>
-          <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-            AirPlay Advertise IP
+          </div>
+          <div class="flex flex-col gap-1 text-xs text-muted-foreground">
+            <span class="font-medium">go2rtc URL</span>
+            <div class="flex gap-2">
+              <Input bind:value={go2rtcURL} placeholder="http://10.0.0.x:1984" class="flex-1" />
+              <Button variant="outline" size="sm" onclick={inferGo2rtcFromFrigate} disabled={!frigateURL} title="Infer from Frigate URL (same host, port 1984)" class="shrink-0">
+                Infer
+              </Button>
+              <Button variant="outline" size="sm" onclick={testGo2rtc} disabled={go2rtcTestBusy} class="shrink-0">
+                {go2rtcTestBusy ? 'Testing…' : 'Test'}
+              </Button>
+            </div>
+            {#if go2rtcTestStatus}<span class="text-[11px] text-primary">{go2rtcTestStatus}</span>{/if}
+            <span class="text-[11px] opacity-60">Required for go2rtc-type cameras. "Infer" fills this from the Frigate host.</span>
+          </div>
+          <div class="flex flex-col gap-1 text-xs text-muted-foreground">
+            <span class="font-medium">AirPlay Advertise IP</span>
             <Input bind:value={advertiseIP} placeholder="auto-detect" />
             <span class="text-[11px] opacity-60">Force a specific LAN IP for AirPlay mDNS (useful in Docker with host networking).</span>
-          </label>
+          </div>
         </div>
         <Button onclick={saveSettings} class="mt-4">Save Settings</Button>
         {#if settingsStatus}<span class="ml-2 text-sm text-primary">{settingsStatus}</span>{/if}
