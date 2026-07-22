@@ -35,7 +35,7 @@ type HikvisionClient struct {
 }
 
 // NewHikvisionClient creates a client with digest auth transport.
-func NewHikvisionClient(ip, user, pass string, channel int) *HikvisionClient {
+func NewHikvisionClient(ip, user, pass string, channel int, name string) *HikvisionClient {
 	transport := &digest.Transport{
 		Username: user,
 		Password: pass,
@@ -47,7 +47,7 @@ func NewHikvisionClient(ip, user, pass string, channel int) *HikvisionClient {
 		pass:    pass,
 		channel: channel,
 		client:  &http.Client{Transport: transport},
-		log:     newLogger("hikvision"),
+		log:     newLogger("hikvision").With("camera", name),
 	}
 }
 
@@ -125,7 +125,13 @@ func (c *HikvisionClient) closeChannel(sessionID string) {
 // bytes/sec before reading the response — matching curl's behavior
 // with --limit-rate.
 func (c *HikvisionClient) SendRaw(rawFile string) error {
-	c.mu.Lock()
+	// If a long-running Stream session is active (e.g. AirPlay), interrupt it
+	// so this send doesn't block indefinitely. The audioStream reconnect loop
+	// will reopen the session automatically once SendRaw completes.
+	if !c.mu.TryLock() {
+		_ = c.Stop()
+		c.mu.Lock()
+	}
 	defer c.mu.Unlock()
 
 	// Reset stopped flag from any previous Stop() call
@@ -316,7 +322,9 @@ func copyAt8kBps(w io.Writer, r io.Reader, stopped *bool, mu *sync.Mutex) error 
 				s := *stopped
 				mu.Unlock()
 				if s {
-					return nil
+					// Interrupted by SendRaw preemption — return non-nil so the
+					// audioStream reconnect loop reopens the session after the send.
+					return fmt.Errorf("stream interrupted")
 				}
 				return werr
 			}

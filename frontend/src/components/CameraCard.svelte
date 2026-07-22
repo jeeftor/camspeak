@@ -419,8 +419,7 @@
   {#if showPromptPopup}
     <!-- svelte-ignore a11y_click_events_have_key_handlers, a11y_no_static_element_interactions -->
     <div class="fixed inset-0 z-50" onclick={() => showPromptPopup = false}></div>
-    <div class="absolute z-50 top-auto rounded-lg border bg-popover shadow-lg p-4 flex flex-col gap-3"
-         style="left: 50%; transform: translateX(-50%); max-width: 400px; width: calc(100% - 2rem); margin-top: -200px;">
+    <div class="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-lg border bg-popover shadow-2xl p-4 flex flex-col gap-3 w-[400px] max-w-[calc(100vw-2rem)]">
       <div class="flex items-center justify-between">
         <h4 class="text-sm font-semibold text-foreground">Vision Prompt</h4>
         <Button variant="ghost" size="icon" class="h-6 w-6" onclick={() => showPromptPopup = false} title="Close">

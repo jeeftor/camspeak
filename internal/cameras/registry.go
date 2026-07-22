@@ -73,7 +73,7 @@ func NewRegistry(cfg *config.Config, ttsClient *tts.Client) (*Registry, error) {
 func (r *Registry) register(name string, cam config.CameraConfig) error {
 	switch cam.Type {
 	case "hikvision":
-		r.cameras[name] = NewHikvisionClient(cam.IP, cam.User, cam.Pass, cam.Channel)
+		r.cameras[name] = NewHikvisionClient(cam.IP, cam.User, cam.Pass, cam.Channel, name)
 	case "reolink":
 		r.cameras[name] = NewReolinkClient(cam.IP, cam.User, cam.Pass)
 	case "go2rtc":
@@ -83,7 +83,7 @@ func (r *Registry) register(name string, cam config.CameraConfig) error {
 		if cam.Stream == "" {
 			return fmt.Errorf("camera %q uses go2rtc type but no stream name configured", name)
 		}
-		r.cameras[name] = NewGo2rtcClient(r.go2rtcURL, cam.Stream, cam.IP, r.advertiseIP)
+		r.cameras[name] = NewGo2rtcClient(r.go2rtcURL, cam.Stream, cam.IP, r.advertiseIP, name)
 	case "onvif":
 		rtspURL := cam.Stream
 		if rtspURL == "" {
@@ -94,7 +94,7 @@ func (r *Registry) register(name string, cam config.CameraConfig) error {
 				rtspURL = fmt.Sprintf("rtsp://%s:554/stream0", cam.IP)
 			}
 		}
-		r.cameras[name] = NewOnvifClient(rtspURL, cam.IP)
+		r.cameras[name] = NewOnvifClient(rtspURL, cam.IP, name)
 	default:
 		return fmt.Errorf("unknown camera type %q for camera %q", cam.Type, name)
 	}

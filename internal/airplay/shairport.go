@@ -48,13 +48,14 @@ func NewShairportServer(
 		port:    port,
 		speaker: speaker,
 		pidPath: fmt.Sprintf("/tmp/shairport-%s-%d.pid", safeName, port),
-		log:     logging.New(fmt.Sprintf("shairport[%s]", name), clog.InfoLevel),
+		log:     logging.New("shairport", clog.InfoLevel).With("camera", name),
 	}, nil
 }
 
 // SetLogLevel changes the log level for this server.
 func (s *ShairportServer) SetLogLevel(level clog.Level) {
 	s.log.SetLevel(level)
+	s.log.SetReportCaller(level == clog.DebugLevel)
 }
 
 // KillAllStale kills every shairport-sync process on this host.

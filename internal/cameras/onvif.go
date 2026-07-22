@@ -33,11 +33,11 @@ type OnvifClient struct {
 
 // NewOnvifClient creates a client that uses ONVIF RTSP backchannel.
 // rtspURL is the full RTSP URL including credentials.
-func NewOnvifClient(rtspURL, ip string) *OnvifClient {
+func NewOnvifClient(rtspURL, ip, name string) *OnvifClient {
 	return &OnvifClient{
 		rtspURL: rtspURL,
 		ip:      ip,
-		log:     newLogger("onvif"),
+		log:     newLogger("onvif").With("camera", name),
 	}
 }
 

@@ -111,7 +111,7 @@ func NewServer(name string, port int, advertiseIP string, speaker Speaker) (*Ser
 		pkHex:       pkHex,
 		piUUID:      piUUID,
 		speaker:     speaker,
-		log:         logging.New(fmt.Sprintf("airplay[%s]", name), clog.InfoLevel),
+		log:         logging.New("airplay", clog.InfoLevel).With("camera", name),
 	}, nil
 }
 
@@ -119,7 +119,7 @@ func NewServer(name string, port int, advertiseIP string, speaker Speaker) (*Ser
 // Pass clog.DebugLevel for verbose protocol logging.
 func (s *Server) SetLogLevel(level clog.Level) {
 	s.log.SetLevel(level)
-	s.log.SetReportCaller(false)
+	s.log.SetReportCaller(level == clog.DebugLevel)
 }
 
 // Start begins listening for RAOP connections and advertising via mDNS.

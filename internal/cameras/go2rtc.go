@@ -38,13 +38,13 @@ type Go2rtcClient struct {
 // advertiseIP is the IP that go2rtc should use to fetch the audio file from
 // camspeak's temporary HTTP server. If empty, auto-detects the local IP.
 // In Docker, set this to the host's LAN IP so go2rtc (on another host) can reach it.
-func NewGo2rtcClient(go2rtcURL, stream, ip, advertiseIP string) *Go2rtcClient {
+func NewGo2rtcClient(go2rtcURL, stream, ip, advertiseIP, name string) *Go2rtcClient {
 	return &Go2rtcClient{
 		go2rtcURL:   go2rtcURL,
 		stream:      stream,
 		ip:          ip,
 		advertiseIP: advertiseIP,
-		log:         newLogger("go2rtc"),
+		log:         newLogger("go2rtc").With("camera", name),
 	}
 }
 

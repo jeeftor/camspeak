@@ -70,6 +70,7 @@ func (m *Manager) SetLogLevel(level clog.Level) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.log.SetLevel(level)
+	m.log.SetReportCaller(level == clog.DebugLevel)
 	for _, r := range m.receivers {
 		r.SetLogLevel(level)
 	}
