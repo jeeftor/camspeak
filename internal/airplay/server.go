@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/alicebob/alac"
@@ -1176,11 +1177,15 @@ func (s *session) audioReceiveLoop() {
 
 	pktCount := 0
 	decodeCount := 0
+	var bytesReceived int64
+	var bytesDecoded int64
+	lastSummary := time.Now()
 
 	for {
 		select {
 		case <-s.done:
-			s.log.Info("audio: stream ended", "packets", pktCount, "decoded", decodeCount)
+			s.log.Info("audio: stream ended", "packets", pktCount, "decoded", decodeCount,
+				"bytes_received", bytesReceived, "bytes_decoded", bytesDecoded)
 			return
 		default:
 		}
@@ -1226,6 +1231,7 @@ func (s *session) audioReceiveLoop() {
 		}
 
 		pktCount++
+		bytesReceived += int64(len(payload))
 		seqNum := int(buf[2])<<8 | int(buf[3])
 		if pktCount == 1 {
 			s.log.Info("audio: first RTP packet received", "seq", seqNum, "payloadLen", len(payload))
@@ -1271,10 +1277,21 @@ func (s *session) audioReceiveLoop() {
 		}
 
 		decodeCount++
+		bytesDecoded += int64(len(pcm))
 		s.log.Debug("audio: decoded ALAC", "pcmLen", len(pcm), "seq", seqNum)
 
 		// Feed PCM to the audio stream (which pipes to ffmpeg → G.711ulaw → camera)
 		s.stream.writePCM(pcm)
+
+		if time.Since(lastSummary) >= 5*time.Second {
+			s.log.Info("audio: RTP summary",
+				"packets", pktCount,
+				"bytes_received", bytesReceived,
+				"decoded", decodeCount,
+				"bytes_decoded", bytesDecoded,
+			)
+			lastSummary = time.Now()
+		}
 	}
 }
 
@@ -1413,6 +1430,9 @@ type audioStream struct {
 	streamDone chan error
 	quit       chan struct{} // closed by finish() to stop the reconnect loop
 	mu         sync.Mutex
+
+	bytesWritten int64 // bytes fed to ffmpeg stdin
+	reconnects   int64 // camera speaker reconnect attempts
 }
 
 // newAudioStream starts ffmpeg and streams its output to the camera.
@@ -1447,7 +1467,7 @@ func newAudioStream(speaker Speaker, log *clog.Logger, primeMs int) (*audioStrea
 	if err != nil {
 		return nil, fmt.Errorf("ffmpeg stdout: %w", err)
 	}
-	cmd.Stderr = nil
+	cmd.Stderr = &lineLogger{log: log}
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("starting ffmpeg: %w", err)
@@ -1487,11 +1507,29 @@ func newAudioStream(speaker Speaker, log *clog.Logger, primeMs int) (*audioStrea
 				return
 			}
 
+			atomic.AddInt64(&as.reconnects, 1)
 			log.Warn("stream: camera session lost, reconnecting in 2s", "err", err)
 			select {
 			case <-time.After(2 * time.Second):
 			case <-as.quit:
 				as.streamDone <- nil
+				return
+			}
+		}
+	}()
+
+	// Periodic throughput summary so long-running AirPlay sessions are observable.
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				log.Info("stream: throughput summary",
+					"bytes_to_ffmpeg", atomic.LoadInt64(&as.bytesWritten),
+					"reconnects", atomic.LoadInt64(&as.reconnects),
+				)
+			case <-as.quit:
 				return
 			}
 		}
@@ -1507,10 +1545,12 @@ func (as *audioStream) writePCM(pcm []byte) {
 	as.mu.Lock()
 	defer as.mu.Unlock()
 	if as.ffmpegIn != nil {
-		if _, err := as.ffmpegIn.Write(pcm); err != nil {
+		if n, err := as.ffmpegIn.Write(pcm); err != nil {
 			as.log.Warn("ffmpeg pipe write failed, closing pipe", "err", err)
 			_ = as.ffmpegIn.Close()
 			as.ffmpegIn = nil
+		} else {
+			atomic.AddInt64(&as.bytesWritten, int64(n))
 		}
 	}
 }

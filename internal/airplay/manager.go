@@ -144,10 +144,15 @@ func (m *Manager) startLocked(name string) error {
 	// Fall back to the built-in pure-Go RAOP receiver (no external deps — good
 	// for local development and environments where shairport-sync isn't installed).
 	var srv Receiver
+	var backend string
 	ssp, err := NewShairportServer(displayName, port, m.cfg.AdvertiseIP, spk)
+	if err != nil {
+		m.log.Debug("shairport-sync setup failed, falling back", "camera", name, "err", err)
+	}
 	if err == nil {
 		if startErr := ssp.Start(); startErr == nil {
 			srv = ssp
+			backend = "shairport-sync"
 		} else {
 			m.log.Info("shairport-sync unavailable, using built-in RAOP receiver",
 				"camera", name, "err", startErr)
@@ -163,11 +168,12 @@ func (m *Manager) startLocked(name string) error {
 			return fmt.Errorf("starting built-in RAOP receiver: %w", startErr)
 		}
 		srv = goSrv
+		backend = "built-in-raop"
 	}
 
 	srv.SetLogLevel(m.log.GetLevel())
 	m.receivers[name] = srv
-	m.log.Info("AirPlay receiver started", "camera", name, "port", port, "name", displayName)
+	m.log.Info("AirPlay receiver started", "camera", name, "port", port, "name", displayName, "backend", backend)
 	return nil
 }
 
