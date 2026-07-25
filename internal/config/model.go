@@ -52,17 +52,18 @@ func (c VisionConfig) Sanitized() VisionConfig {
 
 // CameraConfig holds connection details for a single camera.
 type CameraConfig struct {
-	Type           string `json:"type"` // "hikvision", "reolink", "go2rtc", "onvif"
-	IP             string `json:"ip"`
-	User           string `json:"user"`
-	Pass           string `json:"pass"`
-	Channel        int    `json:"channel"`         // Hikvision audio channel, default 1
-	Stream         string `json:"stream"`          // go2rtc stream name (e.g. "garage_2way") or RTSP path for onvif
-	Enabled        bool   `json:"enabled"`         // if false, camera is loaded but skipped for speak/broadcast
-	AirPlayEnabled bool   `json:"airplay_enabled"` // if false, no shairport-sync receiver for this camera
-	AirPlayName    string `json:"airplay_name"`    // custom AirPlay display name; empty = auto ("Backyard Camera")
-	AirPlayModel   string `json:"airplay_model"`   // custom AirPlay device model/icon; empty = use global AirPlay.Model
-	VisionPrompt   string `json:"vision_prompt"`   // default prompt for vision/describe; empty = generic
+	Type           string  `json:"type"` // "hikvision", "reolink", "go2rtc", "onvif"
+	IP             string  `json:"ip"`
+	User           string  `json:"user"`
+	Pass           string  `json:"pass"`
+	Channel        int     `json:"channel"`         // Hikvision audio channel, default 1
+	Stream         string  `json:"stream"`          // go2rtc stream name (e.g. "garage_2way") or RTSP path for onvif
+	Enabled        bool    `json:"enabled"`         // if false, camera is loaded but skipped for speak/broadcast
+	AirPlayEnabled bool    `json:"airplay_enabled"` // if false, no shairport-sync receiver for this camera
+	AirPlayName    string  `json:"airplay_name"`    // custom AirPlay display name; empty = auto ("Backyard Camera")
+	AirPlayModel   string  `json:"airplay_model"`   // custom AirPlay device model/icon; empty = use global AirPlay.Model
+	Gain           float64 `json:"gain"`            // digital gain applied to all audio sent to this camera (default 3.0)
+	VisionPrompt   string  `json:"vision_prompt"`   // default prompt for vision/describe; empty = generic
 }
 
 // Sanitized returns a copy of c with the password removed.
@@ -134,10 +135,11 @@ type Config struct {
 // AirPlayConfig controls the RAOP (AirPlay v1) receiver feature.
 // When enabled, each camera appears as a separate AirPlay target in the iOS picker.
 type AirPlayConfig struct {
-	Enabled        bool   `json:"enabled"`          // if true, start AirPlay receivers for all cameras
-	BasePort       int    `json:"base_port"`        // starting port for RAOP listeners (default 5000)
-	PrimeSilenceMs int    `json:"prime_silence_ms"` // ms of silence to prepend on stream start to warm camera audio engine (default 500)
-	Model          string `json:"model"`            // device model string advertised over mDNS (controls iOS icon)
+	Enabled        bool    `json:"enabled"`          // if true, start AirPlay receivers for all cameras
+	BasePort       int     `json:"base_port"`        // starting port for RAOP listeners (default 5000)
+	PrimeSilenceMs int     `json:"prime_silence_ms"` // ms of silence to prepend on stream start to warm camera audio engine (default 500)
+	Model          string  `json:"model"`            // device model string advertised over mDNS (controls iOS icon)
+	Gain           float64 `json:"gain"`             // digital gain applied to AirPlay audio before sending to camera (default 1.0)
 }
 
 // Sanitized returns a copy of cfg with secrets (API keys and passwords) redacted.
@@ -292,6 +294,11 @@ func loadPreferences(db *sql.DB, cfg *Config) {
 	if v, ok := prefs["airplay_model"]; ok {
 		cfg.AirPlay.Model = v
 	}
+	if v, ok := prefs["airplay_gain"]; ok {
+		if g, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.AirPlay.Gain = g
+		}
+	}
 	// Default base port
 	if cfg.AirPlay.BasePort == 0 {
 		cfg.AirPlay.BasePort = defaultAirPlayBasePort
@@ -303,6 +310,10 @@ func loadPreferences(db *sql.DB, cfg *Config) {
 	// Default advertised device model
 	if cfg.AirPlay.Model == "" {
 		cfg.AirPlay.Model = defaultAirPlayModel
+	}
+	// Default gain
+	if cfg.AirPlay.Gain == 0 {
+		cfg.AirPlay.Gain = 1.0
 	}
 }
 
@@ -369,7 +380,7 @@ func seedDefaultPresets(db *sql.DB) {
 func loadCameras(db *sql.DB, cfg *Config) {
 	rows, err := db.Query(
 		`SELECT name, type, ip, user, pass, channel, stream, enabled, vision_prompt,
-		        COALESCE(airplay_enabled, 1), COALESCE(airplay_name, ''), COALESCE(airplay_model, '') FROM cameras`,
+		        COALESCE(airplay_enabled, 1), COALESCE(airplay_name, ''), COALESCE(airplay_model, ''), COALESCE(gain, 3.0) FROM cameras`,
 	)
 	if err != nil {
 		return
@@ -382,7 +393,7 @@ func loadCameras(db *sql.DB, cfg *Config) {
 		var enabled, airplayEnabled int
 		if err := rows.Scan(
 			&name, &cam.Type, &cam.IP, &cam.User, &cam.Pass,
-			&cam.Channel, &cam.Stream, &enabled, &cam.VisionPrompt, &airplayEnabled, &cam.AirPlayName, &cam.AirPlayModel,
+			&cam.Channel, &cam.Stream, &enabled, &cam.VisionPrompt, &airplayEnabled, &cam.AirPlayName, &cam.AirPlayModel, &cam.Gain,
 		); err != nil {
 			continue
 		}
@@ -485,6 +496,11 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("CAMSPEAK_AIRPLAY_MODEL"); v != "" {
 		cfg.AirPlay.Model = v
 	}
+	if v := os.Getenv("CAMSPEAK_AIRPLAY_GAIN"); v != "" {
+		if g, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.AirPlay.Gain = g
+		}
+	}
 
 	// Per-camera env overrides: CAM_<NAME>_IP, CAM_<NAME>_USER, CAM_<NAME>_PASS
 	for name, cam := range cfg.Cameras {
@@ -532,14 +548,14 @@ func SaveCamera(db *sql.DB, name string, cam CameraConfig) error {
 	}
 	_, err := db.Exec(
 		`INSERT INTO cameras
-		   (name, type, ip, user, pass, channel, stream, enabled, vision_prompt, airplay_enabled, airplay_name, airplay_model)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		   (name, type, ip, user, pass, channel, stream, enabled, vision_prompt, airplay_enabled, airplay_name, airplay_model, gain)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(name) DO UPDATE SET
 		   type = excluded.type, ip = excluded.ip, user = excluded.user,
 		   pass = excluded.pass, channel = excluded.channel, stream = excluded.stream,
 		   enabled = excluded.enabled, vision_prompt = excluded.vision_prompt,
 		   airplay_enabled = excluded.airplay_enabled, airplay_name = excluded.airplay_name,
-		   airplay_model = excluded.airplay_model`,
+		   airplay_model = excluded.airplay_model, gain = excluded.gain`,
 		name,
 		cam.Type,
 		cam.IP,
@@ -552,6 +568,7 @@ func SaveCamera(db *sql.DB, name string, cam CameraConfig) error {
 		airplayEnabled,
 		cam.AirPlayName,
 		cam.AirPlayModel,
+		cam.Gain,
 	)
 	if err != nil {
 		return fmt.Errorf("saving camera %s: %w", name, err)

@@ -27,6 +27,7 @@ type ShairportServer struct {
 	name       string
 	port       int
 	model      string
+	gain       float64
 	speaker    Speaker
 	log        *clog.Logger
 	pidPath    string
@@ -43,7 +44,7 @@ type ShairportServer struct {
 // interface compatibility but is not used — tinysvcmdns determines the
 // advertised IP.
 func NewShairportServer(
-	name string, port int, advertiseIP string, speaker Speaker, model string,
+	name string, port int, advertiseIP string, speaker Speaker, model string, gain float64,
 ) (*ShairportServer, error) {
 	safeName := strings.NewReplacer(" ", "-", "/", "-", "\\", "-").Replace(
 		strings.ToLower(name),
@@ -60,6 +61,7 @@ func NewShairportServer(
 		name:       name,
 		port:       port,
 		model:      model,
+		gain:       gain,
 		speaker:    speaker,
 		pidPath:    fmt.Sprintf("/tmp/shairport-%s-%d.pid", safeName, port),
 		configPath: fmt.Sprintf("/tmp/shairport-%s-%d.conf", safeName, port),
@@ -103,7 +105,7 @@ func (s *ShairportServer) Start() error {
 // launchProcess starts shairport-sync and the PCM reader goroutine.
 // Called both from Start() and from the monitor loop on restart.
 func (s *ShairportServer) launchProcess() error {
-	stream, err := newAudioStream(s.speaker, s.log, 0)
+	stream, err := newAudioStream(s.speaker, s.log, 0, s.gain)
 	if err != nil {
 		return fmt.Errorf("audio stream: %w", err)
 	}

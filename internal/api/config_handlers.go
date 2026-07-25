@@ -216,6 +216,7 @@ func (h *Handlers) ListCamerasConfig(c echo.Context) error {
 			"airplay_enabled": cam.AirPlayEnabled,
 			"airplay_name":    cam.AirPlayName,
 			"airplay_model":   cam.AirPlayModel,
+			"gain":            cam.Gain,
 			"airplay_running": apStatus[name],
 			"vision_prompt":   cam.VisionPrompt,
 		})
@@ -226,17 +227,18 @@ func (h *Handlers) ListCamerasConfig(c echo.Context) error {
 // CreateCamera handles POST /api/config/cameras — adds or updates a camera.
 func (h *Handlers) CreateCamera(c echo.Context) error {
 	var req struct {
-		Name         string `json:"name"`
-		Type         string `json:"type"`
-		IP           string `json:"ip"`
-		User         string `json:"user"`
-		Pass         string `json:"pass"`
-		Channel      int    `json:"channel"`
-		Stream       string `json:"stream"`
-		Enabled      *bool  `json:"enabled"` // pointer so we can distinguish unset from false
-		AirPlayName  string `json:"airplay_name"`
-		AirPlayModel string `json:"airplay_model"`
-		VisionPrompt string `json:"vision_prompt"`
+		Name         string  `json:"name"`
+		Type         string  `json:"type"`
+		IP           string  `json:"ip"`
+		User         string  `json:"user"`
+		Pass         string  `json:"pass"`
+		Channel      int     `json:"channel"`
+		Stream       string  `json:"stream"`
+		Enabled      *bool   `json:"enabled"` // pointer so we can distinguish unset from false
+		AirPlayName  string  `json:"airplay_name"`
+		AirPlayModel string  `json:"airplay_model"`
+		Gain         float64 `json:"gain"`
+		VisionPrompt string  `json:"vision_prompt"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid JSON body")
@@ -268,6 +270,13 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 	if airPlayModel == "" && hasExisting {
 		airPlayModel = existing.AirPlayModel
 	}
+	gain := req.Gain
+	if gain == 0 && hasExisting {
+		gain = existing.Gain
+	}
+	if gain == 0 {
+		gain = 3.0
+	}
 
 	// Preserve existing vision_prompt if not provided
 	visionPrompt := req.VisionPrompt
@@ -284,6 +293,7 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 		Enabled:      enabled,
 		AirPlayName:  airPlayName,
 		AirPlayModel: airPlayModel,
+		Gain:         gain,
 		VisionPrompt: visionPrompt,
 	}
 	if err := config.SaveCamera(h.db, req.Name, cam); err != nil {
@@ -299,14 +309,15 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 	} else {
 		h.reg.DisableCamera(req.Name)
 	}
-	// If AirPlay name/model changed, restart the receiver so the new mDNS records are advertised.
+	// If AirPlay name/model/gain changed, restart the receiver so the new mDNS records are advertised
+	// and the new gain takes effect on the next stream.
 	airplayChanged := hasExisting &&
-		(existing.AirPlayName != cam.AirPlayName || existing.AirPlayModel != cam.AirPlayModel)
+		(existing.AirPlayName != cam.AirPlayName || existing.AirPlayModel != cam.AirPlayModel || existing.Gain != cam.Gain)
 	if h.airplayMgr != nil && cam.AirPlayEnabled && cam.Enabled && airplayChanged {
 		h.airplayMgr.Disable(req.Name)
 		if err := h.airplayMgr.Enable(req.Name); err != nil {
 			h.logger(c).
-				Warn("AirPlay restart after name/model change failed", "camera", req.Name, "err", err)
+				Warn("AirPlay restart after name/model/gain change failed", "camera", req.Name, "err", err)
 		}
 	}
 	h.logger(c).Info(
@@ -485,6 +496,7 @@ func (h *Handlers) GetAirPlayConfig(c echo.Context) error {
 		"base_port":        ap.BasePort,
 		"prime_silence_ms": ap.PrimeSilenceMs,
 		"model":            ap.Model,
+		"gain":             ap.Gain,
 		"per_camera":       perCamera,
 	})
 }
@@ -555,6 +567,9 @@ func (h *Handlers) UpdateAirPlayConfig(c echo.Context) error {
 	if req.Model == "" {
 		req.Model = "RealityDevice14,1"
 	}
+	if req.Gain == 0 {
+		req.Gain = 1.0
+	}
 
 	if err := config.SetPreference(h.db, "airplay_enabled", enabled); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -573,6 +588,10 @@ func (h *Handlers) UpdateAirPlayConfig(c echo.Context) error {
 	if err := config.SetPreference(h.db, "airplay_model", req.Model); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+	if err := config.SetPreference(h.db, "airplay_gain",
+		fmt.Sprintf("%f", req.Gain)); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
 
 	h.cfgMu.Lock()
 	h.cfg.AirPlay = req
@@ -588,13 +607,16 @@ func (h *Handlers) UpdateAirPlayConfig(c echo.Context) error {
 		req.PrimeSilenceMs,
 		"model",
 		req.Model,
+		"gain",
+		req.Gain,
 	)
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"enabled":          req.Enabled,
 		"base_port":        req.BasePort,
 		"prime_silence_ms": req.PrimeSilenceMs,
 		"model":            req.Model,
-		"note":             "restart required for port/enabled/model changes; prime silence takes effect immediately",
+		"gain":             req.Gain,
+		"note":             "restart required for port/enabled/model changes; gain/prime silence take effect on next stream start",
 	})
 }
 

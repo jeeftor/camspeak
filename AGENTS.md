@@ -59,6 +59,7 @@ Multiple TTS endpoints can be configured (klipbord-style presets). The active pr
 | `CAMSPEAK_VISION_PROMPT` | Global default vision prompt | (hardcoded default) |
 | `CAMSPEAK_AIRPLAY_ENABLED` | Enable AirPlay v1 (RAOP) receivers for all cameras | `false` |
 | `CAMSPEAK_AIRPLAY_BASE_PORT` | Starting port for per-camera RAOP listeners | `5100` |
+| `CAMSPEAK_AIRPLAY_GAIN` | Default AirPlay digital gain when per-camera gain is unset | `1.0` |
 | `CAMSPEAK_AIRPLAY_MODEL` | Default device model advertised over mDNS (controls the iOS AirPlay icon) | `RealityDevice14,1` |
 | `CAM_<NAME>_IP` / `CAM_<NAME>_USER` / `CAM_<NAME>_PASS` | Per-camera credential overrides | (from DB) |
 
@@ -113,6 +114,7 @@ Copy `.env.example` to `.env` for local dev. Loaded by godotenv at startup. Giti
 - `POST /api/play` — preset to camera
 - `POST /api/play-url` — download audio URL → transcode → play on camera
 - `POST /api/play-stream` — live stream or playlist (.pls/.m3u) → camera (Hikvision, requires ffmpeg)
+- `POST /api/config/cameras` — create/update camera; includes `gain` per camera (default 3.0)
 - `POST /api/beep` — test tone
 - `POST /api/stop` — stop audio on a camera (or all cameras if body empty)
 - `POST /api/broadcast` — broadcast to all cameras

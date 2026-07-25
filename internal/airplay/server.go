@@ -49,7 +49,8 @@ type Server struct {
 	zeroconf    *zeroconf.Server // RAOP _raop._tcp
 	airplayZC   *zeroconf.Server // AirPlay _airplay._tcp
 
-	primeSilenceMs int // ms of silence to write before first real audio
+	primeSilenceMs int     // ms of silence to write before first real audio
+	gain           float64 // digital gain applied to audio before sending to camera
 
 	// Active session
 	sessionMu sync.Mutex
@@ -80,6 +81,7 @@ func NewServer(
 	advertiseIP string,
 	speaker Speaker,
 	model string,
+	gain float64,
 ) (*Server, error) {
 	key, err := loadRSAPrivateKey()
 	if err != nil {
@@ -121,6 +123,7 @@ func NewServer(
 		piUUID:      piUUID,
 		speaker:     speaker,
 		log:         logging.New("airplay", clog.InfoLevel).With("camera", name),
+		gain:        gain,
 	}, nil
 }
 
@@ -766,6 +769,7 @@ func (s *Server) handleAnnounce(req *rtspRequest, cseq string) *rtspResponse {
 		log:            s.log,
 		speaker:        s.speaker,
 		primeSilenceMs: s.primeSilenceMs,
+		gain:           s.gain,
 	}
 
 	// Initialize ALAC decoder
@@ -1091,6 +1095,7 @@ type session struct {
 	log            *clog.Logger
 	speaker        Speaker
 	primeSilenceMs int
+	gain           float64
 
 	sessionID         string
 	clientIP          string
@@ -1161,7 +1166,7 @@ func (s *session) setupControlTiming() (int, int, error) {
 
 // startStreaming begins the audio receive → decode → transcode → camera pipeline.
 func (s *session) startStreaming() error {
-	stream, err := newAudioStream(s.speaker, s.log, s.primeSilenceMs)
+	stream, err := newAudioStream(s.speaker, s.log, s.primeSilenceMs, s.gain)
 	if err != nil {
 		return err
 	}
@@ -1447,12 +1452,21 @@ type audioStream struct {
 // PCM written via writePCM flows: ffmpeg stdin → ffmpeg stdout → speaker.Stream.
 // If the camera closes the connection (e.g. idle timeout), speaker.Stream is
 // called again automatically so the next audio burst works without intervention.
-func newAudioStream(speaker Speaker, log *clog.Logger, primeMs int) (*audioStream, error) {
+func newAudioStream(
+	speaker Speaker,
+	log *clog.Logger,
+	primeMs int,
+	gain float64,
+) (*audioStream, error) {
 	as := &audioStream{
 		speaker:    speaker,
 		log:        log,
 		streamDone: make(chan error, 1),
 		quit:       make(chan struct{}),
+	}
+
+	if gain == 0 {
+		gain = 1.0
 	}
 
 	cmd := exec.Command(
@@ -1461,6 +1475,7 @@ func newAudioStream(speaker Speaker, log *clog.Logger, primeMs int) (*audioStrea
 		"-ar", "44100",
 		"-ac", "2",
 		"-i", "pipe:0",
+		"-af", fmt.Sprintf("volume=%.3f", gain),
 		"-ar", "8000",
 		"-ac", "1",
 		"-c:a", "pcm_mulaw",

@@ -129,6 +129,7 @@ func runAirtest(cmd *cobra.Command, args []string) error {
 		advertiseIP,
 		speaker,
 		cfg.AirPlay.Model,
+		cfg.AirPlay.Gain,
 	)
 	if err != nil {
 		return fmt.Errorf("creating AirPlay server: %w", err)

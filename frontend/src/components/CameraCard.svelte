@@ -17,7 +17,7 @@
   let voice = $state('')
   let preset = $state('')
   let url = $state('')
-  let gain = $state(3.0)
+  let gain = $state(camera.gain ?? 3.0)
   let busy = $state(false)
   let streaming = $state(false)
   let status = $state('')
@@ -81,6 +81,21 @@
     } finally {
       busy = false
     }
+  }
+
+  let gainSaveTimeout
+
+  async function saveGain() {
+    try {
+      await post('/api/config/cameras', { name: camera.name, gain })
+    } catch (e) {
+      setStatus('✗ gain save failed: ' + e.message, 'err')
+    }
+  }
+
+  function onGainChange() {
+    clearTimeout(gainSaveTimeout)
+    gainSaveTimeout = setTimeout(saveGain, 500)
   }
 
   function looksLikeStream(u) {
@@ -341,7 +356,7 @@
     </div>
 
     <!-- Volume row -->
-    <GainSlider bind:value={gain} {busy} class="px-1" />
+    <GainSlider bind:value={gain} {busy} onchange={onGainChange} class="px-1" />
 
     <!-- Preset row -->
     {#if presets.length > 0}

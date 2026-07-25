@@ -144,13 +144,20 @@ func (m *Manager) startLocked(name string) error {
 	if model == "" {
 		model = m.cfg.AirPlay.Model
 	}
+	gain := cam.Gain
+	if gain == 0 {
+		gain = m.cfg.AirPlay.Gain
+	}
+	if gain == 0 {
+		gain = 1.0
+	}
 
 	// Prefer shairport-sync when available (handles FairPlay, ALAC natively).
 	// Fall back to the built-in pure-Go RAOP receiver (no external deps — good
 	// for local development and environments where shairport-sync isn't installed).
 	var srv Receiver
 	var backend string
-	ssp, err := NewShairportServer(displayName, port, m.cfg.AdvertiseIP, spk, model)
+	ssp, err := NewShairportServer(displayName, port, m.cfg.AdvertiseIP, spk, model, gain)
 	if err != nil {
 		m.log.Debug("shairport-sync setup failed, falling back", "camera", name, "err", err)
 	}
@@ -164,7 +171,7 @@ func (m *Manager) startLocked(name string) error {
 		}
 	}
 	if srv == nil {
-		goSrv, goErr := NewServer(displayName, port, m.cfg.AdvertiseIP, spk, model)
+		goSrv, goErr := NewServer(displayName, port, m.cfg.AdvertiseIP, spk, model, gain)
 		if goErr != nil {
 			return fmt.Errorf("starting built-in RAOP receiver: %w", goErr)
 		}

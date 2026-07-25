@@ -520,7 +520,7 @@ const openAPISpec = `{
       "put": {
         "tags": ["config"],
         "summary": "Update AirPlay receiver configuration (requires restart)",
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "base_port": {"type": "integer"}, "prime_silence_ms": {"type": "integer"}, "model": {"type": "string", "description": "Device model advertised over mDNS; controls the iOS AirPlay icon", "example": "RealityDevice14,1"}}}}}},
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "base_port": {"type": "integer"}, "prime_silence_ms": {"type": "integer"}, "model": {"type": "string", "description": "Device model advertised over mDNS; controls the iOS AirPlay icon", "example": "RealityDevice14,1"}, "gain": {"type": "number", "default": 1.0, "description": "Digital gain applied to AirPlay audio before sending to camera"}}}}}},
         "responses": {"200": {"description": "Updated — restart required for changes to take effect"}}
       }
     },
