@@ -38,6 +38,7 @@ type Server struct {
 	port        int    // RTSP listener port
 	hwAddr      string // fake MAC address for mDNS registration
 	advertiseIP string // IP to advertise in mDNS (empty = auto-detect all interfaces)
+	model       string // device model string advertised in mDNS (controls iOS icon)
 	rsaKey      *rsa.PrivateKey
 	edPriv      ed25519.PrivateKey // Ed25519 key for AirPlay pairing
 	pkHex       string             // Ed25519 public key in hex (for pk= TXT record)
@@ -73,7 +74,13 @@ type Speaker interface {
 // advertiseIP is the IP address to advertise in mDNS (important for Docker host
 // networking where bridge interfaces shouldn't be advertised). If empty, all
 // interfaces are used.
-func NewServer(name string, port int, advertiseIP string, speaker Speaker) (*Server, error) {
+func NewServer(
+	name string,
+	port int,
+	advertiseIP string,
+	speaker Speaker,
+	model string,
+) (*Server, error) {
 	key, err := loadRSAPrivateKey()
 	if err != nil {
 		return nil, fmt.Errorf("loading RSA key: %w", err)
@@ -107,6 +114,7 @@ func NewServer(name string, port int, advertiseIP string, speaker Speaker) (*Ser
 		port:        port,
 		hwAddr:      hwAddr,
 		advertiseIP: advertiseIP,
+		model:       model,
 		rsaKey:      key,
 		edPriv:      edPriv,
 		pkHex:       pkHex,
@@ -147,7 +155,7 @@ func (s *Server) Start() error {
 		"tp=UDP",
 		"vn=65537",
 		"vs=366.0",
-		"am=camspeak",
+		"am=" + s.model,
 		"sf=0x4",
 		"ft=0x5A7FFEE6,0x0",
 		"pk=" + s.pkHex,
@@ -185,7 +193,7 @@ func (s *Server) Start() error {
 		"deviceid=" + formatMAC(s.hwAddr),
 		"features=0x5A7FFEE6,0x0",
 		"flags=0x4",
-		"model=camspeak",
+		"model=" + s.model,
 		"pw=false",
 		"protovers=1.1",
 		"srcvers=366.0",
@@ -1467,7 +1475,12 @@ func newAudioStream(speaker Speaker, log *clog.Logger, primeMs int) (*audioStrea
 	if err != nil {
 		return nil, fmt.Errorf("ffmpeg stdout: %w", err)
 	}
-	cmd.Stderr = &lineLogger{log: log, prefix: "ffmpeg", defaultLevel: clog.DebugLevel, errorLevel: clog.WarnLevel}
+	cmd.Stderr = &lineLogger{
+		log:          log,
+		prefix:       "ffmpeg",
+		defaultLevel: clog.DebugLevel,
+		errorLevel:   clog.WarnLevel,
+	}
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("starting ffmpeg: %w", err)

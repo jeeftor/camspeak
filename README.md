@@ -70,7 +70,8 @@ services:
       - CAMSPEAK_MQTT_USER=${CAMSPEAK_MQTT_USER:-}
       - CAMSPEAK_MQTT_PASS=${CAMSPEAK_MQTT_PASS:-}
       - CAMSPEAK_AIRPLAY_ENABLED=${CAMSPEAK_AIRPLAY_ENABLED:-true}
-      - CAMSPEAK_AIRPLAY_BASE_PORT=${CAMSPEAK_AIRPLAY_BASE_PORT:-5000}
+      - CAMSPEAK_AIRPLAY_BASE_PORT=${CAMSPEAK_AIRPLAY_BASE_PORT:-5100}
+      - CAMSPEAK_AIRPLAY_MODEL=${CAMSPEAK_AIRPLAY_MODEL:-RealityDevice14,1}
     volumes:
       - ${CONFIG_DIR:-./config}/camspeak:/config
     network_mode: host   # required for AirPlay mDNS advertisement and UDP RTP
@@ -136,7 +137,8 @@ A `.env` file (gitignored) is loaded by godotenv at startup for local dev. Copy
 | `CAMSPEAK_VISION_API_KEY` | Vision API key (cloud providers only) | (none) |
 | `CAMSPEAK_VISION_PROMPT` | Global default vision prompt (fallback for Describe/Vision) | (hardcoded default) |
 | `CAMSPEAK_AIRPLAY_ENABLED` | Enable AirPlay v1 receivers for all cameras | `false` |
-| `CAMSPEAK_AIRPLAY_BASE_PORT` | Starting port for per-camera RAOP listeners | `5000` |
+| `CAMSPEAK_AIRPLAY_BASE_PORT` | Starting port for per-camera RAOP listeners | `5100` |
+| `CAMSPEAK_AIRPLAY_MODEL` | Default device model advertised over mDNS (controls the iOS AirPlay icon) | `RealityDevice14,1` |
 | `CAM_<NAME>_IP` | Override IP for a discovered camera | (from DB) |
 | `CAM_<NAME>_USER` | Override username for a discovered camera | (from DB) |
 | `CAM_<NAME>_PASS` | Override password for a discovered camera | (from DB) |

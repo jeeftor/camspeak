@@ -42,8 +42,9 @@ Environment variables:
   CAMSPEAK_AIRTEST_*                — same as TEST_CAM_* (preferred prefix)
   CAMSPEAK_LOG_LEVEL                — debug, info, warn, error
   CAMSPEAK_ADVERTISE_IP             — IP advertised over mDNS`,
-	Args: cobra.RangeArgs(0, 1),
-	RunE: runAirtest,
+	Args:   cobra.RangeArgs(0, 1),
+	RunE:   runAirtest,
+	Hidden: true,
 }
 
 var (
@@ -122,7 +123,13 @@ func runAirtest(cmd *cobra.Command, args []string) error {
 	displayName := airtestDisplayName(camName, cam)
 	advertiseIP := resolveAirtestAdvertiseIP(cfg)
 
-	server, err := airplay.NewServer(displayName, airtestPort, advertiseIP, speaker)
+	server, err := airplay.NewServer(
+		displayName,
+		airtestPort,
+		advertiseIP,
+		speaker,
+		cfg.AirPlay.Model,
+	)
 	if err != nil {
 		return fmt.Errorf("creating AirPlay server: %w", err)
 	}

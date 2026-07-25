@@ -58,7 +58,8 @@ Multiple TTS endpoints can be configured (klipbord-style presets). The active pr
 | `CAMSPEAK_VISION_API_KEY` | Vision API key | (none) |
 | `CAMSPEAK_VISION_PROMPT` | Global default vision prompt | (hardcoded default) |
 | `CAMSPEAK_AIRPLAY_ENABLED` | Enable AirPlay v1 (RAOP) receivers for all cameras | `false` |
-| `CAMSPEAK_AIRPLAY_BASE_PORT` | Starting port for per-camera RAOP listeners | `5000` |
+| `CAMSPEAK_AIRPLAY_BASE_PORT` | Starting port for per-camera RAOP listeners | `5100` |
+| `CAMSPEAK_AIRPLAY_MODEL` | Default device model advertised over mDNS (controls the iOS AirPlay icon) | `RealityDevice14,1` |
 | `CAM_<NAME>_IP` / `CAM_<NAME>_USER` / `CAM_<NAME>_PASS` | Per-camera credential overrides | (from DB) |
 
 ### .env file
@@ -129,10 +130,11 @@ services:
       CAMSPEAK_FRIGATE_URL: http://frigate:5000
       CAMSPEAK_TTS_URL: http://tts:8080/v1/audio/speech
       CAMSPEAK_MQTT_BROKER: tcp://mqtt:1883
+      CAMSPEAK_AIRPLAY_ENABLED: true
+      CAMSPEAK_AIRPLAY_BASE_PORT: 5100
     volumes:
       - /data/config/camspeak:/config
-    ports:
-      - "8585:8585"
+    network_mode: host   # required for AirPlay mDNS advertisement and UDP RTP
 ```
 
 ## Pre-commit hooks
@@ -227,7 +229,30 @@ dns-sd -B _raop._tcp
 # Check TXT records for a specific camera
 dns-sd -L "0F6DF0EA0FEE@camera-name" _raop._tcp local
 ```
-Expected TXT: `et=0,1 ek=1 cn=0,1 sr=44100 ss=16 tp=UDP am=camspeak`
+Expected TXT: `et=0,1 ek=1 cn=0,1 sr=44100 ss=16 tp=UDP am=RealityDevice14,1` (or whatever
+model string is configured under AirPlay settings / `CAMSPEAK_AIRPLAY_MODEL`).
+
+### AirPlay device icon
+
+The icon iOS shows for each camera target is controlled by the **model string** advertised
+over mDNS (`am=` in `_raop._tcp` and `model=` in `_airplay._tcp`). You can change the global
+default from the AirPlay settings in the Cameras tab or with the `CAMSPEAK_AIRPLAY_MODEL` env
+var. Each camera can also override the model string individually via its AirPlay settings.
+
+Common model strings (reverse-engineered from certified Apple/Sonos/Roku devices):
+
+| Model string | Likely icon |
+|---|---|
+| `RealityDevice14,1` | Vision Pro |
+| `AppleTV6,2` | Apple TV 4K |
+| `AppleTV3,2` | Apple TV HD |
+| `AudioAccessory5,1` | HomePod mini |
+| `AudioAccessory1,1` | HomePod |
+| `AirPort4,115` | AirPort Express / small speaker |
+| `MacBookPro18,1` | MacBook Pro |
+
+Apple does not publish an icon list; for uncertified receivers like camspeak the only way to
+get a non-generic icon is to advertise as a known device. There is no official "camera" icon.
 
 ### Capture RTSP/RTP traffic
 ```bash

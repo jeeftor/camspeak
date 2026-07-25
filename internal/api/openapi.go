@@ -497,12 +497,12 @@ const openAPISpec = `{
       "get": {
         "tags": ["config"],
         "summary": "Get AirPlay receiver configuration",
-        "responses": {"200": {"description": "AirPlay config with enabled flag and base_port"}}
+        "responses": {"200": {"description": "AirPlay config with enabled flag, base_port, and model"}}
       },
       "put": {
         "tags": ["config"],
         "summary": "Update AirPlay receiver configuration (requires restart)",
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "base_port": {"type": "integer"}}}}}},
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "base_port": {"type": "integer"}, "prime_silence_ms": {"type": "integer"}, "model": {"type": "string", "description": "Device model advertised over mDNS; controls the iOS AirPlay icon", "example": "RealityDevice14,1"}}}}}},
         "responses": {"200": {"description": "Updated — restart required for changes to take effect"}}
       }
     },

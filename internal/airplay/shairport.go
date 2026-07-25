@@ -24,11 +24,13 @@ import (
 // (for mDNS advertisement). In Docker, use --net=host so tinysvcmdns can
 // join the LAN multicast group (224.0.0.251).
 type ShairportServer struct {
-	name    string
-	port    int
-	speaker Speaker
-	log     *clog.Logger
-	pidPath string
+	name       string
+	port       int
+	model      string
+	speaker    Speaker
+	log        *clog.Logger
+	pidPath    string
+	configPath string
 
 	mu     sync.Mutex
 	cmd    *exec.Cmd
@@ -41,7 +43,7 @@ type ShairportServer struct {
 // interface compatibility but is not used — tinysvcmdns determines the
 // advertised IP.
 func NewShairportServer(
-	name string, port int, advertiseIP string, speaker Speaker,
+	name string, port int, advertiseIP string, speaker Speaker, model string,
 ) (*ShairportServer, error) {
 	safeName := strings.NewReplacer(" ", "-", "/", "-", "\\", "-").Replace(
 		strings.ToLower(name),
@@ -55,12 +57,14 @@ func NewShairportServer(
 		)
 	}
 	return &ShairportServer{
-		name:    name,
-		port:    port,
-		speaker: speaker,
-		pidPath: fmt.Sprintf("/tmp/shairport-%s-%d.pid", safeName, port),
-		log:     log,
-		quit:    make(chan struct{}),
+		name:       name,
+		port:       port,
+		model:      model,
+		speaker:    speaker,
+		pidPath:    fmt.Sprintf("/tmp/shairport-%s-%d.pid", safeName, port),
+		configPath: fmt.Sprintf("/tmp/shairport-%s-%d.conf", safeName, port),
+		log:        log,
+		quit:       make(chan struct{}),
 	}, nil
 }
 
@@ -104,11 +108,23 @@ func (s *ShairportServer) launchProcess() error {
 		return fmt.Errorf("audio stream: %w", err)
 	}
 
+	// Write a minimal shairport-sync config so we can control the advertised
+	// model string (am= / model=), which determines the icon in the iOS picker.
+	configBody := fmt.Sprintf(`general = {
+  name = "%s";
+  port = %d;
+  model = "%s";
+  output_backend = "stdout";
+};
+`, s.name, s.port, s.model)
+	if err := os.WriteFile(s.configPath, []byte(configBody), 0o644); err != nil {
+		stream.finish()
+		return fmt.Errorf("writing shairport-sync config: %w", err)
+	}
+
 	cmd := exec.Command(
 		"shairport-sync",
-		"-a", s.name,
-		"-p", fmt.Sprintf("%d", s.port),
-		"-o", "stdout",
+		"-c", s.configPath,
 	)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -262,6 +278,7 @@ func (s *ShairportServer) Stop() {
 		s.stream = nil
 	}
 	_ = os.Remove(s.pidPath)
+	_ = os.Remove(s.configPath)
 	s.log.Info("shairport-sync stopped")
 }
 
