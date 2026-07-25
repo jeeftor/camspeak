@@ -1,6 +1,6 @@
 <script>
   import { onDestroy } from 'svelte'
-  import { Sparkles, Save, Upload, Play, Pause, X, Loader2, Pencil } from 'lucide-svelte'
+  import { Sparkles, Save, Upload, Play, Pause, X, Loader2, Pencil, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Select } from '$lib/components/ui/select'
@@ -40,12 +40,25 @@
   let statusTimeout
   let uploadTimeout
 
-  let grouped = $derived(
-    presets.reduce((acc, p) => {
+  let sortBy = $state('name')
+  let sortOrder = $state('asc')
+
+  let grouped = $derived((() => {
+    const groups = presets.reduce((acc, p) => {
       ;(acc[p.category] ??= []).push(p)
       return acc
     }, {})
-  )
+    const comparator = (a, b) => {
+      let cmp = 0
+      if (sortBy === 'name') cmp = a.name.localeCompare(b.name)
+      else if (sortBy === 'duration') cmp = (a.duration ?? 0) - (b.duration ?? 0)
+      return sortOrder === 'asc' ? cmp : -cmp
+    }
+    for (const cat in groups) {
+      groups[cat].sort(comparator)
+    }
+    return groups
+  })())
 
   async function generate() {
     if (!genText) return
@@ -233,6 +246,16 @@
   </div>
 
   {#if tab === 'browse'}
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="text-sm text-muted-foreground">Sort by</span>
+      <Select bind:value={sortBy} class="w-32">
+        <option value="name">Name</option>
+        <option value="duration">Duration</option>
+      </Select>
+      <Button variant="outline" size="sm" onclick={() => sortOrder = sortOrder === 'asc' ? 'desc' : 'asc'} title={sortOrder === 'asc' ? 'Ascending' : 'Descending'}>
+        {#if sortOrder === 'asc'}<ArrowUp class="h-4 w-4" />{:else}<ArrowDown class="h-4 w-4" />{/if}
+      </Button>
+    </div>
     {#if presets.length === 0}
       <p class="italic text-muted-foreground">No presets yet. Generate or upload one.</p>
     {:else}
