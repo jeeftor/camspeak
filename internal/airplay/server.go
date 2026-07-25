@@ -1501,11 +1501,17 @@ func newAudioStream(speaker Speaker, log *clog.Logger, primeMs int) (*audioStrea
 }
 
 // writePCM feeds raw S16LE PCM into the ffmpeg transcoder.
+// If ffmpeg has died (broken pipe), the pipe is closed and further writes are
+// silently dropped rather than spinning on a dead process.
 func (as *audioStream) writePCM(pcm []byte) {
 	as.mu.Lock()
 	defer as.mu.Unlock()
 	if as.ffmpegIn != nil {
-		_, _ = as.ffmpegIn.Write(pcm)
+		if _, err := as.ffmpegIn.Write(pcm); err != nil {
+			as.log.Warn("ffmpeg pipe write failed, closing pipe", "err", err)
+			_ = as.ffmpegIn.Close()
+			as.ffmpegIn = nil
+		}
 	}
 }
 

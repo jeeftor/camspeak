@@ -66,7 +66,7 @@ ENV CAMSPEAK_DATA_DIR=/config
 EXPOSE 8585
 VOLUME ["/config"]
 
-# NOTE: AirPlay advertisement requires host networking so avahi multicast
+# NOTE: AirPlay advertisement requires host networking so tinysvcmdns multicast
 # reaches the LAN: docker run --net=host ...
 # This container runs as root so it can write to the /config volume.
 
