@@ -23,6 +23,7 @@
   onDestroy(() => {
     if (genAudio) URL.revokeObjectURL(genAudio)
     if (genAudioEl) { genAudioEl.pause(); genAudioEl = null }
+    if (uploadPreview) URL.revokeObjectURL(uploadPreview)
     clearTimeout(genTimeout)
     clearTimeout(statusTimeout)
     clearTimeout(uploadTimeout)
@@ -31,6 +32,8 @@
   let uploadName = $state('')
   let uploadCategory = $state('uploads')
   let uploadFile = $state(null)
+  let uploadPreview = $state(null)
+  let uploadDragging = $state(false)
   let uploadBusy = $state(false)
   let uploadStatus = $state('')
   let libError = $state('')
@@ -100,6 +103,26 @@
     }
   }
 
+  function handleUploadFile(file) {
+    uploadFile = file
+    if (file) {
+      uploadName = file.name.replace(/\.[^/.]+$/, '')
+      if (uploadPreview) URL.revokeObjectURL(uploadPreview)
+      uploadPreview = URL.createObjectURL(file)
+    } else {
+      if (uploadPreview) URL.revokeObjectURL(uploadPreview)
+      uploadPreview = null
+    }
+  }
+
+  function clearUpload() {
+    uploadName = ''
+    uploadCategory = 'uploads'
+    uploadFile = null
+    if (uploadPreview) URL.revokeObjectURL(uploadPreview)
+    uploadPreview = null
+  }
+
   async function upload() {
     if (!uploadName || !uploadFile) return
     uploadBusy = true; uploadStatus = ''
@@ -111,7 +134,7 @@
       const res = await fetch('/api/library/upload', { method: 'POST', body: fd })
       if (!res.ok) throw new Error(await res.text())
       uploadStatus = '✓ Uploaded'
-      uploadName = ''; uploadFile = null
+      clearUpload()
       onRefresh()
     } catch (e) {
       uploadStatus = '✗ ' + e.message
@@ -312,7 +335,7 @@
   {:else}
     <div class="flex max-w-2xl flex-col gap-3">
       <h3 class="text-base font-semibold text-primary">Upload Audio File</h3>
-      <p class="text-sm text-muted-foreground">Any format — ffmpeg will convert to G.711ulaw 8kHz</p>
+      <p class="text-sm text-muted-foreground">Drag and drop an audio file, or click to browse. Any format — ffmpeg will convert to G.711ulaw 8kHz.</p>
       <label class="flex flex-col gap-1 text-sm text-muted-foreground">
         Name
         <Input bind:value={uploadName} placeholder="preset name" />
@@ -321,18 +344,40 @@
         Category
         <Input bind:value={uploadCategory} placeholder="uploads" />
       </label>
-      <label class="flex flex-col gap-1 text-sm text-muted-foreground">
-        File
+      <label
+        class="relative flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-6 transition-colors cursor-pointer {uploadDragging ? 'border-primary bg-primary/5' : 'border-input bg-background'}"
+        ondragover={(e) => { e.preventDefault(); uploadDragging = true }}
+        ondragleave={(e) => { e.preventDefault(); uploadDragging = false }}
+        ondrop={(e) => {
+          e.preventDefault()
+          uploadDragging = false
+          const file = e.dataTransfer.files?.[0]
+          if (file) handleUploadFile(file)
+        }}
+      >
         <input
           type="file"
           accept="audio/*"
-          class="flex w-full rounded-md border border-dashed border-input bg-transparent p-2 text-sm file:mr-3 file:rounded file:border-0 file:bg-primary file:px-3 file:py-1 file:text-primary-foreground hover:file:bg-primary/90"
-          onchange={(e) => { uploadFile = e.currentTarget.files?.[0] ?? null }}
+          class="hidden"
+          onchange={(e) => { handleUploadFile(e.currentTarget.files?.[0] ?? null) }}
         />
+        {#if uploadFile}
+          <span class="text-sm font-medium text-primary">{uploadFile.name}</span>
+          <span class="text-xs text-muted-foreground">{(uploadFile.size / 1024 / 1024).toFixed(2)} MB</span>
+        {:else}
+          <Upload class="h-8 w-8 text-muted-foreground" />
+          <span class="text-sm text-muted-foreground">Drop audio file here or click to browse</span>
+        {/if}
       </label>
+      {#if uploadPreview}
+        <div class="rounded-lg border bg-background p-3">
+          <p class="mb-2 text-xs text-muted-foreground">Preview before saving</p>
+          <audio src={uploadPreview} controls class="w-full"></audio>
+        </div>
+      {/if}
       <Button onclick={upload} disabled={uploadBusy || !uploadName || !uploadFile} class="w-fit">
-        {#if uploadBusy}<Loader2 class="h-4 w-4 animate-spin" />{:else}<Upload class="h-4 w-4" />{/if}
-        Upload
+        {#if uploadBusy}<Loader2 class="h-4 w-4 animate-spin" />{:else}<Save class="h-4 w-4" />{/if}
+        Save
       </Button>
       {#if uploadStatus}<p class="text-sm text-primary">{uploadStatus}</p>{/if}
     </div>
