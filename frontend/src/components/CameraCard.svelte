@@ -1,6 +1,6 @@
 <script>
   import { onDestroy } from 'svelte'
-  import { Eye, Bell, Play, Loader2, FileAudio, X, MessageSquare, Square, Radio } from 'lucide-svelte'
+  import { Eye, Bell, Play, Loader2, FileAudio, X, MessageSquare, Square } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Textarea } from '$lib/components/ui/textarea'
@@ -83,6 +83,14 @@
     }
   }
 
+  function looksLikeStream(u) {
+    if (!u) return false
+    const s = u.toLowerCase()
+    return s.endsWith('.pls') || s.endsWith('.m3u') || s.endsWith('.m3u8') ||
+           s.includes('liveatc.net') || s.includes('/play/') ||
+           s.includes('shoutcast') || s.includes('icecast')
+  }
+
   async function playUrl() {
     if (!url) return
     busy = true; status = ''
@@ -105,6 +113,15 @@
     } catch (e) {
       streaming = false
       setStatus('✗ ' + e.message, 'err')
+    }
+  }
+
+  async function playFromUrl() {
+    if (!url) return
+    if (looksLikeStream(url)) {
+      await playStream()
+    } else {
+      await playUrl()
     }
   }
 
@@ -353,7 +370,7 @@
       <Input
         bind:value={url}
         placeholder="Play from URL or stream..."
-        onkeydown={e => e.key === 'Enter' && (streaming ? stopStream() : playUrl())}
+        onkeydown={e => e.key === 'Enter' && (streaming ? stopStream() : playFromUrl())}
         disabled={busy}
         class="flex-1 text-sm min-w-0"
       />
@@ -362,16 +379,13 @@
           <Square class="h-4 w-4" />
         </Button>
       {:else}
-        <Button size="sm" onclick={playUrl} disabled={busy || !url} aria-label="Play URL" title="Download and play audio from URL" class="flex-shrink-0">
+        <Button size="sm" onclick={playFromUrl} disabled={busy || !url} aria-label="Play from URL" title={looksLikeStream(url) ? 'Stream live audio from URL' : 'Download and play audio from URL'} class="flex-shrink-0">
           <Play class="h-4 w-4" />
-        </Button>
-        <Button size="sm" variant="outline" onclick={playStream} disabled={busy || !url} aria-label="Stream URL" title="Stream live audio from URL" class="flex-shrink-0">
-          <Radio class="h-4 w-4" />
         </Button>
       {/if}
       <CopyButton
-        text={buildCurl('POST', '/api/play-url', { camera: camera.name, url, gain })}
-        disabled={!url} label="Copy curl — play URL endpoint"
+        text={buildCurl('POST', looksLikeStream(url) ? '/api/play-stream' : '/api/play-url', { camera: camera.name, url, gain })}
+        disabled={!url} label={looksLikeStream(url) ? 'Copy curl — play stream endpoint' : 'Copy curl — play URL endpoint'}
         preview={!!url} previewType="curl"
         class="flex-shrink-0"
       />

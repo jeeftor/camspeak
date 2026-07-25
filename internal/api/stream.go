@@ -146,15 +146,29 @@ func (h *Handlers) PlayStream(c echo.Context) error {
 	stopStream(req.Camera)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, "ffmpeg",
-		"-nostdin", "-loglevel", "error",
+	cmd := exec.CommandContext(
+		ctx,
+		"ffmpeg",
+		"-nostdin",
+		"-loglevel",
+		"error",
 		"-re", // read input at native frame rate for live streams
-		"-i", streamURL,
-		"-af", fmt.Sprintf("volume=%.2f", gain),
-		"-acodec", "pcm_mulaw",
-		"-ar", "8000",
-		"-ac", "1",
-		"-f", "mulaw",
+		"-user_agent",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+		"-headers",
+		"Referer: https://www.liveatc.net/\r\n",
+		"-i",
+		streamURL,
+		"-af",
+		fmt.Sprintf("volume=%.2f", gain),
+		"-acodec",
+		"pcm_mulaw",
+		"-ar",
+		"8000",
+		"-ac",
+		"1",
+		"-f",
+		"mulaw",
 		"-",
 	)
 	// ffmpeg outputs raw mu-law to stdout.
