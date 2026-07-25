@@ -1517,6 +1517,8 @@ func newAudioStream(
 	// so the next audio burst reaches the camera without a manual restart.
 	go func() {
 		defer func() { _ = cmd.Wait() }()
+		backoff := 2 * time.Second
+		const maxBackoff = 30 * time.Second
 		for {
 			log.Info("stream: opening camera session")
 			err := speaker.Stream(stdout)
@@ -1536,12 +1538,16 @@ func newAudioStream(
 			}
 
 			atomic.AddInt64(&as.reconnects, 1)
-			log.Warn("stream: camera session lost, reconnecting in 2s", "err", err)
+			log.Warn("stream: camera session lost, reconnecting", "backoff", backoff, "err", err)
 			select {
-			case <-time.After(2 * time.Second):
+			case <-time.After(backoff):
 			case <-as.quit:
 				as.streamDone <- nil
 				return
+			}
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
 			}
 		}
 	}()
