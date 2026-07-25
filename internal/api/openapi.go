@@ -95,6 +95,24 @@ const openAPISpec = `{
         }
       }
     },
+    "/play-stream": {
+      "post": {
+        "tags": ["audio"],
+        "summary": "Stream live audio from a URL or playlist to a camera",
+        "description": "Starts an ffmpeg process that reads a live stream or playlist (.pls/.m3u) and sends raw G.711 mu-law to the camera speaker. Currently supported for cameras with a real Stream implementation (e.g. Hikvision). Stop with POST /api/stop.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/PlayURLRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {"description": "OK"}
+        }
+      }
+    },
     "/beep": {
       "post": {
         "tags": ["audio"],

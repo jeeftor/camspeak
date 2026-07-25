@@ -111,6 +111,8 @@ Copy `.env.example` to `.env` for local dev. Loaded by godotenv at startup. Giti
 - `GET /api/events` — SSE event stream
 - `POST /api/speak` — TTS to camera
 - `POST /api/play` — preset to camera
+- `POST /api/play-url` — download audio URL → transcode → play on camera
+- `POST /api/play-stream` — live stream or playlist (.pls/.m3u) → camera (Hikvision, requires ffmpeg)
 - `POST /api/beep` — test tone
 - `POST /api/stop` — stop audio on a camera (or all cameras if body empty)
 - `POST /api/broadcast` — broadcast to all cameras

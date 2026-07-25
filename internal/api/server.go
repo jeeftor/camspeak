@@ -135,6 +135,7 @@ func New(
 	api.POST("/speak", h.Speak)
 	api.POST("/play", h.Play)
 	api.POST("/play-url", h.PlayURL)
+	api.POST("/play-stream", h.PlayStream)
 	api.POST("/beep", h.Beep)
 	api.POST("/stop", h.Stop)
 	api.GET("/snapshot/:camera", h.Snapshot)

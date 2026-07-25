@@ -306,13 +306,15 @@ func (h *Handlers) Stop(c echo.Context) error {
 			log.Warn("stop: camera not found", "camera", req.Camera, "err", err)
 			return echo.NewHTTPError(http.StatusNotFound, err.Error())
 		}
+		stopStream(req.Camera)
 		log.Info("stop: stopped camera", "camera", req.Camera)
 		h.events.publish(event{Camera: req.Camera, Action: "stop", At: time.Now()})
 		return c.JSON(http.StatusOK, map[string]string{"status": "stopped", "camera": req.Camera})
 	}
 
-	// Stop all cameras
+	// Stop all cameras and any active live streams.
 	h.reg.StopAll()
+	stopAllStreams()
 	log.Info("stop: stopped all cameras")
 	h.events.publish(event{Action: "stop-all", At: time.Now()})
 	return c.JSON(http.StatusOK, map[string]string{"status": "stopped", "camera": "all"})
