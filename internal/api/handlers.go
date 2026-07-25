@@ -292,6 +292,8 @@ func (h *Handlers) PlayURL(c echo.Context) error {
 // Stop handles POST /api/stop — stops audio on a specific camera or all cameras.
 // If the request body contains a "camera" field, only that camera is stopped.
 // Otherwise (empty body or no camera field), all cameras are stopped.
+// For each affected camera this also kills any live stream and restarts the
+// AirPlay receiver so the camera is fully reset.
 func (h *Handlers) Stop(c echo.Context) error {
 	log := h.logger(c)
 
@@ -307,17 +309,49 @@ func (h *Handlers) Stop(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusNotFound, err.Error())
 		}
 		stopStream(req.Camera)
-		log.Info("stop: stopped camera", "camera", req.Camera)
+		h.resetAirPlay(req.Camera, log)
+		log.Info("stop: stopped and reset camera", "camera", req.Camera)
 		h.events.publish(event{Camera: req.Camera, Action: "stop", At: time.Now()})
 		return c.JSON(http.StatusOK, map[string]string{"status": "stopped", "camera": req.Camera})
 	}
 
-	// Stop all cameras and any active live streams.
+	// Stop all cameras, live streams, and reset AirPlay receivers.
 	h.reg.StopAll()
 	stopAllStreams()
-	log.Info("stop: stopped all cameras")
+	h.resetAllAirPlay(log)
+	log.Info("stop: stopped and reset all cameras")
 	h.events.publish(event{Action: "stop-all", At: time.Now()})
 	return c.JSON(http.StatusOK, map[string]string{"status": "stopped", "camera": "all"})
+}
+
+// resetAirPlay restarts the AirPlay receiver for a single camera, if AirPlay is configured.
+func (h *Handlers) resetAirPlay(name string, log *clog.Logger) {
+	if h.airplayMgr == nil {
+		return
+	}
+	if !h.airplayMgr.IsRunning(name) {
+		return
+	}
+	h.airplayMgr.Disable(name)
+	if err := h.airplayMgr.Enable(name); err != nil {
+		log.Warn("stop: AirPlay reset failed", "camera", name, "err", err)
+	}
+}
+
+// resetAllAirPlay restarts every running AirPlay receiver.
+func (h *Handlers) resetAllAirPlay(log *clog.Logger) {
+	if h.airplayMgr == nil {
+		return
+	}
+	for name, running := range h.airplayMgr.Status() {
+		if !running {
+			continue
+		}
+		h.airplayMgr.Disable(name)
+		if err := h.airplayMgr.Enable(name); err != nil {
+			log.Warn("stop: AirPlay reset failed", "camera", name, "err", err)
+		}
+	}
 }
 
 // Beep handles POST /api/beep — 800Hz test tone → camera.
