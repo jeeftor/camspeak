@@ -157,11 +157,67 @@ prek install
 
 ## Debugging AirPlay
 
+### How it works (confirmed flow)
+
+For each camera with AirPlay enabled, camspeak starts a receiver. On Linux/Docker it
+prefers `shairport-sync`, which handles the RAOP/FairPlay/ALAC work internally and
+emits decoded PCM on stdout. That PCM is then transcoded by `ffmpeg` to G.711 µ-law
+8 kHz mono and streamed to the camera over its ISAPI/RTSP/HTTP speaker channel.
+
+```
+iPhone --AirPlay/ALAC/RTP--> shairport-sync
+                                     |
+                                     v (stdout)
+                             PCM S16LE 44.1 kHz stereo
+                                     |
+                                     v
+                              ffmpeg stdin
+                                     |
+                                     v
+                              G.711 µ-law 8 kHz mono
+                                     |
+                                     v
+                         camera speaker (ISAPI PUT /audioData)
+```
+
 ### Enable debug logging
 ```bash
 CAMSPEAK_LOG_LEVEL=debug CAMSPEAK_AIRPLAY_ENABLED=true CAMSPEAK_AIRPLAY_BASE_PORT=5100 ./camspeak serve
 ```
-Debug logs show every RTSP request/response, RTP packet seq/payload size, ALAC decode results, and audio chunk sends to camera.
+At `info` level you still see the key lifecycle events and throughput summaries. Use
+debug only when tracing the RTSP/RTP protocol.
+
+### What success looks like
+
+At startup:
+```
+AirPlay receiver started camera=backyard port=5100 name="Backyard Camera" backend=shairport-sync
+```
+
+When an iPhone connects and plays audio:
+```
+AirPlay: client connected from=192.168.1.100:51234
+AirPlay: RECORD — client started audio playback
+shairport-sync: first PCM data received — audio is flowing
+stream: throughput summary bytes_to_ffmpeg=376696 reconnects=1
+stream: throughput summary bytes_to_ffmpeg=1097592 reconnects=1
+```
+
+`bytes_to_ffmpeg` climbing means audio is leaving shairport-sync and entering the
+transcoder/camera pipeline. If it stays flat, the iPhone is connected but silent or
+UDP/RTP audio packets are not arriving.
+
+### Interpreting the logs
+
+| Log | Meaning |
+|---|---|
+| `AirPlay receiver started ... backend=shairport-sync` | Receiver is up and using the Linux-preferred backend. If you see `backend=built-in-raop`, shairport-sync failed to start. |
+| `AirPlay: client connected` | iPhone opened the RTSP control connection. |
+| `AirPlay: RECORD — client started audio playback` | iPhone began streaming; RTP should arrive shortly. |
+| `shairport-sync: first PCM data received` | shairport-sync decoded real audio. |
+| `stream: throughput summary bytes_to_ffmpeg=...` | Audio is feeding ffmpeg and the camera. Look for this number to increase. |
+| `stream: camera session lost, reconnecting` | The camera closed the speaker connection; camspeak will retry automatically. |
+| `ffmpeg ... error ...` | ffmpeg stderr is now forwarded. Normal startup lines are logged at debug; error/fatal lines are logged at warn. |
 
 ### Verify mDNS advertisement
 ```bash
@@ -200,7 +256,7 @@ lsof -i :5100
 
 ### Common issues
 - **Port 5000 in use on macOS**: ControlCenter uses it. Use `CAMSPEAK_AIRPLAY_BASE_PORT=5100`
-- **Camera not in AirPlay picker**: Check `dns-sd -B _raop._tcp` — if not listed, mDNS registration failed
+- **Camera not in AirPlay picker**: Check `dns-sd -B _raop._tcp` — if not listed, mDNS registration failed. On Docker you must use `network_mode: host`.
 - **iOS connects but no audio**: Check debug logs for `audio: RTP packet` lines — if none, UDP ports may be blocked by firewall
 - **ALAC decode returns empty**: The `fmtp` parameters in SDP may not match what the ALAC decoder expects
 - **ffmpeg not found**: AirPlay audio pipeline requires ffmpeg in PATH

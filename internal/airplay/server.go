@@ -1467,7 +1467,7 @@ func newAudioStream(speaker Speaker, log *clog.Logger, primeMs int) (*audioStrea
 	if err != nil {
 		return nil, fmt.Errorf("ffmpeg stdout: %w", err)
 	}
-	cmd.Stderr = &lineLogger{log: log}
+	cmd.Stderr = &lineLogger{log: log, prefix: "ffmpeg", defaultLevel: clog.DebugLevel, errorLevel: clog.WarnLevel}
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("starting ffmpeg: %w", err)
@@ -1518,17 +1518,36 @@ func newAudioStream(speaker Speaker, log *clog.Logger, primeMs int) (*audioStrea
 		}
 	}()
 
-	// Periodic throughput summary so long-running AirPlay sessions are observable.
+	// Periodic throughput summary so long-running AirPlay sessions are observable,
+	// but only log when something actually changed to avoid idle noise.
 	go func() {
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
+		var lastBytes int64
+		var lastReconnects int64
+		idleIntervals := 0
 		for {
 			select {
 			case <-ticker.C:
-				log.Info("stream: throughput summary",
-					"bytes_to_ffmpeg", atomic.LoadInt64(&as.bytesWritten),
-					"reconnects", atomic.LoadInt64(&as.reconnects),
-				)
+				bytes := atomic.LoadInt64(&as.bytesWritten)
+				reconnects := atomic.LoadInt64(&as.reconnects)
+				if bytes != lastBytes || reconnects != lastReconnects {
+					log.Info("stream: throughput summary",
+						"bytes_to_ffmpeg", bytes,
+						"reconnects", reconnects,
+					)
+					lastBytes = bytes
+					lastReconnects = reconnects
+					idleIntervals = 0
+				} else {
+					idleIntervals++
+					if idleIntervals%6 == 0 { // mention idle state once per 30s at debug
+						log.Debug("stream: no throughput change since last summary",
+							"bytes_to_ffmpeg", bytes,
+							"reconnects", reconnects,
+						)
+					}
+				}
 			case <-as.quit:
 				return
 			}

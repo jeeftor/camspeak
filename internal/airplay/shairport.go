@@ -115,7 +115,7 @@ func (s *ShairportServer) launchProcess() error {
 		stream.finish()
 		return fmt.Errorf("stdout pipe: %w", err)
 	}
-	cmd.Stderr = &lineLogger{log: s.log}
+	cmd.Stderr = &lineLogger{log: s.log, prefix: "shairport-sync", defaultLevel: clog.InfoLevel}
 
 	if err := cmd.Start(); err != nil {
 		stream.finish()
@@ -266,10 +266,14 @@ func (s *ShairportServer) Stop() {
 }
 
 // lineLogger forwards subprocess stderr to our structured logger line by line.
-// Connection/session events are promoted to Info; everything else is Debug.
+// Normal lines are emitted at defaultLevel; lines that look like errors are
+// promoted to errorLevel so problems are always visible without startup spam.
 type lineLogger struct {
-	log *clog.Logger
-	buf []byte
+	log          *clog.Logger
+	buf          []byte
+	prefix       string
+	defaultLevel clog.Level
+	errorLevel   clog.Level
 }
 
 func (l *lineLogger) Write(p []byte) (int, error) {
@@ -281,10 +285,37 @@ func (l *lineLogger) Write(p []byte) (int, error) {
 		}
 		line := strings.TrimSpace(string(l.buf[:idx]))
 		if line != "" {
-			// Log all stderr at Info so we can see what shairport-sync is doing.
-			l.log.Info("shairport-sync", "msg", line)
+			level := l.defaultLevel
+			if l.errorLevel != 0 && looksLikeError(line) {
+				level = l.errorLevel
+			}
+			switch level {
+			case clog.DebugLevel:
+				l.log.Debug(l.prefix, "msg", line)
+			case clog.InfoLevel:
+				l.log.Info(l.prefix, "msg", line)
+			case clog.WarnLevel:
+				l.log.Warn(l.prefix, "msg", line)
+			case clog.ErrorLevel:
+				l.log.Error(l.prefix, "msg", line)
+			default:
+				l.log.Info(l.prefix, "msg", line)
+			}
 		}
 		l.buf = l.buf[idx+1:]
 	}
 	return len(p), nil
+}
+
+// looksLikeError returns true for stderr lines that indicate a real problem
+// rather than normal startup/progress output.
+func looksLikeError(line string) bool {
+	lower := strings.ToLower(line)
+	return strings.Contains(lower, "error") ||
+		strings.Contains(lower, "failed") ||
+		strings.Contains(lower, "fatal") ||
+		strings.Contains(lower, "invalid") ||
+		strings.Contains(lower, "cannot") ||
+		strings.Contains(lower, "unable") ||
+		strings.Contains(lower, "not found")
 }

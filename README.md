@@ -69,10 +69,11 @@ services:
       - CAMSPEAK_MQTT_BROKER=${CAMSPEAK_MQTT_BROKER:-}
       - CAMSPEAK_MQTT_USER=${CAMSPEAK_MQTT_USER:-}
       - CAMSPEAK_MQTT_PASS=${CAMSPEAK_MQTT_PASS:-}
+      - CAMSPEAK_AIRPLAY_ENABLED=${CAMSPEAK_AIRPLAY_ENABLED:-true}
+      - CAMSPEAK_AIRPLAY_BASE_PORT=${CAMSPEAK_AIRPLAY_BASE_PORT:-5000}
     volumes:
       - ${CONFIG_DIR:-./config}/camspeak:/config
-    ports:
-      - "${CamspeakPort:-8585}:8585"
+    network_mode: host   # required for AirPlay mDNS advertisement and UDP RTP
     restart: unless-stopped
 ```
 
@@ -87,6 +88,10 @@ Open the UI at `http://localhost:8585`. The MCP endpoint is at
 
 The container bundles `ffmpeg` (required for transcoding to G.711ulaw 8kHz) and
 exposes a volume at `/config` for the SQLite database and audio library.
+
+AirPlay requires `network_mode: host` in the compose file (already set above) so
+mDNS advertisement and UDP RTP traffic reach your LAN. If you disable AirPlay, you
+can remove `network_mode: host` and map port `8585` explicitly instead.
 
 ## Configuration
 
@@ -130,6 +135,8 @@ A `.env` file (gitignored) is loaded by godotenv at startup for local dev. Copy
 | `CAMSPEAK_VISION_MODEL` | Vision model name | (none) |
 | `CAMSPEAK_VISION_API_KEY` | Vision API key (cloud providers only) | (none) |
 | `CAMSPEAK_VISION_PROMPT` | Global default vision prompt (fallback for Describe/Vision) | (hardcoded default) |
+| `CAMSPEAK_AIRPLAY_ENABLED` | Enable AirPlay v1 receivers for all cameras | `false` |
+| `CAMSPEAK_AIRPLAY_BASE_PORT` | Starting port for per-camera RAOP listeners | `5000` |
 | `CAM_<NAME>_IP` | Override IP for a discovered camera | (from DB) |
 | `CAM_<NAME>_USER` | Override username for a discovered camera | (from DB) |
 | `CAM_<NAME>_PASS` | Override password for a discovered camera | (from DB) |
