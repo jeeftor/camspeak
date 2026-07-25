@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v4"
 
@@ -89,7 +90,7 @@ func (h *Handlers) TestVisionConfig(c echo.Context) error {
 	if req.APIKey != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+req.APIKey)
 	}
-	resp, err := http.DefaultClient.Do(httpReq)
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(httpReq)
 	if err != nil {
 		h.logger(c).Warn("vision endpoint test failed", "url", base, "err", err)
 		return c.JSON(http.StatusOK, map[string]interface{}{"ok": false, "message": err.Error()})
@@ -690,7 +691,7 @@ func (h *Handlers) TestSettingsURL(c echo.Context) error {
 	}
 	h.logger(c).Info("testing settings URL", "type", req.Type, "url", target)
 
-	resp, err := http.Get(target) //nolint:noctx
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Get(target) //nolint:noctx
 	if err != nil {
 		h.logger(c).Warn("settings URL test failed", "type", req.Type, "url", target, "err", err)
 		return c.JSON(http.StatusOK, map[string]interface{}{"ok": false, "message": err.Error()})
@@ -708,6 +709,7 @@ func (h *Handlers) TestSettingsURL(c echo.Context) error {
 		)
 	}
 
-	h.logger(c).Info("settings URL test ok", "type", req.Type, "url", target, "status", resp.StatusCode)
+	h.logger(c).
+		Info("settings URL test ok", "type", req.Type, "url", target, "status", resp.StatusCode)
 	return c.JSON(http.StatusOK, map[string]interface{}{"ok": true, "data": data})
 }

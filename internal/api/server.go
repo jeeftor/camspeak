@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	clog "github.com/charmbracelet/log"
 	"github.com/labstack/echo/v4"
@@ -250,22 +251,47 @@ func (s *Server) Stop() error {
 	return s.echo.Close()
 }
 
+// rateLimiterEntry pairs a limiter with the last time it was used.
+type rateLimiterEntry struct {
+	limiter  *rate.Limiter
+	lastSeen time.Time
+}
+
 // rateLimitMiddleware limits each client IP to 10 requests per second with a
-// burst of 20. Excess requests receive HTTP 429.
+// burst of 20. Excess requests receive HTTP 429. Stale entries are evicted
+// every 5 minutes to prevent unbounded memory growth.
 func rateLimitMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 	var (
 		mu       sync.Mutex
-		limiters = make(map[string]*rate.Limiter)
+		limiters = make(map[string]*rateLimiterEntry)
 	)
+
+	// Evict entries not seen in 5 minutes.
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			mu.Lock()
+			cutoff := time.Now().Add(-5 * time.Minute)
+			for ip, entry := range limiters {
+				if entry.lastSeen.Before(cutoff) {
+					delete(limiters, ip)
+				}
+			}
+			mu.Unlock()
+		}
+	}()
+
 	getLimiter := func(ip string) *rate.Limiter {
 		mu.Lock()
 		defer mu.Unlock()
-		l, ok := limiters[ip]
+		entry, ok := limiters[ip]
 		if !ok {
-			l = rate.NewLimiter(rate.Limit(10), 20)
-			limiters[ip] = l
+			entry = &rateLimiterEntry{limiter: rate.NewLimiter(rate.Limit(10), 20)}
+			limiters[ip] = entry
 		}
-		return l
+		entry.lastSeen = time.Now()
+		return entry.limiter
 	}
 	return func(c echo.Context) error {
 		ip := c.RealIP()

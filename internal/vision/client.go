@@ -116,7 +116,13 @@ func (c *Client) Describe(imageBytes []byte, mimeType, prompt string) (string, e
 		return "", fmt.Errorf("vision API returned empty response: %s", string(respBody))
 	}
 
-	log.Debug("vision response", "text_len", len(result.Choices[0].Message.Content), "elapsed", time.Since(start))
+	log.Debug(
+		"vision response",
+		"text_len",
+		len(result.Choices[0].Message.Content),
+		"elapsed",
+		time.Since(start),
+	)
 
 	return result.Choices[0].Message.Content, nil
 }

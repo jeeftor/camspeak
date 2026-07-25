@@ -17,7 +17,7 @@
 {#if cameras.length === 0}
   <p class="italic text-muted-foreground">No cameras configured. Run <code class="rounded bg-muted px-1.5 py-0.5 text-sm">camspeak discover</code> or add cameras in Config.</p>
 {:else}
-  <div class="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4">
+  <div class="grid grid-cols-1 sm:grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4">
     {#each cameras as cam (cam.name)}
       <CameraCard camera={cam} {voices} {presets} />
     {/each}

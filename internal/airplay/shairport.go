@@ -48,7 +48,11 @@ func NewShairportServer(
 	)
 	log := logging.New("shairport", clog.InfoLevel).With("camera", name)
 	if advertiseIP != "" {
-		log.Warn("advertiseIP is ignored by shairport-sync (tinysvcmdns picks the IP)", "advertiseIP", advertiseIP)
+		log.Warn(
+			"advertiseIP is ignored by shairport-sync (tinysvcmdns picks the IP)",
+			"advertiseIP",
+			advertiseIP,
+		)
 	}
 	return &ShairportServer{
 		name:    name,

@@ -564,12 +564,13 @@
 {:else}
   <div class="flex flex-col gap-4">
     {#if configError}<p class="text-sm text-destructive">{configError}</p>{/if}
-    <div class="flex gap-1">
+    <div class="flex gap-1 overflow-x-auto" style="scrollbar-width:none;">
       {#each configTabs as t}
         <Button
           variant={tab === t.id ? 'default' : 'ghost'}
           size="sm"
           onclick={() => tab = t.id}
+          class="flex-shrink-0"
         >
           {t.label}
         </Button>
@@ -782,7 +783,7 @@
             <Input bind:value={camChannel} type="number" min="1" />
           </label>
           {#if camType === 'go2rtc' || camType === 'onvif'}
-          <label class="flex flex-col gap-1 text-xs text-muted-foreground col-span-2">
+          <label class="flex flex-col gap-1 text-xs text-muted-foreground sm:col-span-2">
             {camType === 'go2rtc' ? 'go2rtc Stream Name' : 'RTSP URL'}
             <Input bind:value={camStream} placeholder={camType === 'go2rtc' ? 'garage_2way' : 'rtsp://user:pass@ip:554/stream0'} />
           </label>
@@ -847,12 +848,12 @@
             Model
             <Input bind:value={visionModel} placeholder="llama3.2-vision" />
           </label>
-          <label class="flex flex-col gap-1 text-xs text-muted-foreground col-span-2">
+          <label class="flex flex-col gap-1 text-xs text-muted-foreground sm:col-span-2">
             API Key (optional)
             <Input bind:value={visionAPIKey} type="password" placeholder="sk-..." />
           </label>
         </div>
-        <label class="flex flex-col gap-1 text-xs text-muted-foreground col-span-2 mt-3">
+        <label class="flex flex-col gap-1 text-xs text-muted-foreground mt-3">
           Default Vision Prompt
           <textarea
             bind:value={visionPrompt}

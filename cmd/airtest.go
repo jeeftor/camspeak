@@ -67,15 +67,19 @@ func init() {
 	airtestCmd.Flags().StringVar(&airtestIP, "ip", "", "Camera IP address")
 	airtestCmd.Flags().StringVar(&airtestUser, "user", "", "Camera username")
 	airtestCmd.Flags().StringVar(&airtestPass, "pass", "", "Camera password")
-	airtestCmd.Flags().StringVar(&airtestType, "type", "", "Camera type: hikvision, onvif (defaults to hikvision)")
-	airtestCmd.Flags().IntVar(&airtestChannel, "channel", -1, "Hikvision audio channel (defaults to 1)")
+	airtestCmd.Flags().
+		StringVar(&airtestType, "type", "", "Camera type: hikvision, onvif (defaults to hikvision)")
+	airtestCmd.Flags().
+		IntVar(&airtestChannel, "channel", -1, "Hikvision audio channel (defaults to 1)")
 	airtestCmd.Flags().StringVar(&airtestONVIFStream, "onvif-stream", "", "ONVIF RTSP stream URL")
 
 	airtestCmd.Flags().IntVar(&airtestPort, "port", 5100, "AirPlay RTSP listener port")
 	airtestCmd.Flags().StringVar(&airtestName, "name", "", "Display name in AirPlay picker")
-	airtestCmd.Flags().StringVar(&airtestAdvertiseIPFlag, "advertise-ip", "", "IP to advertise over mDNS (defaults to CAMSPEAK_ADVERTISE_IP or auto-detect)")
+	airtestCmd.Flags().
+		StringVar(&airtestAdvertiseIPFlag, "advertise-ip", "", "IP to advertise over mDNS (defaults to CAMSPEAK_ADVERTISE_IP or auto-detect)")
 	airtestCmd.Flags().StringVar(&airtestOutput, "output", "", "Save received raw audio to this path")
-	airtestCmd.Flags().BoolVar(&airtestNoSend, "no-send", false, "Capture audio only; do not send to camera")
+	airtestCmd.Flags().
+		BoolVar(&airtestNoSend, "no-send", false, "Capture audio only; do not send to camera")
 	airtestCmd.Flags().BoolVar(&airtestDebug, "debug", false, "Enable debug logging")
 }
 
@@ -105,7 +109,9 @@ func runAirtest(cmd *cobra.Command, args []string) error {
 	cam := buildAirtestCamera(cfg, camName, log)
 
 	if cam.IP == "" {
-		return fmt.Errorf("camera IP is required (set TEST_CAM_IP / CAMSPEAK_AIRTEST_IP, -ip, or provide a camera with an IP)")
+		return fmt.Errorf(
+			"camera IP is required (set TEST_CAM_IP / CAMSPEAK_AIRTEST_IP, -ip, or provide a camera with an IP)",
+		)
 	}
 
 	speaker, err := buildAirtestSpeaker(cfg, cam, camName, log)
@@ -250,7 +256,12 @@ func resolveAirtestAdvertiseIP(cfg *config.Config) string {
 
 // buildAirtestSpeaker creates a camera speaker wrapped in a buffer that captures
 // the received audio before sending it.
-func buildAirtestSpeaker(cfg *config.Config, cam config.CameraConfig, camName string, log *clog.Logger) (airplay.Speaker, error) {
+func buildAirtestSpeaker(
+	cfg *config.Config,
+	cam config.CameraConfig,
+	camName string,
+	log *clog.Logger,
+) (airplay.Speaker, error) {
 	speakerName := camName
 	if speakerName == "" {
 		speakerName = "airtest"

@@ -543,7 +543,8 @@ func (h *Handlers) VisionTest(c echo.Context) error {
 	if imageB64 != "" {
 		// Client provided an image (uploaded or cached) — decode and reuse
 		b64Data := imageB64
-		if idx := indexOf(b64Data, ','); idx > 0 && len(b64Data) > 20 && b64Data[:5] == "data:" {
+		if idx := strings.IndexByte(b64Data, ','); idx > 0 && len(b64Data) > 20 &&
+			b64Data[:5] == "data:" {
 			b64Data = b64Data[idx+1:]
 		}
 		decoded, err := base64.StdEncoding.DecodeString(b64Data)
@@ -603,16 +604,6 @@ func (h *Handlers) VisionTest(c echo.Context) error {
 		"description": description,
 		"image":       imageDataURI,
 	})
-}
-
-// indexOf returns the index of the first occurrence of ch in s, or -1.
-func indexOf(s string, ch byte) int {
-	for i := 0; i < len(s); i++ {
-		if s[i] == ch {
-			return i
-		}
-	}
-	return -1
 }
 
 // Describe handles POST /api/describe — Frigate snapshot → vision model → TTS → camera.
@@ -1166,7 +1157,11 @@ func (h *Handlers) speakText(log *clog.Logger, cameraName, text, voice string, g
 	return nil
 }
 
-func (h *Handlers) playPreset(log *clog.Logger, cameraName, category, presetName string, gain float64) error {
+func (h *Handlers) playPreset(
+	log *clog.Logger,
+	cameraName, category, presetName string,
+	gain float64,
+) error {
 	cam, err := h.reg.Get(cameraName)
 	if err != nil {
 		return err

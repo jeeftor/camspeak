@@ -25,6 +25,7 @@
   let globalVisionPrompt = $state('')
   let stoppingAll = $state(false)
   let showApiMenu = $state(false)
+  let apiMenuAnchor = $state({ bottom: 0, left: 0 })
 
   async function stopAll() {
     stoppingAll = true
@@ -113,6 +114,7 @@
 <div class="flex min-h-dvh flex-col bg-background">
   <!-- Header -->
   <header class="sticky top-0 z-50 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 shadow-sm">
+    <!-- Top row: logo, stop, url/version -->
     <div class="flex items-center gap-3 px-4 py-2 sm:px-6">
       <!-- Logo -->
       <div class="flex items-center gap-2 font-bold tracking-wide text-primary flex-shrink-0">
@@ -120,11 +122,11 @@
         <span class="text-base">camspeak</span>
       </div>
 
-      <!-- Tab nav — horizontally scrollable on mobile -->
-      <nav class="flex gap-0.5 flex-1 overflow-x-auto" style="scrollbar-width:none;-webkit-overflow-scrolling:touch;">
+      <!-- Desktop-only: inline tabs -->
+      <nav class="hidden md:flex gap-0.5 flex-1">
         {#each tabs as t}
           <button
-            class="px-2.5 py-1.5 text-sm rounded-md font-medium whitespace-nowrap transition-colors flex-shrink-0
+            class="px-2.5 py-1.5 text-sm rounded-md font-medium whitespace-nowrap transition-colors
               {tab === t.id
                 ? 'bg-primary text-primary-foreground'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted'}"
@@ -134,47 +136,23 @@
           </button>
         {/each}
 
-        <!-- API dropdown -->
-        <div class="relative flex-shrink-0">
+        <!-- API dropdown trigger -->
+        <div class="relative">
           <button
             class="px-2.5 py-1.5 text-sm rounded-md font-medium whitespace-nowrap transition-colors
               {apiTabIds.has(tab)
                 ? 'bg-primary text-primary-foreground'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted'}"
-            onclick={() => showApiMenu = !showApiMenu}
+            onclick={(e) => { apiMenuAnchor = e.currentTarget.getBoundingClientRect(); showApiMenu = !showApiMenu }}
           >
             API ▾
           </button>
-          {#if showApiMenu}
-            <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-            <div class="fixed inset-0 z-40" onclick={() => showApiMenu = false}></div>
-            <div class="absolute left-0 top-full mt-1 z-50 min-w-[10rem] rounded-lg border bg-card shadow-lg py-1">
-              {#each apiTabs as t}
-                <button
-                  class="w-full text-left px-3 py-1.5 text-sm transition-colors
-                    {tab === t.id
-                      ? 'bg-primary/10 text-primary font-medium'
-                      : 'text-foreground hover:bg-muted'}"
-                  onclick={() => { tab = t.id; showApiMenu = false }}
-                >
-                  {t.label}
-                </button>
-              {/each}
-              <div class="my-1 border-t"></div>
-              <a
-                href="/swagger"
-                target="_blank"
-                class="flex w-full items-center gap-1 px-3 py-1.5 text-sm text-foreground hover:bg-muted"
-                onclick={() => showApiMenu = false}
-              >
-                Swagger UI ↗
-              </a>
-            </div>
-          {/if}
         </div>
       </nav>
 
-      <!-- STOP ALL button — always visible, kills audio on all cameras -->
+      <div class="flex-1 md:hidden"></div>
+
+      <!-- STOP ALL button -->
       <button
         class="flex items-center gap-1.5 flex-shrink-0 rounded-md bg-destructive px-3 py-1.5 text-sm font-bold
                text-destructive-foreground hover:bg-destructive/90 transition-colors
@@ -188,7 +166,7 @@
         {:else}
           <Square class="h-3.5 w-3.5 fill-current" />
         {/if}
-        STOP
+        <span class="hidden sm:inline">STOP</span>
       </button>
 
       <!-- Curl base URL + version -->
@@ -201,7 +179,7 @@
             title="Base URL for curl commands"
           >
             <Globe class="h-3 w-3" />
-            <span class="font-mono max-w-[120px] truncate">{curlState.baseUrl.replace(/^https?:\/\//, '')}</span>
+            <span class="font-mono max-w-[120px] truncate hidden sm:inline">{curlState.baseUrl.replace(/^https?:\/\//, '')}</span>
           </button>
           {#if showUrlEditor}
             <!-- svelte-ignore a11y_click_events_have_key_handlers, a11y_no_static_element_interactions -->
@@ -234,7 +212,63 @@
         {/if}
       </div>
     </div>
+
+    <!-- Mobile tab bar (second row, scrollable) -->
+    <nav class="flex md:hidden gap-0.5 px-4 pb-2 overflow-x-auto" style="scrollbar-width:none;-webkit-overflow-scrolling:touch;">
+      {#each tabs as t}
+        <button
+          class="px-2.5 py-1.5 text-xs rounded-md font-medium whitespace-nowrap transition-colors flex-shrink-0
+            {tab === t.id
+              ? 'bg-primary text-primary-foreground'
+              : 'text-muted-foreground hover:text-foreground hover:bg-muted'}"
+          onclick={() => tab = t.id}
+        >
+          {t.label}
+        </button>
+      {/each}
+      <!-- API dropdown trigger (mobile) -->
+      <button
+        class="px-2.5 py-1.5 text-xs rounded-md font-medium whitespace-nowrap transition-colors flex-shrink-0
+          {apiTabIds.has(tab)
+            ? 'bg-primary text-primary-foreground'
+            : 'text-muted-foreground hover:text-foreground hover:bg-muted'}"
+        onclick={(e) => { apiMenuAnchor = e.currentTarget.getBoundingClientRect(); showApiMenu = !showApiMenu }}
+      >
+        API ▾
+      </button>
+    </nav>
   </header>
+
+  <!-- API dropdown menu (portaled to body level, fixed position) -->
+  {#if showApiMenu}
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    <div class="fixed inset-0 z-[60]" onclick={() => showApiMenu = false}></div>
+    <div
+      class="fixed z-[61] min-w-[10rem] rounded-lg border bg-card shadow-lg py-1"
+      style="top: {apiMenuAnchor.bottom + 4}px; left: {apiMenuAnchor.left}px;"
+    >
+      {#each apiTabs as t}
+        <button
+          class="w-full text-left px-3 py-1.5 text-sm transition-colors
+            {tab === t.id
+              ? 'bg-primary/10 text-primary font-medium'
+              : 'text-foreground hover:bg-muted'}"
+          onclick={() => { tab = t.id; showApiMenu = false }}
+        >
+          {t.label}
+        </button>
+      {/each}
+      <div class="my-1 border-t"></div>
+      <a
+        href="/swagger"
+        target="_blank"
+        class="flex w-full items-center gap-1 px-3 py-1.5 text-sm text-foreground hover:bg-muted"
+        onclick={() => showApiMenu = false}
+      >
+        Swagger UI ↗
+      </a>
+    </div>
+  {/if}
 
   <!-- Main content -->
   <main class="flex-1 px-4 py-6 sm:px-6">

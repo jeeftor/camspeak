@@ -196,12 +196,13 @@
 
 <div class="flex flex-col gap-4">
   {#if libError}<p class="text-sm text-destructive">{libError}</p>{/if}
-  <div class="flex gap-1">
+  <div class="flex gap-1 overflow-x-auto" style="scrollbar-width:none;">
     {#each libTabs as t}
       <Button
         variant={tab === t.id ? 'default' : 'ghost'}
         size="sm"
         onclick={() => tab = t.id}
+        class="flex-shrink-0"
       >
         {t.label}
       </Button>
