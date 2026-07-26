@@ -243,7 +243,17 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ camera: name }),
       })
-      testStatus = { ...testStatus, [name]: res.ok ? '✓ Beep sent' : '✗ HTTP ' + res.status }
+      if (res.ok) {
+        testStatus = { ...testStatus, [name]: '✓ Beep sent' }
+      } else {
+        const errText = await res.text()
+        // Try to extract a clean error message from the JSON response
+        let msg = errText
+        try { msg = JSON.parse(errText).message || errText } catch {}
+        // Truncate long errors for inline display
+        if (msg.length > 120) msg = msg.slice(0, 117) + '...'
+        testStatus = { ...testStatus, [name]: '✗ ' + msg }
+      }
     } catch (e) {
       testStatus = { ...testStatus, [name]: '✗ ' + e.message }
     }
@@ -251,7 +261,7 @@
       const s = { ...testStatus }
       delete s[name]
       testStatus = s
-    }, 5000)
+    }, 8000)
   }
 
   function openAddCamera() {
@@ -841,7 +851,7 @@
                 {#if !cam.enabled}<span class="text-xs text-muted-foreground italic">disabled</span>{/if}
               </div>
               <div class="flex shrink-0 items-center gap-1">
-                {#if testStatus[cam.name]}<span class="mr-1 text-sm text-primary">{testStatus[cam.name]}</span>{/if}
+                {#if testStatus[cam.name]}<span class="mr-1 max-w-md text-sm {testStatus[cam.name].startsWith('✓') ? 'text-primary' : 'text-destructive'}" title={testStatus[cam.name]}>{testStatus[cam.name]}</span>{/if}
                 <label class="flex items-center gap-1 text-xs text-muted-foreground" title="AirPlay receiver for this camera">
                   <input
                     type="checkbox"

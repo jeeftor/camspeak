@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -152,7 +154,7 @@ func (c *Go2rtcClient) SendRaw(rawFile string) error {
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("go2rtc returned HTTP %d: %s", resp.StatusCode, body)
+		return c.formatGo2rtcError(resp.StatusCode, body)
 	}
 
 	// Stop the stream (send empty src to clean up)
@@ -212,4 +214,74 @@ func (c *Go2rtcClient) Stop() error {
 // Ping checks if the camera is reachable via TCP on port 80.
 func (c *Go2rtcClient) Ping() bool {
 	return tcpPing(c.ip, 80, 5*time.Second)
+}
+
+// formatGo2rtcError produces a human-readable, actionable error message for
+// common go2rtc failure modes (404, connection refused, etc.).
+func (c *Go2rtcClient) formatGo2rtcError(statusCode int, body []byte) error {
+	bodyStr := strings.TrimSpace(string(body))
+
+	switch statusCode {
+	case http.StatusNotFound:
+		// Stream doesn't exist in go2rtc. List available streams for a helpful error.
+		streams, listErr := ListGo2rtcStreams(c.go2rtcURL)
+		if listErr != nil {
+			return fmt.Errorf(
+				"go2rtc stream %q not found (HTTP 404) and could not list available streams: %s",
+				c.stream,
+				bodyStr,
+			)
+		}
+		available := make([]string, 0, len(streams))
+		bcStreams := make([]string, 0)
+		for name, src := range streams {
+			available = append(available, name)
+			if strings.Contains(src, "backchannel=1") {
+				bcStreams = append(bcStreams, name)
+			}
+		}
+		sort.Strings(available)
+		if len(available) == 0 {
+			return fmt.Errorf(
+				"go2rtc has no streams configured — add a stream with #backchannel=1 for camera %s in your go2rtc config",
+				c.ip,
+			)
+		}
+		if len(bcStreams) == 0 {
+			return fmt.Errorf(
+				"go2rtc stream %q not found (HTTP 404). Available streams: [%s] — but none have #backchannel=1. "+
+					"Add a stream like '%s: rtsp://USER:PASS@%s:554/stream_1#backchannel=1' to your go2rtc config",
+				c.stream,
+				strings.Join(available, ", "),
+				c.stream,
+				c.ip,
+			)
+		}
+		return fmt.Errorf(
+			"go2rtc stream %q not found (HTTP 404). Available streams with backchannel: [%s]. "+
+				"Select one of these in the camera config",
+			c.stream,
+			strings.Join(bcStreams, ", "),
+		)
+
+	case http.StatusBadRequest:
+		return fmt.Errorf(
+			"go2rtc rejected the request (HTTP 400): %s — check that the stream %q has a valid source URL",
+			bodyStr,
+			c.stream,
+		)
+
+	case http.StatusInternalServerError:
+		return fmt.Errorf(
+			"go2rtc internal error (HTTP 500): %s — the stream source may be unreachable (camera %s offline or credentials wrong)",
+			bodyStr,
+			c.ip,
+		)
+
+	case http.StatusServiceUnavailable:
+		return fmt.Errorf("go2rtc unavailable (HTTP 503): %s", bodyStr)
+
+	default:
+		return fmt.Errorf("go2rtc returned HTTP %d: %s", statusCode, bodyStr)
+	}
 }
