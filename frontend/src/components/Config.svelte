@@ -51,10 +51,6 @@
   let camVisionPrompt = $state('')
   let camStatus = $state('')
 
-  // AirPlay per-camera modal
-  let airplayFormOpen = $state(false)
-  let airplayCam = $state(null)
-
   // Vision form
   let visionURL = $state('')
   let visionModel = $state('')
@@ -83,7 +79,6 @@
   let airplayBasePort = $state(5000)
   let airplayPrimeSilenceMs = $state(500)
   let airplayModel = $state('RealityDevice14,1')
-  let airplayStatus = $state('')
   let airplayToggling = $state({})  // camera name → true while toggling
 
   // Test status
@@ -205,12 +200,14 @@
           user: camUser, pass: camPass, channel: parseInt(camChannel) || 1,
           stream: camStream, enabled: camEnabled,
           vision_prompt: camVisionPrompt,
+          airplay_name: camAirPlayName,
+          airplay_model: camAirPlayModel,
         }),
       })
       if (!res.ok) throw new Error(await res.text())
       camStatus = '✓ Saved'
       camFormOpen = false
-      camName = ''; camIP = ''; camUser = ''; camPass = ''; camChannel = 1; camStream = ''; camVisionPrompt = ''
+      camName = ''; camIP = ''; camUser = ''; camPass = ''; camChannel = 1; camStream = ''; camVisionPrompt = ''; camAirPlayName = ''; camAirPlayModel = ''
       loadConfig()
       onRefresh?.()
     } catch (e) {
@@ -254,6 +251,7 @@
   function openAddCamera() {
     camName = ''; camType = 'hikvision'; camIP = ''; camUser = ''; camPass = ''
     camChannel = 1; camStream = ''; camEnabled = false; camVisionPrompt = ''
+    camAirPlayName = ''; camAirPlayModel = ''
     camStatus = ''; testCamStatus = ''; detectCamStatus = ''
     camFormOpen = true
   }
@@ -268,39 +266,10 @@
     camStream = cam.stream || ''
     camEnabled = cam.enabled ?? false
     camVisionPrompt = cam.vision_prompt ?? ''
-    camStatus = ''; testCamStatus = ''; detectCamStatus = ''
-    camFormOpen = true
-  }
-
-  function openAirPlayConfig(cam) {
-    airplayCam = cam
     camAirPlayName = cam.airplay_name ?? ''
     camAirPlayModel = cam.airplay_model ?? airplayModel ?? 'RealityDevice14,1'
-    airplayFormOpen = true
-  }
-
-  async function saveAirPlayCamera() {
-    if (!airplayCam) return
-    const cam = airplayCam
-    try {
-      const res = await fetch('/api/config/cameras', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: cam.name, type: cam.type, ip: cam.ip, user: cam.user,
-          pass: cam.pass, channel: cam.channel, stream: cam.stream || '',
-          enabled: cam.enabled, airplay_name: camAirPlayName, airplay_model: camAirPlayModel,
-          vision_prompt: cam.vision_prompt || '',
-        }),
-      })
-      if (!res.ok) throw new Error(await res.text())
-      airplayFormOpen = false
-      airplayCam = null
-      loadConfig()
-      onRefresh?.()
-    } catch (e) {
-      configError = '✗ ' + e.message
-    }
+    camStatus = ''; testCamStatus = ''; detectCamStatus = ''
+    camFormOpen = true
   }
 
   async function pingCamera(name) {
@@ -482,29 +451,6 @@
     }
   }
 
-  async function saveAirPlay() {
-    airplayStatus = ''
-    try {
-      const res = await fetch('/api/config/airplay', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          enabled: airplayEnabled,
-          base_port: parseInt(airplayBasePort) || 5000,
-          prime_silence_ms: parseInt(airplayPrimeSilenceMs) || 500,
-          model: airplayModel || 'RealityDevice14,1',
-        }),
-      })
-      if (!res.ok) throw new Error(await res.text())
-      airplayStatus = '✓ Saved'
-      loadConfig()
-    } catch (e) {
-      airplayStatus = '✗ ' + e.message
-    } finally {
-      setTimeout(() => airplayStatus = '', 6000)
-    }
-  }
-
   // Normalize a bare host/IP to a full URL (add http:// if no scheme)
   function normalizeURL(url) {
     if (!url) return url
@@ -607,14 +553,28 @@
   async function saveSettings() {
     settingsStatus = ''
     try {
-      const res = await fetch('/api/config/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ frigate_url: normalizeURL(frigateURL), go2rtc_url: normalizeURL(go2rtcURL), advertise_ip: advertiseIP }),
-      })
-      if (!res.ok) throw new Error(await res.text())
+      const [settingsRes, airplayRes] = await Promise.all([
+        fetch('/api/config/settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ frigate_url: normalizeURL(frigateURL), go2rtc_url: normalizeURL(go2rtcURL), advertise_ip: advertiseIP }),
+        }),
+        fetch('/api/config/airplay', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            enabled: airplayEnabled,
+            base_port: parseInt(airplayBasePort) || 5000,
+            prime_silence_ms: parseInt(airplayPrimeSilenceMs) || 500,
+            model: airplayModel || 'RealityDevice14,1',
+          }),
+        }),
+      ])
+      if (!settingsRes.ok) throw new Error(await settingsRes.text())
+      if (!airplayRes.ok) throw new Error(await airplayRes.text())
       settingsStatus = '✓ Saved'
       loadConfig()
+      onRefresh?.()
     } catch (e) {
       settingsStatus = '✗ ' + e.message
     } finally {
@@ -695,6 +655,42 @@
             <Input bind:value={advertiseIP} placeholder="auto-detect" />
             <span class="text-[11px] opacity-60">Force a specific LAN IP for AirPlay mDNS (useful in Docker with host networking).</span>
           </div>
+        </div>
+
+        <div class="mt-6 border-t pt-4">
+          <h4 class="mb-3 text-sm font-semibold text-primary">AirPlay Receivers</h4>
+          <p class="mb-3 text-xs text-muted-foreground">
+            When enabled, each camera can appear as a separate AirPlay target in the iOS AirPlay picker.
+            Audio is decoded and sent to the camera speaker.
+          </p>
+          <div class="flex flex-wrap items-end gap-4">
+            <label class="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                bind:checked={airplayEnabled}
+                class="h-4 w-4 cursor-pointer rounded border-input accent-primary"
+              />
+              Enable AirPlay globally
+            </label>
+            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+              Base port
+              <Input bind:value={airplayBasePort} type="number" min="1024" max="65535" class="w-24" />
+            </label>
+            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+              Prime silence
+              <div class="flex items-center gap-1">
+                <Input bind:value={airplayPrimeSilenceMs} type="number" min="0" max="5000" class="w-24" />
+                <span class="text-xs text-muted-foreground/70">ms</span>
+              </div>
+            </label>
+            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+              Default icon model
+              <Input bind:value={airplayModel} list="airplay-models" placeholder="RealityDevice14,1" class="w-56" />
+            </label>
+          </div>
+          <p class="mt-2 text-[11px] text-muted-foreground/80">
+            The model string is advertised over mDNS and tells iOS which icon to show. Cameras can override the default icon individually.
+          </p>
         </div>
       </section>
 
@@ -793,49 +789,6 @@
         </div>
         {#if discoverStatus}<p class="mb-2 text-sm text-primary">{discoverStatus}</p>{/if}
 
-        <!-- Global AirPlay settings -->
-        <div class="mb-4 rounded-lg border bg-background p-3">
-          <div class="mb-2 flex items-center justify-between">
-            <h4 class="text-sm font-semibold text-primary">AirPlay Receivers</h4>
-            <div class="flex items-center gap-2">
-              {#if airplayStatus}<span class="text-sm text-primary">{airplayStatus}</span>{/if}
-              <Button size="sm" onclick={saveAirPlay}>Save AirPlay</Button>
-            </div>
-          </div>
-          <p class="mb-3 text-xs text-muted-foreground">
-            When enabled, each camera below can appear as a separate AirPlay target in the iOS AirPlay picker.
-            Audio is decoded and sent to the camera speaker.
-          </p>
-          <div class="flex flex-wrap items-end gap-4">
-            <label class="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                bind:checked={airplayEnabled}
-                class="h-4 w-4 cursor-pointer rounded border-input accent-primary"
-              />
-              Enable AirPlay globally
-            </label>
-            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-              Base port
-              <Input bind:value={airplayBasePort} type="number" min="1024" max="65535" class="w-24" />
-            </label>
-            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-              Prime silence
-              <div class="flex items-center gap-1">
-                <Input bind:value={airplayPrimeSilenceMs} type="number" min="0" max="5000" class="w-24" />
-                <span class="text-xs text-muted-foreground/70">ms</span>
-              </div>
-            </label>
-            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-              Default icon model
-              <Input bind:value={airplayModel} list="airplay-models" placeholder="RealityDevice14,1" class="w-56" />
-            </label>
-          </div>
-          <p class="mt-2 text-[11px] text-muted-foreground/80">
-            The model string is advertised over mDNS and tells iOS which icon to show. Cameras can override the default icon individually.
-          </p>
-        </div>
-
         <div class="flex flex-col gap-1.5">
           {#each cameras as cam}
             <div class="flex items-center justify-between rounded-lg border bg-background px-3 py-2 {!getCamEnabled(cam) ? 'opacity-50' : ''}">
@@ -865,7 +818,6 @@
                   />
                   AirPlay
                 </label>
-                <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => openAirPlayConfig(cam)} title="Edit AirPlay settings" aria-label="Edit AirPlay settings">AirPlay</Button>
                 <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => testCamera(cam.name)} title="Test beep" aria-label="Test beep" disabled={!getCamEnabled(cam)}><Bell class="h-4 w-4" /></Button>
                 <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => editCamera(cam)} title="Edit camera settings" aria-label="Edit camera"><Pencil class="h-4 w-4" /></Button>
                 <Button variant="outline" size="sm" class="h-7 px-2 hover:border-destructive hover:text-destructive" onclick={() => deleteCamera(cam.name)} title="Delete" aria-label="Delete camera"><X class="h-4 w-4" /></Button>
@@ -952,29 +904,17 @@
           <input type="checkbox" bind:checked={camEnabled} class="h-4 w-4 cursor-pointer rounded border-input accent-primary" />
           Enabled (camera will receive speak/broadcast)
         </label>
-        <div class="mt-4 flex flex-wrap items-center gap-2 border-t pt-4">
-          <Button onclick={saveCamera} disabled={!camName || !camIP}>Save Camera</Button>
-          <Button variant="outline" onclick={() => pingCamera(camName)} disabled={!camName || testCamBusy}>
-            {#if testCamBusy}Testing…{:else}Test Connection{/if}
-          </Button>
-          <Button variant="ghost" onclick={() => camFormOpen = false}>Cancel</Button>
-          {#if camStatus}<span class="text-sm text-primary">{camStatus}</span>{/if}
-          {#if testCamStatus}<span class="text-sm text-primary">{testCamStatus}</span>{/if}
-        </div>
-      </Modal>
-
-      <!-- AirPlay Per-Camera Modal -->
-      <Modal bind:open={airplayFormOpen} title={airplayCam ? `AirPlay — ${airplayCam.name}` : 'AirPlay Settings'}>
-        {#if airplayCam}
-          <div class="flex flex-col gap-3">
+        <div class="mt-4 border-t pt-4">
+          <h4 class="mb-2 text-sm font-semibold text-primary">AirPlay for this camera</h4>
+          <div class="grid grid-cols-2 gap-2.5 max-sm:grid-cols-1">
             <label class="flex flex-col gap-1 text-xs text-muted-foreground">
               AirPlay display name
-              <Input bind:value={camAirPlayName} placeholder={airplayCam.name.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) + ' Camera'} />
+              <Input bind:value={camAirPlayName} placeholder={camName.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) + ' Camera'} />
               <span class="text-[11px] opacity-60">Name shown in the iOS AirPlay picker. Auto-derived from the camera name if left empty.</span>
             </label>
             <label class="flex flex-col gap-1 text-xs text-muted-foreground">
               Device icon model
-              <Input bind:value={camAirPlayModel} list="airplay-models" placeholder={airplayModel || 'RealityDevice14,1'} class="w-full" />
+              <Input bind:value={camAirPlayModel} list="airplay-models" placeholder={airplayModel || 'RealityDevice14,1'} />
               <datalist id="airplay-models">
                 <option value="RealityDevice14,1">Vision Pro</option>
                 <option value="AppleTV6,2">Apple TV 4K</option>
@@ -987,10 +927,15 @@
               <span class="text-[11px] opacity-60">Advertised over mDNS; tells iOS which icon to show. Leave empty to use the default above.</span>
             </label>
           </div>
-        {/if}
+        </div>
         <div class="mt-4 flex flex-wrap items-center gap-2 border-t pt-4">
-          <Button onclick={saveAirPlayCamera} disabled={!airplayCam}>Save AirPlay</Button>
-          <Button variant="ghost" onclick={() => airplayFormOpen = false}>Cancel</Button>
+          <Button onclick={saveCamera} disabled={!camName || !camIP}>Save Camera</Button>
+          <Button variant="outline" onclick={() => pingCamera(camName)} disabled={!camName || testCamBusy}>
+            {#if testCamBusy}Testing…{:else}Test Connection{/if}
+          </Button>
+          <Button variant="ghost" onclick={() => camFormOpen = false}>Cancel</Button>
+          {#if camStatus}<span class="text-sm text-primary">{camStatus}</span>{/if}
+          {#if testCamStatus}<span class="text-sm text-primary">{testCamStatus}</span>{/if}
         </div>
       </Modal>
 
