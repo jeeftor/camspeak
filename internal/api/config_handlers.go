@@ -248,32 +248,57 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 	if req.Name == "" || req.IP == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "name and ip are required")
 	}
-	// Auto-detect camera type if not provided.
-	if req.Type == "" {
-		detected := cameras.ProbeCameraType(req.IP, req.User, req.Pass)
-		if detected != "" {
-			req.Type = detected
-			log.Info("camera type auto-detected", "camera", req.Name, "type", detected)
-		} else {
-			req.Type = "hikvision"
-		}
-	}
-	if req.Channel == 0 {
-		req.Channel = 1
-	}
-	// For Reolink cameras, default stream name to the camera name so audio can
-	// be routed through go2rtc if a go2rtc instance is reachable.
-	if req.Type == "reolink" && req.Stream == "" {
-		req.Stream = req.Name
-	}
-	// If editing an existing camera and enabled isn't specified, preserve current value
+	existing, hasExisting := h.cfg.Cameras[req.Name]
+
+	// If editing an existing camera and enabled isn't specified, preserve current value.
 	enabled := false
 	if req.Enabled != nil {
 		enabled = *req.Enabled
-	} else if existing, ok := h.cfg.Cameras[req.Name]; ok {
+	} else if hasExisting {
 		enabled = existing.Enabled
 	}
-	existing, hasExisting := h.cfg.Cameras[req.Name]
+
+	// Preserve existing camera fields when the request doesn't provide them.
+	// This matters because the UI does not return secrets (passwords) in API responses.
+	camType := req.Type
+	if camType == "" && hasExisting {
+		camType = existing.Type
+	}
+	user := req.User
+	if user == "" && hasExisting {
+		user = existing.User
+	}
+	pass := req.Pass
+	if pass == "" && hasExisting {
+		pass = existing.Pass
+	}
+	channel := req.Channel
+	if channel == 0 && hasExisting {
+		channel = existing.Channel
+	}
+	if channel == 0 {
+		channel = 1
+	}
+	stream := req.Stream
+	if stream == "" && hasExisting {
+		stream = existing.Stream
+	}
+
+	// Auto-detect camera type only when adding a new camera and type is not provided.
+	if camType == "" {
+		detected := cameras.ProbeCameraType(req.IP, user, pass)
+		if detected != "" {
+			camType = detected
+			log.Info("camera type auto-detected", "camera", req.Name, "type", detected)
+		} else {
+			camType = "hikvision"
+		}
+	}
+	// For Reolink cameras, default stream name to the camera name so audio can be
+	// routed through go2rtc if a go2rtc instance is reachable.
+	if camType == "reolink" && stream == "" {
+		stream = req.Name
+	}
 
 	// Preserve per-camera AirPlay fields if not provided in this request.
 	airPlayName := req.AirPlayName
@@ -298,12 +323,12 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 		visionPrompt = existing.VisionPrompt
 	}
 	cam := config.CameraConfig{
-		Type:         req.Type,
+		Type:         camType,
 		IP:           req.IP,
-		User:         req.User,
-		Pass:         req.Pass,
-		Channel:      req.Channel,
-		Stream:       req.Stream,
+		User:         user,
+		Pass:         pass,
+		Channel:      channel,
+		Stream:       stream,
 		Enabled:      enabled,
 		AirPlayName:  airPlayName,
 		AirPlayModel: airPlayModel,
