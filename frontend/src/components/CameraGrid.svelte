@@ -1,6 +1,7 @@
 <script>
   import { RefreshCw } from 'lucide-svelte'
   import CameraCard from './CameraCard.svelte'
+  import Broadcast from './Broadcast.svelte'
   import { Button } from '$lib/components/ui/button'
 
   let { cameras = [], voices = [], presets = [], onRefresh } = $props()
@@ -21,5 +22,9 @@
     {#each cameras as cam (cam.name)}
       <CameraCard camera={cam} {voices} {presets} />
     {/each}
+  </div>
+
+  <div class="mt-6 border-t pt-6">
+    <Broadcast {voices} {presets} />
   </div>
 {/if}
