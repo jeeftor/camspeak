@@ -41,7 +41,12 @@ can trigger spoken announcements when Frigate publishes detection events.
   GHCR.
 - **AirPlay v1 receiver** — each camera appears as an AirPlay target in the iOS
   picker. AirPlay audio from your iPhone is decoded and sent to the camera
-  speaker. Pure Go, no CGO, compatible with iOS 18+ and iOS 26.
+  speaker, with per-camera gain and custom display name/icon. Pure Go, no CGO,
+  compatible with iOS 18+ and iOS 26.
+- **Live audio streaming** — stream live URLs or `.pls`/`.m3u` playlists
+  (e.g. LiveATC, internet radio) directly to a camera speaker via the URL row.
+- **Per-camera gain** — a gain slider on each camera card controls volume for
+  TTS, presets, URL playback, live streams, and AirPlay.
 - **Pure Go** — SQLite via `modernc.org/sqlite`, no CGO required.
 
 ## Quick start with Docker
@@ -138,6 +143,7 @@ A `.env` file (gitignored) is loaded by godotenv at startup for local dev. Copy
 | `CAMSPEAK_VISION_PROMPT` | Global default vision prompt (fallback for Describe/Vision) | (hardcoded default) |
 | `CAMSPEAK_AIRPLAY_ENABLED` | Enable AirPlay v1 receivers for all cameras | `false` |
 | `CAMSPEAK_AIRPLAY_BASE_PORT` | Starting port for per-camera RAOP listeners | `5100` |
+| `CAMSPEAK_AIRPLAY_GAIN` | Default AirPlay digital gain when per-camera gain is unset | `1.0` |
 | `CAMSPEAK_AIRPLAY_MODEL` | Default device model advertised over mDNS (controls the iOS AirPlay icon) | `RealityDevice14,1` |
 | `CAM_<NAME>_IP` | Override IP for a discovered camera | (from DB) |
 | `CAM_<NAME>_USER` | Override username for a discovered camera | (from DB) |
@@ -221,7 +227,10 @@ All routes are under `/api`. The server listens on port `8585` by default.
 |---|---|---|
 | `POST` | `/api/speak` | Send TTS to a named camera |
 | `POST` | `/api/play` | Play a saved preset on a camera |
+| `POST` | `/api/play-url` | Download an audio URL and play it on a camera |
+| `POST` | `/api/play-stream` | Stream a live URL or `.pls`/`.m3u` playlist to a camera |
 | `POST` | `/api/beep` | Play an 800Hz test beep on a camera |
+| `POST` | `/api/stop` | Stop audio, live streams, and reset AirPlay for a camera (or all) |
 | `POST` | `/api/broadcast` | Broadcast TTS or a preset to all cameras |
 | `GET` | `/api/cameras` | List cameras with online status |
 | `GET` | `/api/voices` | List available TTS voices |
@@ -249,8 +258,10 @@ All routes are under `/api`. The server listens on port `8585` by default.
 | `DELETE` | `/api/config/tts/:name` | Delete a TTS preset (not the active one) |
 | `POST` | `/api/config/tts/:name/activate` | Set a TTS preset as active |
 | `GET` | `/api/config/cameras` | List configured cameras |
-| `POST` | `/api/config/cameras` | Add a camera |
+| `POST` | `/api/config/cameras` | Add or update a camera |
 | `DELETE` | `/api/config/cameras/:name` | Remove a camera |
+| `GET` | `/api/config/airplay` | Get AirPlay receiver configuration |
+| `PUT` | `/api/config/airplay` | Update AirPlay receiver configuration |
 | `GET` | `/api/config/rules` | List MQTT auto-speak rules |
 | `POST` | `/api/config/rules` | Create an MQTT rule |
 
@@ -408,7 +419,7 @@ prek install
 | `events` | Speak/play/beep event log for SSE history |
 | `preferences` | Key-value runtime preferences (port, library path, frigate URL, MQTT) |
 | `tts_presets` | Named TTS endpoint configurations (klipbord-style, one active) |
-| `cameras` | Camera definitions (name, type, ip, user, pass, channel) |
+| `cameras` | Camera definitions (name, type, ip, user, pass, channel, gain, airplay_name, airplay_model, airplay_enabled) |
 | `rules` | MQTT-triggered auto-speak rules (topic, filter, cameras, preset/text, voice) |
 
 ### Audio pipeline
@@ -418,6 +429,18 @@ prek install
 3. The raw audio is saved to the library on disk and metadata to SQLite.
 4. The camera client opens an ISAPI two-way audio session (digest auth), then
    streams the raw file throttled to 8000 bytes/sec to match real-time playback.
+
+For **AirPlay**, iPhone audio is decoded by the built-in RAOP receiver or
+`shairport-sync`, transcoded by `ffmpeg`, and streamed to the camera in real time.
+For **live streams** (`/api/play-stream`), the URL is resolved if it is a `.pls`
+or `.m3u` playlist, then `ffmpeg` decodes the live stream to G.711ulaw and pipes
+it directly to the camera's `Stream()` implementation. This works best with
+Hikvision cameras; go2rtc/ONVIF cameras buffer to a temp file and are not yet
+fully supported for continuous live streams.
+
+A per-camera **gain** value (default `3.0`) is applied as a digital volume factor
+in the `ffmpeg` filter chain for TTS, presets, URL playback, live streams, and
+AirPlay.
 
 ### Hikvision ISAPI flow
 
