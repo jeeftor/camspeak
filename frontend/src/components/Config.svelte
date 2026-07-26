@@ -36,6 +36,12 @@
   let detectCamBusy = $state(false)
   let detectCamStatus = $state('')
 
+  // go2rtc streams for dropdown population
+  let go2rtcStreams = $state([])
+  let go2rtcStreamsLoading = $state(false)
+  let go2rtcStreamsError = $state('')
+  let camStreamCustom = $state(false) // toggle for free-text stream entry
+
   // TTS modal
   let ttsFormOpen = $state(false)
   let camName = $state('')
@@ -253,6 +259,8 @@
     camChannel = 1; camStream = ''; camEnabled = false; camVisionPrompt = ''
     camAirPlayName = ''; camAirPlayModel = ''
     camStatus = ''; testCamStatus = ''; detectCamStatus = ''
+    camStreamCustom = false
+    loadGo2rtcStreams()
     camFormOpen = true
   }
 
@@ -269,7 +277,25 @@
     camAirPlayName = cam.airplay_name ?? ''
     camAirPlayModel = cam.airplay_model ?? airplayModel ?? 'RealityDevice14,1'
     camStatus = ''; testCamStatus = ''; detectCamStatus = ''
+    camStreamCustom = false
+    loadGo2rtcStreams()
     camFormOpen = true
+  }
+
+  async function loadGo2rtcStreams() {
+    go2rtcStreamsLoading = true
+    go2rtcStreamsError = ''
+    try {
+      const res = await fetch('/api/config/go2rtc/streams')
+      const data = await res.json()
+      go2rtcStreams = data.streams ?? []
+      if (data.error) go2rtcStreamsError = data.error
+    } catch (e) {
+      go2rtcStreamsError = e.message
+      go2rtcStreams = []
+    } finally {
+      go2rtcStreamsLoading = false
+    }
   }
 
   async function pingCamera(name) {
@@ -533,7 +559,13 @@
       if (data.type) {
         camType = data.type
         if (data.type === 'reolink' && !camStream) {
-          camStream = camName || 'doorbell'
+          // Try to find a matching go2rtc stream by camera IP
+          const match = go2rtcStreams.find(s => s.source && s.source.includes(camIP))
+          if (match) {
+            camStream = match.name
+          } else {
+            camStream = camName || 'doorbell'
+          }
         }
         detectCamStatus = `✓ Detected ${data.type}`
         if (data.type === 'reolink' && data.go2rtc_url) {
@@ -881,10 +913,61 @@
             {:else}
               RTSP URL
             {/if}
-            <Input bind:value={camStream} placeholder={camType === 'go2rtc' || camType === 'reolink' ? 'garage_2way' : 'rtsp://user:pass@ip:554/stream0'} />
+            {#if camType === 'reolink' || camType === 'go2rtc'}
+              {#if camStreamCustom}
+                <Input bind:value={camStream} placeholder="garage_2way" />
+              {:else if go2rtcStreamsLoading}
+                <div class="flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <Loader2 class="h-3 w-3 animate-spin" /> Loading go2rtc streams…
+                </div>
+              {:else if go2rtcStreams.length > 0}
+                <Select bind:value={camStream} onchange={(e) => { if (e.currentTarget.value === '__custom__') { camStream = ''; camStreamCustom = true } }}>
+                  <option value="">— select a stream —</option>
+                  {#each go2rtcStreams as s}
+                    <option value={s.name}>{s.name}{s.has_backchannel ? ' ✓ backchannel' : ''}</option>
+                  {/each}
+                  <option value="__custom__">✎ Custom (type manually)…</option>
+                </Select>
+                {#if camStream && go2rtcStreams.find(s => s.name === camStream) && !go2rtcStreams.find(s => s.name === camStream).has_backchannel}
+                  <span class="text-[11px] text-amber-500">
+                    ⚠ This stream does not have #backchannel=1 — audio may not work.
+                  </span>
+                {/if}
+              {:else}
+                <Input bind:value={camStream} placeholder="garage_2way" />
+                {#if go2rtcStreamsError}
+                  <span class="text-[11px] text-amber-500">
+                    Could not fetch go2rtc streams: {go2rtcStreamsError}. Set the go2rtc URL in Settings.
+                  </span>
+                {:else}
+                  <span class="text-[11px] text-amber-500">
+                    No go2rtc streams found. Set the go2rtc URL in Settings or type manually.
+                  </span>
+                {/if}
+              {/if}
+              {#if !camStreamCustom && go2rtcStreams.length > 0}
+                <button
+                  type="button"
+                  class="text-[11px] text-primary/70 hover:text-primary text-left"
+                  onclick={() => { camStreamCustom = true }}
+                >
+                  ✎ Type stream name manually instead
+                </button>
+              {:else if camStreamCustom}
+                <button
+                  type="button"
+                  class="text-[11px] text-primary/70 hover:text-primary text-left"
+                  onclick={() => { camStreamCustom = false }}
+                >
+                  ← Back to dropdown
+                </button>
+              {/if}
+            {:else}
+              <Input bind:value={camStream} placeholder="rtsp://user:pass@ip:554/stream0" />
+            {/if}
             {#if camType === 'reolink'}
               <span class="text-[11px] text-amber-500">
-                Reolink requires a go2rtc stream. Set the go2rtc URL in Settings and add a matching stream in go2rtc (e.g. onvif://user:pass@doorbell-ip:8000).
+                Reolink requires a go2rtc stream with #backchannel=1. Add one in your go2rtc config (e.g. reolink_doorbell: rtsp://user:pass@doorbell-ip:554/stream_1#backchannel=1).
               </span>
             {/if}
           </label>
