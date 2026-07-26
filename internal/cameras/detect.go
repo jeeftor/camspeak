@@ -202,3 +202,46 @@ func isGo2rtcURL(url string) bool {
 	}
 	return json.Unmarshal(body, &info) == nil && info.Version != ""
 }
+
+// ListGo2rtcStreams queries go2rtc for all configured stream names.
+// Returns a map of stream name → raw source string.
+func ListGo2rtcStreams(go2rtcURL string) (map[string]string, error) {
+	apiURL := strings.TrimRight(go2rtcURL, "/") + "/api/streams"
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(apiURL)
+	if err != nil {
+		return nil, fmt.Errorf("querying go2rtc streams: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("go2rtc returned HTTP %d for /api/streams", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, fmt.Errorf("reading go2rtc streams response: %w", err)
+	}
+	// go2rtc /api/streams returns a JSON object: {"stream_name": ["source1", ...], ...}
+	var raw map[string][]string
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("parsing go2rtc streams JSON: %w", err)
+	}
+	out := make(map[string]string, len(raw))
+	for name, sources := range raw {
+		src := ""
+		if len(sources) > 0 {
+			src = sources[0]
+		}
+		out[name] = src
+	}
+	return out, nil
+}
+
+// Go2rtcStreamExists checks whether a stream with the given name exists in go2rtc.
+func Go2rtcStreamExists(go2rtcURL, streamName string) bool {
+	streams, err := ListGo2rtcStreams(go2rtcURL)
+	if err != nil {
+		return false
+	}
+	_, ok := streams[streamName]
+	return ok
+}

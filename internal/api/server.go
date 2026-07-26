@@ -178,6 +178,7 @@ func New(
 	api.POST("/config/cameras/discover", h.DiscoverCameras)
 	api.PATCH("/config/cameras/:name/toggle", h.ToggleCamera)
 	api.DELETE("/config/cameras/:name", h.DeleteCameraConfig)
+	api.GET("/config/go2rtc/streams", h.ListGo2rtcStreams)
 	api.GET("/config/rules", h.ListRules)
 	api.POST("/config/rules", h.CreateRule)
 
