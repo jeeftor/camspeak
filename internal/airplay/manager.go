@@ -119,6 +119,19 @@ func (m *Manager) Stop() {
 	}
 }
 
+// RestartRunning stops and restarts all currently running receivers so they
+// pick up the latest AirPlay config (model, gain, prime silence, etc.).
+func (m *Manager) RestartRunning() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for name := range m.receivers {
+		m.stopLocked(name)
+		if err := m.startLocked(name); err != nil {
+			m.log.Warn("AirPlay restart failed", "camera", name, "err", err)
+		}
+	}
+}
+
 // startLocked starts a receiver; must hold m.mu.
 func (m *Manager) startLocked(name string) error {
 	if _, ok := m.receivers[name]; ok {

@@ -101,12 +101,17 @@ func Open(dbPath string) (*sql.DB, error) {
 		}
 	}
 
-	dsn := "file:" + dbPath + "?_journal_mode=WAL&_busy_timeout=5000"
+	dsn := "file:" + dbPath + "?_journal_mode=WAL&_busy_timeout=15000&_txlock=immediate"
 
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("opening database: %w", err)
 	}
+
+	// SQLite only supports a single writer. Limit the connection pool to 1
+	// so all queries are serialized through one connection and we never hit
+	// SQLITE_BUSY from concurrent writes on separate connections.
+	db.SetMaxOpenConns(1)
 
 	if err := db.Ping(); err != nil {
 		db.Close()
