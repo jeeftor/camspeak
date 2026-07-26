@@ -1552,42 +1552,6 @@ func newAudioStream(
 		}
 	}()
 
-	// Periodic throughput summary so long-running AirPlay sessions are observable,
-	// but only log when something actually changed to avoid idle noise.
-	go func() {
-		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
-		var lastBytes int64
-		var lastReconnects int64
-		idleIntervals := 0
-		for {
-			select {
-			case <-ticker.C:
-				bytes := atomic.LoadInt64(&as.bytesWritten)
-				reconnects := atomic.LoadInt64(&as.reconnects)
-				if bytes != lastBytes || reconnects != lastReconnects {
-					log.Info("stream: throughput summary",
-						"bytes_to_ffmpeg", bytes,
-						"reconnects", reconnects,
-					)
-					lastBytes = bytes
-					lastReconnects = reconnects
-					idleIntervals = 0
-				} else {
-					idleIntervals++
-					if idleIntervals%6 == 0 { // mention idle state once per 30s at debug
-						log.Debug("stream: no throughput change since last summary",
-							"bytes_to_ffmpeg", bytes,
-							"reconnects", reconnects,
-						)
-					}
-				}
-			case <-as.quit:
-				return
-			}
-		}
-	}()
-
 	return as, nil
 }
 
