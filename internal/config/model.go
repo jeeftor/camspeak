@@ -399,6 +399,12 @@ func loadCameras(db *sql.DB, cfg *Config) {
 		}
 		cam.Enabled = enabled == 1
 		cam.AirPlayEnabled = airplayEnabled == 1
+		// For Reolink cameras with no stream set, default the go2rtc stream
+		// name to the camera name so audio is routed through go2rtc.
+		// This fixes cameras discovered before the stream field was populated.
+		if cam.Type == "reolink" && cam.Stream == "" {
+			cam.Stream = name
+		}
 		cfg.Cameras[name] = cam
 	}
 }

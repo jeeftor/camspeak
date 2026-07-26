@@ -741,12 +741,18 @@ func (h *Handlers) DiscoverCameras(c echo.Context) error {
 	// Reload config so the new cameras are live
 	h.cfgMu.Lock()
 	for _, cam := range cameras {
+		stream := cam.Stream
+		// For Reolink cameras, default the go2rtc stream name to the camera name.
+		if cam.Type == "reolink" && stream == "" {
+			stream = cam.Name
+		}
 		h.cfg.Cameras[cam.Name] = config.CameraConfig{
 			Type:    cam.Type,
 			IP:      cam.IP,
 			User:    cam.User,
 			Pass:    cam.Pass,
 			Channel: cam.Channel,
+			Stream:  stream,
 			Enabled: true,
 		}
 	}
