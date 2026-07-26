@@ -91,7 +91,7 @@ Copy `.env.example` to `.env` for local dev. Loaded by godotenv at startup. Giti
 | Type | Protocol | Audio Method | Requirements |
 |---|---|---|---|
 | `hikvision` | ISAPI Two-Way Audio | HTTP PUT to `/ISAPI/Streaming/channels/{ch}/audioData` | Camera must support ISAPI (mainstream Hikvision) |
-| `reolink` | Reolink HTTP API | Stub (not yet implemented) | — |
+| `reolink` | go2rtc stream-to-camera (via ONVIF backchannel) | Routes through go2rtc when a stream name is configured; native Reolink protocol is a stub | go2rtc must have a matching stream with `onvif://` source. Set `CAMSPEAK_GO2RTC_URL`. |
 | `go2rtc` | go2rtc stream-to-camera API | `POST http://go2rtc:1984/api/streams?dst=<stream>&src=ffmpeg:<url>#audio=pcmu` | go2rtc must have a stream with `#backchannel=1`. Set `CAMSPEAK_GO2RTC_URL`. |
 | `onvif` | ONVIF RTSP backchannel | Direct RTP/G.711 via gortsplib (no external deps) | Camera must advertise `a=sendonly` audio track in RTSP SDP |
 - `rules` — MQTT-triggered auto-speak rules
@@ -103,6 +103,8 @@ Copy `.env.example` to `.env` for local dev. Loaded by godotenv at startup. Giti
 - `PUT/DELETE /api/config/tts/:name` — update/delete TTS preset
 - `POST /api/config/tts/:name/activate` — set active TTS preset
 - `GET/POST /api/config/cameras` — list/add cameras
+- `POST /api/config/cameras/detect` — probe camera IP and auto-detect vendor type
+- `POST /api/config/cameras/discover` — discover cameras from Frigate NVR
 - `DELETE /api/config/cameras/:name` — remove camera
 - `GET/POST /api/config/rules` — list/create MQTT rules
 - `GET/PUT /api/config/airplay` — get/update AirPlay receiver config

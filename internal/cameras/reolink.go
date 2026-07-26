@@ -25,15 +25,19 @@ func NewReolinkClient(ip, user, pass string) *ReolinkClient {
 }
 
 // SendRaw attempts to play audio on the Reolink doorbell speaker.
-// Currently a stub — returns a clear error until implemented.
+// Currently a stub — native Reolink two-way audio is not implemented.
+// To use a Reolink camera, configure a go2rtc stream and set the camera type
+// to "reolink" with the matching stream name; camspeak will route audio through
+// go2rtc automatically.
 func (c *ReolinkClient) SendRaw(rawFile string) error {
 	return fmt.Errorf("reolink audio not yet implemented for %s — "+
-		"open an issue at github.com/jeeftor/camspeak", c.ip)
+		"set a go2rtc stream name for this camera to route audio via go2rtc", c.ip)
 }
 
 // Stream is not yet implemented for Reolink.
 func (c *ReolinkClient) Stream(_ io.Reader) error {
-	return fmt.Errorf("reolink streaming not yet implemented for %s", c.ip)
+	return fmt.Errorf("reolink streaming not yet implemented for %s — "+
+		"set a go2rtc stream name for this camera to route audio via go2rtc", c.ip)
 }
 
 // Stop is a no-op for Reolink (audio not yet implemented).

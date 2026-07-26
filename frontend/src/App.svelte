@@ -5,7 +5,6 @@
   import Library from './components/Library.svelte'
   import EventLog from './components/EventLog.svelte'
   import Broadcast from './components/Broadcast.svelte'
-  import Frigate from './components/Frigate.svelte'
   import Config from './components/Config.svelte'
   import RestDocs from './components/RestDocs.svelte'
   import McpDocs from './components/McpDocs.svelte'
@@ -96,7 +95,6 @@
     { id: 'library',     label: 'Library' },
     { id: 'events',      label: 'Events' },
     { id: 'broadcast',   label: 'Broadcast' },
-    { id: 'frigate',     label: 'Frigate' },
     { id: 'config',      label: 'Config' },
     { id: 'vision-test', label: 'Vision Test' },
   ]
@@ -288,8 +286,6 @@
         <EventLog />
       {:else if tab === 'broadcast'}
         <Broadcast {voices} {presets} />
-      {:else if tab === 'frigate'}
-        <Frigate />
       {:else if tab === 'ha'}
         <HomeAssistant />
       {:else if tab === 'config'}
