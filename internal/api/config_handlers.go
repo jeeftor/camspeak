@@ -322,6 +322,9 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 		}
 	} else {
 		h.reg.DisableCamera(req.Name)
+		if h.airplayMgr != nil {
+			h.airplayMgr.Disable(req.Name)
+		}
 	}
 	// If AirPlay name/model/gain changed, restart the receiver so the new mDNS records are advertised
 	// and the new gain takes effect on the next stream.
