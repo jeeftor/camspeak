@@ -872,10 +872,16 @@
             <span class="flex items-center gap-1">Channel <span class="text-[10px] opacity-60">(ISAPI audio channel, usually 1)</span></span>
             <Input bind:value={camChannel} type="number" min="1" />
           </label>
-          {#if camType === 'go2rtc' || camType === 'onvif'}
+          {#if camType === 'go2rtc' || camType === 'onvif' || camType === 'reolink'}
           <label class="flex flex-col gap-1 text-xs text-muted-foreground sm:col-span-2">
-            {camType === 'go2rtc' ? 'go2rtc Stream Name' : 'RTSP URL'}
-            <Input bind:value={camStream} placeholder={camType === 'go2rtc' ? 'garage_2way' : 'rtsp://user:pass@ip:554/stream0'} />
+            {#if camType === 'go2rtc'}
+              go2rtc Stream Name
+            {:else if camType === 'reolink'}
+              go2rtc Stream Name (defaults to camera name)
+            {:else}
+              RTSP URL
+            {/if}
+            <Input bind:value={camStream} placeholder={camType === 'go2rtc' || camType === 'reolink' ? 'garage_2way' : 'rtsp://user:pass@ip:554/stream0'} />
           </label>
           {/if}
         </div>
