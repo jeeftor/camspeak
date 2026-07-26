@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte'
-  import { Radio, Loader2, Globe, Square } from 'lucide-svelte'
+  import { Loader2, Globe, Square } from 'lucide-svelte'
   import CameraGrid from './components/CameraGrid.svelte'
   import Library from './components/Library.svelte'
   import EventLog from './components/EventLog.svelte'
@@ -116,7 +116,8 @@
     <div class="flex items-center gap-3 px-4 py-2 sm:px-6">
       <!-- Logo -->
       <div class="flex items-center gap-2 font-bold tracking-wide text-primary flex-shrink-0">
-        <Radio class="h-4 w-4" />
+        <img src="/camspeak-mark.svg" alt="camspeak" class="h-6 w-auto dark:hidden" />
+        <img src="/camspeak-mark-dark.svg" alt="camspeak" class="h-6 w-auto hidden dark:block" />
         <span class="text-base">camspeak</span>
       </div>
 

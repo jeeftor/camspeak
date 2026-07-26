@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 72" width="300" height="72" role="img" aria-label="camspeak — camera audio router">
+  <!-- mark (same geometry, scaled) -->
+  <g transform="translate(0 9.5) scale(0.55)">
+    <circle cx="40" cy="48" r="32" fill="none" stroke="#11151c" stroke-width="7"/>
+    <circle cx="40" cy="48" r="13" fill="#3b6cf5"/>
+    <g fill="none" stroke="#3b6cf5" stroke-width="6" stroke-linecap="round">
+      <path d="M82 32 a18 18 0 0 1 0 32"/>
+      <path d="M96 24 a30 30 0 0 1 0 48"/>
+    </g>
+  </g>
+  <!-- wordmark -->
+  <text x="86" y="40" font-family="'SF Mono','JetBrains Mono',ui-monospace,Menlo,monospace" font-size="26" font-weight="600" letter-spacing="-0.5" fill="#11151c">camspeak</text>
+  <text x="87" y="55" font-family="-apple-system,'Segoe UI',Inter,system-ui,sans-serif" font-size="8.5" letter-spacing="3" fill="#6b7684">CAMERA AUDIO ROUTER</text>
+</svg>

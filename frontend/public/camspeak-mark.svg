@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 132 96" width="132" height="96" role="img" aria-label="camspeak">
+  <!-- camera body -->
+  <circle cx="40" cy="48" r="32" fill="none" stroke="#11151c" stroke-width="7"/>
+  <!-- lens -->
+  <circle cx="40" cy="48" r="13" fill="#3b6cf5"/>
+  <!-- sound waves (consistent set) -->
+  <g fill="none" stroke="#3b6cf5" stroke-width="6" stroke-linecap="round">
+    <path d="M82 32 a18 18 0 0 1 0 32"/>
+    <path d="M96 24 a30 30 0 0 1 0 48"/>
+  </g>
+</svg>
