@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  Route text-to-speech and audio to Hikvision and Reolink camera speakers via ISAPI two-way audio.
+  Route text-to-speech and audio to IP camera speakers via Hikvision ISAPI, Reolink/go2rtc, or ONVIF RTSP backchannel.
 </p>
 
 [![CI](https://github.com/jeeftor/camspeak/actions/workflows/ci.yml/badge.svg)](https://github.com/jeeftor/camspeak/actions/workflows/ci.yml)
@@ -14,11 +14,11 @@
 ## Overview
 
 **camspeak** is a self-hosted camera audio router. It takes text (or an audio
-file), synthesizes speech via an OpenAI-compatible TTS endpoint (such as
-[Kokoro](https://github.com/kokoro-ts/kokoro) running locally through
-[Lemonade](https://github.com/lemonade-sdk/lemonade)), transcodes the result to
-G.711ulaw 8kHz, and streams it to a Hikvision camera speaker over the ISAPI
-two-way audio channel.
+file), synthesizes speech via any OpenAI-compatible TTS endpoint (such as
+OpenAI, Ollama, LiteLLM, or [Lemonade](https://github.com/lemonade-sdk/lemonade)
+running [Kokoro](https://github.com/kokoro-ts/kokoro) locally), transcodes the
+result to G.711ulaw 8kHz, and streams it to a camera speaker over Hikvision
+ISAPI, Reolink/go2rtc, or ONVIF RTSP backchannel.
 
 It is designed to sit alongside a [Frigate](https://frigate.video) NVR
 deployment: cameras are auto-discovered from Frigate's config, and MQTT rules
@@ -30,8 +30,9 @@ can trigger spoken announcements when Frigate publishes detection events.
   endpoint and saved to SQLite on first boot.
 - **SQLite configuration** — no YAML. All preferences, cameras, TTS presets, and
   rules live in a single `camspeak.db` file.
-- **TTS presets** — klipbord-style named TTS endpoint configurations (e.g.
-  local Lemonade vs. OpenAI cloud) with an active preset selected at runtime.
+- **TTS presets** — klipbord-style named TTS endpoint configurations for any
+  OpenAI-compatible provider (e.g. OpenAI, Ollama, LiteLLM, or local Lemonade)
+  with an active preset selected at runtime.
 - **MQTT auto-speak** — subscribe to Frigate MQTT topics and trigger TTS or
   preset playback based on payload filters with wildcard topic matching.
 - **MCP endpoint** — expose `speak`, `play_preset`, `broadcast`, `list_cameras`,
@@ -141,7 +142,7 @@ A `.env` file (gitignored) is loaded by godotenv at startup for local dev. Copy
 | `CAMSPEAK_MQTT_BROKER` | MQTT broker URL (empty disables MQTT) | (none) |
 | `CAMSPEAK_MQTT_USER` | MQTT username | (none) |
 | `CAMSPEAK_MQTT_PASS` | MQTT password | (none) |
-| `CAMSPEAK_VISION_URL` | Vision LLM endpoint (OpenAI-compatible chat completions) | (none) |
+| `CAMSPEAK_VISION_URL` | Vision LLM endpoint (OpenAI-compatible chat completions, e.g. OpenAI, Ollama, LiteLLM) | (none) |
 | `CAMSPEAK_VISION_MODEL` | Vision model name | (none) |
 | `CAMSPEAK_VISION_API_KEY` | Vision API key (cloud providers only) | (none) |
 | `CAMSPEAK_VISION_PROMPT` | Global default vision prompt (fallback for Describe/Vision) | (hardcoded default) |
@@ -163,8 +164,8 @@ Cameras are auto-discovered from a Frigate NVR instance on startup when
 `CAMSPEAK_FRIGATE_URL` is set and no cameras exist in the database yet. The
 discoverer queries Frigate's `/api/config` endpoint, parses the `go2rtc` stream
 definitions for RTSP URLs, extracts the camera IP, classifies the vendor
-(Hikvision vs. Reolink) from the URL path, and deduplicates by IP (preferring
-main-stream entries over sub-streams).
+(Hikvision, Reolink, or ONVIF), and deduplicates by IP (preferring main-stream
+entries over sub-streams).
 
 Credentials returned by the Frigate API are often masked as `*:*`. Set real
 credentials via the `CAM_<NAME>_USER` and `CAM_<NAME>_PASS` environment
@@ -180,15 +181,18 @@ camspeak discover --frigate http://frigate:5000   # explicit URL
 ### TTS presets
 
 Multiple TTS endpoints can be configured in a klipbord-style preset system. The
-**active** preset is used at runtime for all TTS requests. Two defaults are
-seeded on first boot:
+**active** preset is used at runtime for all TTS requests. Any OpenAI-compatible
+TTS provider works — for example:
 
 | Preset | Endpoint | Model | Voice | Description |
 |---|---|---|---|---|
-| `lemonade` | `http://localhost:13305/v1/audio/speech` | `kokoro` | `af_sky` | Local Lemonade (GPU), active by default |
 | `openai` | `https://api.openai.com/v1/audio/speech` | `tts-1` | `alloy` | OpenAI cloud (requires API key) |
+| `lemonade` | `http://localhost:13305/v1/audio/speech` | `kokoro` | `af_sky` | Local Lemonade (GPU) serving Kokoro |
+| `ollama` | `http://localhost:11434/v1/audio/speech` | — | — | Local Ollama endpoint (if TTS model loaded) |
+| `litellm` | `http://localhost:4000/v1/audio/speech` | `kokoro` | `af_sky` | LiteLLM proxy to any supported provider |
 
-Switch the active preset via the REST API or env vars. `CAMSPEAK_TTS_URL`,
+Two defaults (`lemonade` and `openai`) are seeded on first boot. Switch the
+active preset via the REST API or env vars. `CAMSPEAK_TTS_URL`,
 `CAMSPEAK_TTS_MODEL`, and `CAMSPEAK_TTS_VOICE` override the active preset at
 runtime without changing the database.
 
@@ -282,7 +286,8 @@ All routes are under `/api`. The server listens on port `8585` by default.
 ## MCP tools
 
 camspeak exposes an MCP server at `POST /mcp` using the streamable HTTP
-transport, allowing LLM agents to control camera audio.
+transport, allowing any LLM agent or client — Claude, Cursor, OpenAI, Ollama
+via LiteLLM, etc. — to control camera audio.
 
 | Tool | Description | Required params |
 |---|---|---|
@@ -351,10 +356,10 @@ automation:
 
 This gives you HA's full condition/template engine (time windows, presence
 detection, multi-sensor logic) for triggering announcements. The built-in MQTT
-rule engine (Frigate tab) still works alongside this for standalone setups
+rule engine (Frigate / MQTT tab) still works alongside this for standalone setups
 without Home Assistant.
 
-See the **Home Assistant** tab in the UI for copy-paste-ready snippets including
+See the **Home Assistant** section in the UI for copy-paste-ready snippets including
 webhook triggers and dashboard buttons.
 
 ## Development
@@ -406,13 +411,13 @@ prek install
 |---|---|
 | `cmd/` | Cobra CLI commands (`serve`, `discover`, `speak`, `beep`, `list`) |
 | `internal/api/` | Echo HTTP server, REST handlers, MCP endpoint, SSE events, config API |
-| `internal/cameras/` | Camera speaker clients — Hikvision ISAPI (digest auth, throttled G.711 stream), Reolink stub |
+| `internal/cameras/` | Camera speaker clients — Hikvision ISAPI, Reolink/go2rtc, ONVIF RTSP backchannel |
 | `internal/config/` | SQLite-based config loading with env var overrides |
 | `internal/db/` | SQLite database initialization and schema |
 | `internal/frigate/` | Frigate NVR camera discovery (parses `/api/config` and go2rtc streams) |
 | `internal/library/` | Preset store — raw audio on disk, metadata in SQLite |
 | `internal/mqtt/` | Frigate MQTT subscriber for auto-speak rules (wildcard topics, payload filters) |
-| `internal/tts/` | OpenAI-compatible TTS client (Kokoro via Lemonade) |
+| `internal/tts/` | OpenAI-compatible TTS client (works with OpenAI, Ollama, LiteLLM, Lemonade, etc.) |
 | `frontend/` | Svelte 5 SPA (Vite, Bun), embedded into the Go binary |
 
 ### SQLite tables
@@ -428,7 +433,7 @@ prek install
 
 ### Audio pipeline
 
-1. Text is sent to the TTS endpoint (`/v1/audio/speech`, OpenAI-compatible).
+1. Text is sent to any OpenAI-compatible TTS endpoint (`/v1/audio/speech`).
 2. The returned WAV is transcoded by `ffmpeg` to raw G.711ulaw 8kHz.
 3. The raw audio is saved to the library on disk and metadata to SQLite.
 4. The camera client opens an ISAPI two-way audio session (digest auth), then
