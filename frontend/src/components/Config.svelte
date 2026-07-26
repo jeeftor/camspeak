@@ -1,12 +1,13 @@
 <script>
   import { onMount } from 'svelte'
-  import { Bell, Pencil, X, Check, Loader2 } from 'lucide-svelte'
+  import { Bell, Pencil, X, Check, Loader2, ScanLine } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Select } from '$lib/components/ui/select'
   import { Badge } from '$lib/components/ui/badge'
   import JsonCode from '$lib/components/JsonCode.svelte'
   import Modal from '$lib/components/Modal.svelte'
+  import Frigate from './Frigate.svelte'
 
   let { onRefresh } = $props()
 
@@ -31,6 +32,8 @@
   let camFormOpen = $state(false)
   let testCamStatus = $state('')
   let testCamBusy = $state(false)
+  let detectCamBusy = $state(false)
+  let detectCamStatus = $state('')
 
   // TTS modal
   let ttsFormOpen = $state(false)
@@ -250,7 +253,7 @@
   function openAddCamera() {
     camName = ''; camType = 'hikvision'; camIP = ''; camUser = ''; camPass = ''
     camChannel = 1; camStream = ''; camEnabled = false; camVisionPrompt = ''
-    camStatus = ''; testCamStatus = ''
+    camStatus = ''; testCamStatus = ''; detectCamStatus = ''
     camFormOpen = true
   }
 
@@ -264,7 +267,7 @@
     camStream = cam.stream || ''
     camEnabled = cam.enabled ?? false
     camVisionPrompt = cam.vision_prompt ?? ''
-    camStatus = ''; testCamStatus = ''
+    camStatus = ''; testCamStatus = ''; detectCamStatus = ''
     camFormOpen = true
   }
 
@@ -568,6 +571,38 @@
     } catch {}
   }
 
+  async function detectCameraType() {
+    if (!camIP) { detectCamStatus = '✗ Enter an IP first'; return }
+    detectCamBusy = true
+    detectCamStatus = ''
+    try {
+      const res = await fetch('/api/config/cameras/detect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ip: camIP, user: camUser, pass: camPass }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.message ?? await res.text())
+      if (data.type) {
+        camType = data.type
+        if (data.type === 'reolink' && !camStream) {
+          camStream = camName || 'doorbell'
+        }
+        detectCamStatus = `✓ Detected ${data.type}`
+        if (data.type === 'reolink' && data.go2rtc_url) {
+          detectCamStatus += ' (needs go2rtc stream)'
+        }
+      } else {
+        detectCamStatus = '✗ Could not detect type'
+      }
+    } catch (e) {
+      detectCamStatus = '✗ ' + (e.message ?? 'detection failed')
+    } finally {
+      detectCamBusy = false
+      setTimeout(() => detectCamStatus = '', 6000)
+    }
+  }
+
   async function saveSettings() {
     settingsStatus = ''
     try {
@@ -590,6 +625,7 @@
     { id: 'settings', label: 'Settings' },
     { id: 'tts', label: 'TTS Presets' },
     { id: 'cameras', label: 'Cameras' },
+    { id: 'frigate', label: 'Frigate / MQTT' },
     { id: 'vision', label: 'Vision' },
     { id: 'overview', label: 'Overview' },
   ]
@@ -848,13 +884,21 @@
             <Input bind:value={camName} placeholder="backyard" />
           </label>
           <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-            Type
+            <span class="flex items-center justify-between">
+              Type
+              <Button variant="ghost" size="sm" class="h-5 px-1.5 py-0 text-[11px]" onclick={detectCameraType} disabled={detectCamBusy} title="Auto-detect camera type">
+                {#if detectCamBusy}<Loader2 class="h-3 w-3 animate-spin mr-1" />{/if}
+                <ScanLine class="h-3 w-3 mr-1" />
+                Detect
+              </Button>
+            </span>
             <Select bind:value={camType}>
               <option value="hikvision">hikvision</option>
               <option value="reolink">reolink</option>
               <option value="go2rtc">go2rtc</option>
               <option value="onvif">onvif</option>
             </Select>
+            {#if detectCamStatus}<span class="text-[11px] text-primary">{detectCamStatus}</span>{/if}
           </label>
           <label class="flex flex-col gap-1 text-xs text-muted-foreground">
             IP
@@ -882,6 +926,11 @@
               RTSP URL
             {/if}
             <Input bind:value={camStream} placeholder={camType === 'go2rtc' || camType === 'reolink' ? 'garage_2way' : 'rtsp://user:pass@ip:554/stream0'} />
+            {#if camType === 'reolink'}
+              <span class="text-[11px] text-amber-500">
+                Reolink requires a go2rtc stream. Set the go2rtc URL in Settings and add a matching stream in go2rtc (e.g. onvif://user:pass@doorbell-ip:8000).
+              </span>
+            {/if}
           </label>
           {/if}
         </div>
@@ -942,6 +991,10 @@
           <Button variant="ghost" onclick={() => airplayFormOpen = false}>Cancel</Button>
         </div>
       </Modal>
+
+    <!-- Frigate / MQTT -->
+    {:else if tab === 'frigate'}
+      <Frigate />
 
     <!-- Vision -->
     {:else if tab === 'vision'}

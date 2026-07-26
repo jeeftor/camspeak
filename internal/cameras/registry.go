@@ -86,8 +86,14 @@ func NewSpeaker(cam config.CameraConfig, name, go2rtcURL, advertiseIP string) (S
 		// Reolink two-way audio is not natively implemented yet. If a go2rtc instance
 		// is reachable and a stream name is available, route audio through go2rtc instead.
 		if go2rtcURL != "" && cam.Stream != "" {
+			newLogger(
+				"registry",
+			).Info("reolink routing via go2rtc", "camera", name, "stream", cam.Stream, "go2rtc", go2rtcURL)
 			return NewGo2rtcClient(go2rtcURL, cam.Stream, cam.IP, advertiseIP, name), nil
 		}
+		newLogger(
+			"registry",
+		).Warn("reolink camera has no go2rtc stream; using stub", "camera", name, "go2rtc_url", go2rtcURL, "stream", cam.Stream)
 		return NewReolinkClient(cam.IP, cam.User, cam.Pass), nil
 	case "go2rtc":
 		if go2rtcURL == "" {
