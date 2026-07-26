@@ -20,38 +20,73 @@ running [Kokoro](https://github.com/kokoro-ts/kokoro) locally), transcodes the
 result to G.711ulaw 8kHz, and streams it to a camera speaker over Hikvision
 ISAPI, Reolink/go2rtc, or ONVIF RTSP backchannel.
 
-It is designed to sit alongside a [Frigate](https://frigate.video) NVR
-deployment: cameras are auto-discovered from Frigate's config, and MQTT rules
-can trigger spoken announcements when Frigate publishes detection events.
+It is built to live alongside a [Frigate](https://frigate.video) NVR deployment:
+cameras can be auto-discovered from Frigate's config, go2rtc can be used for
+cameras that need a two-way audio bridge (especially Reolink doorbells), and
+MQTT rules can trigger spoken announcements when Frigate publishes detection
+events.
+
+A built-in AirPlay v1 receiver also lets every camera appear as a separate
+AirPlay target on your iPhone, so you can stream music, calls, or any iOS audio
+directly to a camera speaker.
 
 ## Features
 
-- **Frigate auto-discovery** — cameras parsed from the Frigate `/api/config`
-  endpoint and saved to SQLite on first boot.
-- **SQLite configuration** — no YAML. All preferences, cameras, TTS presets, and
-  rules live in a single `camspeak.db` file.
-- **TTS presets** — klipbord-style named TTS endpoint configurations for any
-  OpenAI-compatible provider (e.g. OpenAI, Ollama, LiteLLM, or local Lemonade)
-  with an active preset selected at runtime.
-- **MQTT auto-speak** — subscribe to Frigate MQTT topics and trigger TTS or
-  preset playback based on payload filters with wildcard topic matching.
-- **MCP endpoint** — expose `speak`, `play_preset`, `broadcast`, `list_cameras`,
-  `list_presets`, `generate_preset`, and `beep` tools over the Model Context
-  Protocol for LLM-driven automation.
-- **REST API** — full HTTP API for speaking, playing presets, broadcasting,
-  managing cameras, TTS presets, rules, and the audio library.
-- **Svelte UI** — embedded Svelte 5 SPA served from the binary for point-and-click
-  control.
-- **Multi-arch Docker** — `linux/amd64` and `linux/arm64` images published to
-  GHCR.
-- **AirPlay v1 receiver** — each camera appears as an AirPlay target in the iOS
-  picker. AirPlay audio from your iPhone is decoded and sent to the camera
-  speaker, with per-camera gain and custom display name/icon. Pure Go, no CGO,
-  compatible with iOS 18+ and iOS 26.
-- **Live audio streaming** — stream live URLs or `.pls`/`.m3u` playlists
-  (e.g. LiveATC, internet radio) directly to a camera speaker via the URL row.
+### Camera support
+
+- **Hikvision ISAPI** — native two-way audio over `/ISAPI/Streaming/channels/{ch}/audioData`.
+- **Reolink / go2rtc** — Reolink cameras (including doorbells) are routed through a
+  [go2rtc](https://github.com/AlexxIT/go2rtc) stream using the ONVIF backchannel.
+- **ONVIF RTSP backchannel** — direct RTP/G.711 to cameras that advertise an
+  `a=sendonly` audio track, no external bridge required.
 - **Per-camera gain** — a gain slider on each camera card controls volume for
   TTS, presets, URL playback, live streams, and AirPlay.
+
+### Frigate & go2rtc integration
+
+- **Frigate auto-discovery** — pull camera names, IPs, and stream definitions from
+  Frigate's `/api/config` endpoint on first boot.
+- **go2rtc detection** — auto-detect a reachable go2rtc instance from `CAMSPEAK_GO2RTC_URL`,
+  Frigate's built-in go2rtc, or common local endpoints.
+- **Camera type detection** — probe an IP to classify it as Hikvision, Reolink,
+  or ONVIF when adding cameras manually.
+- **Frigate MQTT rules** — subscribe to Frigate event topics and trigger TTS or
+  preset playback with payload filters and wildcard topic matching.
+
+### TTS & audio sources
+
+- **OpenAI-compatible TTS** — works with OpenAI, Ollama, LiteLLM, or local Lemonade.
+- **TTS presets** — klipbord-style named endpoint configurations with an active
+  preset selected at runtime.
+- **Audio library** — generate TTS clips, upload audio files, and save them as
+  reusable presets organized by category.
+- **Live audio streaming** — stream live URLs or `.pls`/`.m3u` playlists
+  (e.g. LiveATC, internet radio) directly to a camera speaker.
+- **Broadcast** — send TTS or a preset to all enabled cameras at once.
+
+### Automation & control
+
+- **MCP endpoint** — expose `speak`, `play_preset`, `broadcast`, `list_cameras`,
+  `list_presets`, `generate_preset`, and `beep` tools over the Model Context
+  Protocol for LLM-driven automation (Claude, Cursor, OpenAI, Ollama via LiteLLM, etc.).
+- **REST API** — full HTTP API for speaking, playing presets, broadcasting,
+  managing cameras, TTS presets, rules, and the audio library.
+- **Home Assistant** — works via the `rest_command` platform; no custom integration needed.
+- **Svelte UI** — embedded Svelte 5 SPA served from the binary for point-and-click control.
+
+### AirPlay receiver
+
+- **AirPlay v1 target per camera** — every camera shows up as a separate AirPlay
+  speaker in the iOS picker.
+- **iOS audio to camera** — stream music, calls, or any iOS audio to a camera
+  speaker with per-camera gain, custom display name, and device icon model.
+- **Pure Go** — no CGO; compatible with iOS 18+ and iOS 26.
+
+### Deployment
+
+- **SQLite configuration** — no YAML. All preferences, cameras, TTS presets, and
+  rules live in a single `camspeak.db` file.
+- **Multi-arch Docker** — `linux/amd64` and `linux/arm64` images published to GHCR.
 - **Pure Go** — SQLite via `modernc.org/sqlite`, no CGO required.
 
 ## Quick start with Docker
@@ -73,6 +108,7 @@ services:
       - TZ=${TZ:-America/Denver}
       - CAMSPEAK_DATA_DIR=/config
       - CAMSPEAK_FRIGATE_URL=${CAMSPEAK_FRIGATE_URL:-}
+      - CAMSPEAK_GO2RTC_URL=${CAMSPEAK_GO2RTC_URL:-}
       - CAMSPEAK_TTS_URL=${CAMSPEAK_TTS_URL:-}
       - CAMSPEAK_TTS_MODEL=${CAMSPEAK_TTS_MODEL:-kokoro}
       - CAMSPEAK_TTS_VOICE=${CAMSPEAK_TTS_VOICE:-af_sky}
@@ -166,6 +202,11 @@ discoverer queries Frigate's `/api/config` endpoint, parses the `go2rtc` stream
 definitions for RTSP URLs, extracts the camera IP, classifies the vendor
 (Hikvision, Reolink, or ONVIF), and deduplicates by IP (preferring main-stream
 entries over sub-streams).
+
+When adding a camera manually in the UI, click **Detect** to probe the IP and
+auto-fill the camera type. For Reolink cameras (including doorbells), camspeak
+routes audio through a go2rtc stream with an ONVIF backchannel source; set
+`CAMSPEAK_GO2RTC_URL` and add the matching stream in go2rtc.
 
 Credentials returned by the Frigate API are often masked as `*:*`. Set real
 credentials via the `CAM_<NAME>_USER` and `CAM_<NAME>_PASS` environment
