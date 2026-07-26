@@ -204,7 +204,7 @@ func isGo2rtcURL(url string) bool {
 }
 
 // ListGo2rtcStreams queries go2rtc for all configured stream names.
-// Returns a map of stream name → raw source string.
+// Returns a map of stream name → raw source string (first producer URL).
 func ListGo2rtcStreams(go2rtcURL string) (map[string]string, error) {
 	apiURL := strings.TrimRight(go2rtcURL, "/") + "/api/streams"
 	client := &http.Client{Timeout: 5 * time.Second}
@@ -220,16 +220,26 @@ func ListGo2rtcStreams(go2rtcURL string) (map[string]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading go2rtc streams response: %w", err)
 	}
-	// go2rtc /api/streams returns a JSON object: {"stream_name": ["source1", ...], ...}
-	var raw map[string][]string
+	// go2rtc /api/streams returns: {"stream_name": {"producers": [{"url": "..."}], "consumers": [...]}}
+	var raw map[string]struct {
+		Producers []struct {
+			URL    string `json:"url"`
+			Source string `json:"source"`
+		} `json:"producers"`
+	}
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return nil, fmt.Errorf("parsing go2rtc streams JSON: %w", err)
 	}
 	out := make(map[string]string, len(raw))
-	for name, sources := range raw {
+	for name, info := range raw {
 		src := ""
-		if len(sources) > 0 {
-			src = sources[0]
+		if len(info.Producers) > 0 {
+			// Prefer "url" (the original source URL), fall back to "source"
+			if info.Producers[0].URL != "" {
+				src = info.Producers[0].URL
+			} else {
+				src = info.Producers[0].Source
+			}
 		}
 		out[name] = src
 	}
