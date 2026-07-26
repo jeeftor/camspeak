@@ -21,6 +21,7 @@ type DiscoveredCamera struct {
 	User    string `json:"user"    db:"user"`
 	Pass    string `json:"pass"    db:"pass"`
 	Channel int    `json:"channel" db:"channel"`
+	Stream  string `json:"stream"  db:"stream"`
 }
 
 // Discoverer queries a Frigate NVR instance for its camera configuration.
@@ -118,24 +119,60 @@ func (d *Discoverer) Discover() ([]DiscoveredCamera, error) {
 		}
 	}
 
-	// If go2rtc had no real IPs, fall back to cameras section (restream URLs)
-	// This won't give us IPs but at least registers camera names
-	if len(byIP) == 0 {
-		for _, cam := range cfg.Cameras {
-			for _, inp := range cam.FFmpeg.Inputs {
-				if strings.HasPrefix(inp.Path, "rtsp://localhost") {
-					// Restream URL — can't extract real IP from go2rtc restream
-					_ = inp
+	// Build a map from go2rtc stream name to Frigate camera name by looking at
+	// each camera's ffmpeg input paths. Frigate often references its own go2rtc
+	// restream as rtsp://localhost:8554/<stream_name>, so we can use the
+	// Frigate camera name even when the go2rtc stream itself has a different name.
+	streamToCamera := streamToCameraName(cfg)
+
+	result := make([]DiscoveredCamera, 0, len(byIP))
+	for _, cam := range byIP {
+		if cameraName, ok := streamToCamera[cam.Name]; ok && cameraName != "" {
+			cam.Name = cameraName
+		}
+		result = append(result, cam)
+	}
+	return result, nil
+}
+
+// streamToCameraName builds a map from go2rtc stream name to Frigate camera name.
+// It inspects each camera's ffmpeg input paths for references to go2rtc restreams
+// such as rtsp://localhost:8554/<stream_name> or rtsp://127.0.0.1:8554/<stream_name>.
+func streamToCameraName(cfg frigateConfig) map[string]string {
+	mapping := make(map[string]string)
+	for cameraName, cam := range cfg.Cameras {
+		for _, inp := range cam.FFmpeg.Inputs {
+			stream := extractGo2rtcStreamName(inp.Path)
+			if stream != "" {
+				mapping[stream] = cameraName
+				stripped := stripStreamSuffix(stream)
+				if stripped != stream {
+					mapping[stripped] = cameraName
 				}
 			}
 		}
 	}
+	return mapping
+}
 
-	result := make([]DiscoveredCamera, 0, len(byIP))
-	for _, cam := range byIP {
-		result = append(result, cam)
+// extractGo2rtcStreamName parses a Frigate ffmpeg input path and returns the
+// referenced go2rtc stream name, or "" if the path is not a go2rtc restream.
+func extractGo2rtcStreamName(path string) string {
+	u, err := url.Parse(path)
+	if err != nil || u.Hostname() == "" {
+		return ""
 	}
-	return result, nil
+	if u.Hostname() != "localhost" && u.Hostname() != "127.0.0.1" {
+		return ""
+	}
+	if u.Port() != "8554" && u.Port() != "" {
+		return ""
+	}
+	stream := strings.TrimPrefix(u.Path, "/")
+	if stream == "" {
+		return ""
+	}
+	return stream
 }
 
 // parseRTSP parses an RTSP URL and the originating Frigate stream name into a
@@ -152,10 +189,12 @@ func parseRTSP(rawURL, frigateName string) (DiscoveredCamera, bool) {
 		return DiscoveredCamera{}, false
 	}
 
+	name := stripStreamSuffix(frigateName)
 	cam := DiscoveredCamera{
 		IP:      u.Hostname(),
 		Channel: 1,
-		Name:    stripStreamSuffix(frigateName),
+		Name:    name,
+		Stream:  name,
 	}
 
 	if u.User != nil {
@@ -230,7 +269,7 @@ func stripStreamSuffix(name string) string {
 // SaveToDB inserts or replaces the given cameras into the cameras table.
 func SaveToDB(db *sql.DB, cameras []DiscoveredCamera) error {
 	const q = `INSERT OR REPLACE INTO cameras ` +
-		`(name, type, ip, user, pass, channel) VALUES (?, ?, ?, ?, ?, ?)`
+		`(name, type, ip, user, pass, channel, stream) VALUES (?, ?, ?, ?, ?, ?, ?)`
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -245,7 +284,7 @@ func SaveToDB(db *sql.DB, cameras []DiscoveredCamera) error {
 	defer stmt.Close() //nolint:errcheck
 
 	for _, c := range cameras {
-		if _, err := stmt.Exec(c.Name, c.Type, c.IP, c.User, c.Pass, c.Channel); err != nil {
+		if _, err := stmt.Exec(c.Name, c.Type, c.IP, c.User, c.Pass, c.Channel, c.Stream); err != nil {
 			return fmt.Errorf("inserting camera %q: %w", c.Name, err)
 		}
 	}

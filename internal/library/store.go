@@ -108,7 +108,7 @@ func (s *Store) Save(category, name, text, voice string, wavData []byte) (*Prese
 	}
 
 	rawFile := s.rawPath(category, name)
-	if err := transcodeToRaw(tmp.Name(), rawFile); err != nil {
+	if err := transcodeToRaw(tmp.Name(), rawFile, false); err != nil {
 		return nil, fmt.Errorf("transcoding to G.711ulaw: %w", err)
 	}
 
@@ -124,7 +124,7 @@ func (s *Store) SaveFile(category, name string, srcFile string) (*Preset, error)
 	}
 
 	rawFile := s.rawPath(category, name)
-	err = transcodeToRaw(srcFile, rawFile)
+	err = transcodeToRaw(srcFile, rawFile, true)
 	if err != nil {
 		return nil, fmt.Errorf("transcoding: %w", err)
 	}
@@ -320,11 +320,17 @@ func (p *Preset) GetRawPath() string {
 }
 
 // transcodeToRaw converts any audio file to G.711ulaw 8kHz raw via ffmpeg.
-// Applies a 3x volume boost.
-func transcodeToRaw(src, dst string) error {
+// When normalize is true, the uploaded audio is loudness-normalized so it
+// sits in the same volume range as TTS-generated clips. When false, a 3x
+// volume boost is applied (used for TTS output that is already consistent).
+func transcodeToRaw(src, dst string, normalize bool) error {
+	af := "volume=3.0"
+	if normalize {
+		af = "loudnorm=I=-16:TP=-1.5:LRA=11"
+	}
 	cmd := exec.Command("ffmpeg", "-y",
 		"-i", src,
-		"-af", "volume=3.0",
+		"-af", af,
 		"-ar", "8000",
 		"-ac", "1",
 		"-c:a", "pcm_mulaw",
