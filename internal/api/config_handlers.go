@@ -674,8 +674,16 @@ func (h *Handlers) UpdateAirPlayConfig(c echo.Context) error {
 	}
 
 	h.cfgMu.Lock()
+	oldModel := h.cfg.AirPlay.Model
+	oldGain := h.cfg.AirPlay.Gain
 	h.cfg.AirPlay = req
 	h.cfgMu.Unlock()
+
+	// Restart running AirPlay receivers if the model or gain changed so the
+	// new mDNS records are advertised and the new gain takes effect.
+	if h.airplayMgr != nil && (oldModel != req.Model || oldGain != req.Gain) {
+		h.airplayMgr.RestartRunning()
+	}
 
 	h.logger(c).Info(
 		"AirPlay config updated",
@@ -696,7 +704,7 @@ func (h *Handlers) UpdateAirPlayConfig(c echo.Context) error {
 		"prime_silence_ms": req.PrimeSilenceMs,
 		"model":            req.Model,
 		"gain":             req.Gain,
-		"note":             "restart required for port/enabled/model changes; gain/prime silence take effect on next stream start",
+		"note":             "running receivers restarted to apply model/gain changes; port/enabled changes require server restart",
 	})
 }
 

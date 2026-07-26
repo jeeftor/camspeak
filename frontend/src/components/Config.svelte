@@ -553,25 +553,27 @@
   async function saveSettings() {
     settingsStatus = ''
     try {
-      const [settingsRes, airplayRes] = await Promise.all([
-        fetch('/api/config/settings', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ frigate_url: normalizeURL(frigateURL), go2rtc_url: normalizeURL(go2rtcURL), advertise_ip: advertiseIP }),
-        }),
-        fetch('/api/config/airplay', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            enabled: airplayEnabled,
-            base_port: parseInt(airplayBasePort) || 5000,
-            prime_silence_ms: parseInt(airplayPrimeSilenceMs) || 500,
-            model: airplayModel || 'RealityDevice14,1',
-          }),
-        }),
-      ])
+      // Save settings and AirPlay config sequentially to avoid SQLITE_BUSY
+      // (SQLite has a single writer lock; parallel writes from two requests conflict).
+      const settingsRes = await fetch('/api/config/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ frigate_url: normalizeURL(frigateURL), go2rtc_url: normalizeURL(go2rtcURL), advertise_ip: advertiseIP }),
+      })
       if (!settingsRes.ok) throw new Error(await settingsRes.text())
+
+      const airplayRes = await fetch('/api/config/airplay', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: airplayEnabled,
+          base_port: parseInt(airplayBasePort) || 5000,
+          prime_silence_ms: parseInt(airplayPrimeSilenceMs) || 500,
+          model: airplayModel || 'RealityDevice14,1',
+        }),
+      })
       if (!airplayRes.ok) throw new Error(await airplayRes.text())
+
       settingsStatus = '✓ Saved'
       loadConfig()
       onRefresh?.()
