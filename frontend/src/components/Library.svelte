@@ -268,7 +268,11 @@
               <div class="rounded-lg border bg-card px-3 py-2">
                 <div class="flex items-center justify-between">
                   <div class="flex min-w-0 flex-1 items-center gap-2.5">
-                    <span class="font-semibold whitespace-nowrap">{p.name}</span>
+                    <button
+                      class="font-semibold whitespace-nowrap hover:text-primary hover:underline"
+                      onclick={() => startRename(p)}
+                      title="Click to rename"
+                    >{p.name}</button>
                     <span class="text-xs text-muted-foreground whitespace-nowrap">{p.duration?.toFixed(1)}s</span>
                     {#if p.text}<span class="truncate text-sm italic text-muted-foreground">"{p.text}"</span>{/if}
                   </div>
@@ -294,7 +298,7 @@
                       Category
                       <Input bind:value={editCategory} class="h-8 w-32" />
                     </label>
-                    <Button size="sm" class="h-8" onclick={() => doRename(p.category, p.name)} disabled={!editName || !editCategory}>
+                    <Button size="sm" class="h-8" onclick={() => doRename(p.category, p.name)} disabled={editName === p.name && editCategory === p.category}>
                       Save
                     </Button>
                     <Button size="sm" variant="ghost" class="h-8" onclick={() => editingKey = ''}>Cancel</Button>
