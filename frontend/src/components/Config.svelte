@@ -8,6 +8,7 @@
   import JsonCode from '$lib/components/JsonCode.svelte'
   import Modal from '$lib/components/Modal.svelte'
   import Frigate from './Frigate.svelte'
+  import VisionTest from './VisionTest.svelte'
 
   let { onRefresh } = $props()
 
@@ -627,6 +628,7 @@
     { id: 'cameras', label: 'Cameras' },
     { id: 'frigate', label: 'Frigate / MQTT' },
     { id: 'vision', label: 'Vision' },
+    { id: 'vision-test', label: 'Vision Test' },
     { id: 'overview', label: 'Overview' },
   ]
 </script>
@@ -1044,6 +1046,10 @@
           </span>
         </label>
       </section>
+
+    <!-- Vision Test -->
+    {:else if tab === 'vision-test'}
+      <VisionTest cameras={cameras} globalPrompt={visionPrompt} onSavePrompt={async (p) => { visionPrompt = p; await saveVision(); }} />
 
     <!-- Overview -->
     {:else if tab === 'overview'}

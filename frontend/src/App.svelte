@@ -4,12 +4,10 @@
   import CameraGrid from './components/CameraGrid.svelte'
   import Library from './components/Library.svelte'
   import EventLog from './components/EventLog.svelte'
-  import Broadcast from './components/Broadcast.svelte'
   import Config from './components/Config.svelte'
   import RestDocs from './components/RestDocs.svelte'
   import McpDocs from './components/McpDocs.svelte'
   import HomeAssistant from './components/HomeAssistant.svelte'
-  import VisionTest from './components/VisionTest.svelte'
   import { curlState, setCurlBaseUrl, resetCurlBaseUrl } from '$lib/curl.svelte'
 
   let tab = $state('cameras')
@@ -21,7 +19,6 @@
   let loadError = $state('')
   let showUrlEditor = $state(false)
   let urlEditValue = $state('')
-  let globalVisionPrompt = $state('')
   let stoppingAll = $state(false)
   let showApiMenu = $state(false)
   let apiMenuAnchor = $state({ bottom: 0, left: 0 })
@@ -38,7 +35,7 @@
   }
 
   // --- Hash-based SPA routing ---
-  const validTabs = ['cameras', 'library', 'events', 'broadcast', 'frigate', 'ha', 'config', 'vision-test', 'rest', 'swagger', 'mcp']
+  const validTabs = ['cameras', 'library', 'events', 'ha', 'config', 'rest', 'swagger', 'mcp']
 
   function tabFromHash() {
     const h = window.location.hash.replace(/^#\/?/, '')
@@ -69,20 +66,17 @@
     loading = true
     loadError = ''
     try {
-      const [camRes, voiceRes, presetRes, healthRes, visionRes] = await Promise.all([
+      const [camRes, voiceRes, presetRes, healthRes] = await Promise.all([
         fetch('/api/cameras'),
         fetch('/api/voices'),
         fetch('/api/library'),
         fetch('/api/health'),
-        fetch('/api/config/vision'),
       ])
       cameras = await camRes.json() ?? []
       voices = await voiceRes.json() ?? []
       presets = await presetRes.json() ?? []
       const health = await healthRes.json() ?? {}
       version = health.version ?? ''
-      const v = await visionRes.json() ?? {}
-      globalVisionPrompt = v.prompt ?? ''
     } catch (e) {
       loadError = 'Failed to load data: ' + e.message
     } finally {
@@ -91,12 +85,10 @@
   }
 
   const tabs = [
-    { id: 'cameras',     label: 'Cameras' },
-    { id: 'library',     label: 'Library' },
-    { id: 'events',      label: 'Events' },
-    { id: 'broadcast',   label: 'Broadcast' },
-    { id: 'config',      label: 'Config' },
-    { id: 'vision-test', label: 'Vision Test' },
+    { id: 'cameras', label: 'Cameras' },
+    { id: 'library', label: 'Library' },
+    { id: 'events',  label: 'Events' },
+    { id: 'config',  label: 'Config' },
   ]
 
   // API sub-menu items (shown in dropdown under "API" button)
@@ -285,14 +277,10 @@
         <Library {presets} {voices} onRefresh={loadAll} />
       {:else if tab === 'events'}
         <EventLog />
-      {:else if tab === 'broadcast'}
-        <Broadcast {voices} {presets} />
       {:else if tab === 'ha'}
         <HomeAssistant />
       {:else if tab === 'config'}
         <Config onRefresh={loadAll} />
-      {:else if tab === 'vision-test'}
-        <VisionTest cameras={cameras} globalPrompt={globalVisionPrompt} onSavePrompt={async (p) => { globalVisionPrompt = p }} />
       {:else if tab === 'rest'}
         <RestDocs />
       {:else if tab === 'mcp'}

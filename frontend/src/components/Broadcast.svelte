@@ -65,7 +65,7 @@
   )
 </script>
 
-<div class="flex flex-col gap-6 max-w-3xl">
+<div class="flex flex-col gap-6">
   <div>
     <h2 class="text-lg font-semibold text-primary mb-1">Broadcast</h2>
     <p class="text-sm text-muted-foreground">Send audio to all cameras simultaneously.</p>
