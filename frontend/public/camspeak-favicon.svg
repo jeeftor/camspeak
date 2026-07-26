@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100" role="img" aria-label="camspeak">
+  <style>
+    .tile { fill: #f2f4f8; }
+    .body { stroke: #11151c; }
+    @media (prefers-color-scheme: dark) {
+      .tile { fill: #11151c; }
+      .body { stroke: #f4f6fa; }
+    }
+  </style>
+  <rect class="tile" x="2" y="2" width="96" height="96" rx="26"/>
+  <!-- mark centered (same geometry/waves as everywhere else) -->
+  <g transform="translate(14 26) scale(0.56)">
+    <circle class="body" cx="40" cy="48" r="32" fill="none" stroke-width="7"/>
+    <circle cx="40" cy="48" r="13" fill="#3b6cf5"/>
+    <g fill="none" stroke="#3b6cf5" stroke-width="6" stroke-linecap="round">
+      <path d="M82 32 a18 18 0 0 1 0 32"/>
+      <path d="M96 24 a30 30 0 0 1 0 48"/>
+    </g>
+  </g>
+</svg>

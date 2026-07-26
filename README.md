@@ -1,6 +1,10 @@
-# camspeak
+<p align="center">
+  <img src="assets/camspeak-lockup.svg" alt="camspeak — camera audio router" width="320">
+</p>
 
-Route text-to-speech and audio to Hikvision and Reolink camera speakers via ISAPI two-way audio.
+<p align="center">
+  Route text-to-speech and audio to Hikvision and Reolink camera speakers via ISAPI two-way audio.
+</p>
 
 [![CI](https://github.com/jeeftor/camspeak/actions/workflows/ci.yml/badge.svg)](https://github.com/jeeftor/camspeak/actions/workflows/ci.yml)
 [![GHCR](https://img.shields.io/badge/ghcr.io-jeeftor%2Fcamspeak-blue)](https://github.com/jeeftor/camspeak/pkgs/container/camspeak)
