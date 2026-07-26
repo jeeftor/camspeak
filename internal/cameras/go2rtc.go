@@ -81,6 +81,9 @@ func (c *Go2rtcClient) SendRaw(rawFile string) error {
 	fileName := filepath.Base(rawFile)
 	srv := &http.Server{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Set Content-Type so ffmpeg probes the stream as mulaw audio,
+			// not rawvideo (which is the default for unknown/.raw extensions).
+			w.Header().Set("Content-Type", "audio/mulaw")
 			http.ServeFile(w, r, rawFile)
 		}),
 	}
@@ -94,8 +97,11 @@ func (c *Go2rtcClient) SendRaw(rawFile string) error {
 		listener.Close()
 	}()
 
-	// Build the go2rtc stream-to-camera API URL
-	srcURL := fmt.Sprintf("ffmpeg:http://%s:%d/%s#audio=pcmu#input=file", hostIP, port, fileName)
+	// Build the go2rtc stream-to-camera API URL.
+	// Use a .mulaw extension in the URL so ffmpeg's format probing detects
+	// G.711 mulaw audio instead of defaulting to rawvideo (which causes
+	// "Invalid pixel format" errors from go2rtc's internal ffmpeg).
+	srcURL := fmt.Sprintf("ffmpeg:http://%s:%d/audio.mulaw#audio=pcmu#input=file", hostIP, port)
 	apiURL := fmt.Sprintf("%s/api/streams?dst=%s&src=%s",
 		c.go2rtcURL,
 		url.QueryEscape(c.stream),
