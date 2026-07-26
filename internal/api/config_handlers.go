@@ -9,6 +9,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/jeeftor/camspeak/internal/cameras"
 	"github.com/jeeftor/camspeak/internal/config"
 	"github.com/jeeftor/camspeak/internal/frigate"
 	"github.com/jeeftor/camspeak/internal/util"
@@ -226,6 +227,7 @@ func (h *Handlers) ListCamerasConfig(c echo.Context) error {
 
 // CreateCamera handles POST /api/config/cameras — adds or updates a camera.
 func (h *Handlers) CreateCamera(c echo.Context) error {
+	log := h.logger(c)
 	var req struct {
 		Name         string  `json:"name"`
 		Type         string  `json:"type"`
@@ -246,11 +248,23 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 	if req.Name == "" || req.IP == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "name and ip are required")
 	}
+	// Auto-detect camera type if not provided.
 	if req.Type == "" {
-		req.Type = "hikvision"
+		detected := cameras.ProbeCameraType(req.IP, req.User, req.Pass)
+		if detected != "" {
+			req.Type = detected
+			log.Info("camera type auto-detected", "camera", req.Name, "type", detected)
+		} else {
+			req.Type = "hikvision"
+		}
 	}
 	if req.Channel == 0 {
 		req.Channel = 1
+	}
+	// For Reolink cameras, default stream name to the camera name so audio can
+	// be routed through go2rtc if a go2rtc instance is reachable.
+	if req.Type == "reolink" && req.Stream == "" {
+		req.Stream = req.Name
 	}
 	// If editing an existing camera and enabled isn't specified, preserve current value
 	enabled := false
@@ -343,6 +357,44 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 		"airplay_name":  cam.AirPlayName,
 		"airplay_model": cam.AirPlayModel,
 		"vision_prompt": visionPrompt,
+	})
+}
+
+// DetectCameraType handles POST /api/config/cameras/detect — probes a camera
+// and returns the detected vendor type plus any reachable go2rtc URL.
+func (h *Handlers) DetectCameraType(c echo.Context) error {
+	log := h.logger(c)
+	var req struct {
+		IP   string `json:"ip"`
+		User string `json:"user"`
+		Pass string `json:"pass"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid JSON body")
+	}
+	if req.IP == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "ip is required")
+	}
+
+	detected := cameras.ProbeCameraType(req.IP, req.User, req.Pass)
+	go2rtcURL := h.cfg.Go2rtcURL
+	if go2rtcURL == "" {
+		go2rtcURL = cameras.FindGo2rtcURL(h.cfg.FrigateURL)
+	}
+	if go2rtcURL != "" {
+		log.Debug("detected go2rtc for camera probe", "url", go2rtcURL)
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"ip":         req.IP,
+		"type":       detected,
+		"go2rtc_url": go2rtcURL,
+		"note": func() string {
+			if detected == "reolink" && go2rtcURL != "" {
+				return "Reolink detected; configure a go2rtc stream with the same name as the camera"
+			}
+			return ""
+		}(),
 	})
 }
 

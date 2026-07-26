@@ -49,11 +49,18 @@ type Registry struct {
 // loaded into configs but skipped (they won't appear in Names() or receive
 // speak/broadcast).
 func NewRegistry(cfg *config.Config, ttsClient *tts.Client) (*Registry, error) {
+	go2rtcURL := cfg.Go2rtcURL
+	if go2rtcURL == "" {
+		go2rtcURL = FindGo2rtcURL(cfg.FrigateURL)
+		if go2rtcURL != "" {
+			newLogger("registry").Info("auto-detected go2rtc", "url", go2rtcURL)
+		}
+	}
 	r := &Registry{
 		cameras:     make(map[string]Speaker),
 		configs:     cfg.Cameras,
 		tts:         ttsClient,
-		go2rtcURL:   cfg.Go2rtcURL,
+		go2rtcURL:   go2rtcURL,
 		advertiseIP: cfg.AdvertiseIP,
 	}
 
@@ -76,6 +83,11 @@ func NewSpeaker(cam config.CameraConfig, name, go2rtcURL, advertiseIP string) (S
 	case "hikvision":
 		return NewHikvisionClient(cam.IP, cam.User, cam.Pass, cam.Channel, name), nil
 	case "reolink":
+		// Reolink two-way audio is not natively implemented yet. If a go2rtc instance
+		// is reachable and a stream name is available, route audio through go2rtc instead.
+		if go2rtcURL != "" && cam.Stream != "" {
+			return NewGo2rtcClient(go2rtcURL, cam.Stream, cam.IP, advertiseIP, name), nil
+		}
 		return NewReolinkClient(cam.IP, cam.User, cam.Pass), nil
 	case "go2rtc":
 		if go2rtcURL == "" {
