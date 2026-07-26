@@ -708,6 +708,55 @@ func (h *Handlers) UpdateAirPlayConfig(c echo.Context) error {
 	})
 }
 
+// ListGo2rtcStreamsHandler handles GET /api/config/go2rtc/streams — lists
+// all streams configured in go2rtc so the UI can show available stream names
+// when configuring a Reolink camera.
+func (h *Handlers) ListGo2rtcStreams(c echo.Context) error {
+	h.cfgMu.Lock()
+	go2rtcURL := h.cfg.Go2rtcURL
+	h.cfgMu.Unlock()
+
+	if go2rtcURL == "" {
+		go2rtcURL = cameras.FindGo2rtcURL(h.cfg.FrigateURL)
+	}
+	if go2rtcURL == "" {
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"go2rtc_url": "",
+			"streams":    []interface{}{},
+			"note":       "go2rtc URL not configured — set it in Config → Settings",
+		})
+	}
+
+	streams, err := cameras.ListGo2rtcStreams(go2rtcURL)
+	if err != nil {
+		h.logger(c).Warn("failed to list go2rtc streams", "url", go2rtcURL, "err", err)
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"go2rtc_url": go2rtcURL,
+			"streams":    []interface{}{},
+			"error":      err.Error(),
+		})
+	}
+
+	type streamInfo struct {
+		Name           string `json:"name"`
+		Source         string `json:"source"`
+		HasBackchannel bool   `json:"has_backchannel"`
+	}
+	result := make([]streamInfo, 0, len(streams))
+	for name, src := range streams {
+		result = append(result, streamInfo{
+			Name:           name,
+			Source:         src,
+			HasBackchannel: strings.Contains(src, "backchannel"),
+		})
+	}
+	h.logger(c).Debug("listed go2rtc streams", "url", go2rtcURL, "count", len(result))
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"go2rtc_url": go2rtcURL,
+		"streams":    result,
+	})
+}
+
 // DiscoverCameras handles POST /api/cameras/discover — queries Frigate for cameras,
 // saves them to the database, and returns the discovered list.
 func (h *Handlers) DiscoverCameras(c echo.Context) error {
