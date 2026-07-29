@@ -14,6 +14,8 @@ import (
 
 	clog "github.com/charmbracelet/log"
 	"github.com/labstack/echo/v4"
+
+	"github.com/jeeftor/camspeak/internal/util"
 )
 
 // streamSession tracks a live ffmpeg → camera stream so it can be stopped on demand.
@@ -131,10 +133,7 @@ func (h *Handlers) PlayStream(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
 
-	gain := req.Gain
-	if gain <= 0 {
-		gain = 3.0
-	}
+	gain := util.DefaultGain(req.Gain, 3.0)
 
 	streamURL, err := resolveStreamURL(req.URL)
 	if err != nil {

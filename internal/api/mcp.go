@@ -174,7 +174,12 @@ func buildMCPServer(h *Handlers) *server.MCPServer {
 			}
 
 			return mcp.NewToolResultText(
-				fmt.Sprintf("Preset saved: %s/%s (%.1fs)", preset.Category, preset.Name, preset.Duration),
+				fmt.Sprintf(
+					"Preset saved: %s/%s (%.1fs)",
+					preset.Category,
+					preset.Name,
+					preset.Duration,
+				),
 			), nil
 		},
 	)

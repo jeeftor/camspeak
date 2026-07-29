@@ -78,7 +78,8 @@ func init() {
 	airtestCmd.Flags().StringVar(&airtestName, "name", "", "Display name in AirPlay picker")
 	airtestCmd.Flags().
 		StringVar(&airtestAdvertiseIPFlag, "advertise-ip", "", "IP to advertise over mDNS (defaults to CAMSPEAK_ADVERTISE_IP or auto-detect)")
-	airtestCmd.Flags().StringVar(&airtestOutput, "output", "", "Save received raw audio to this path")
+	airtestCmd.Flags().
+		StringVar(&airtestOutput, "output", "", "Save received raw audio to this path")
 	airtestCmd.Flags().
 		BoolVar(&airtestNoSend, "no-send", false, "Capture audio only; do not send to camera")
 	airtestCmd.Flags().BoolVar(&airtestDebug, "debug", false, "Enable debug logging")

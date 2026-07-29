@@ -9,6 +9,9 @@ make help        # list all targets
 make build       # build frontend + Go binary (with version ldflags)
 make run         # run the server locally
 make test        # run tests via gotestsum
+make lint        # run golangci-lint
+make fmt         # format code (gofumpt + golines)
+make vet         # run go vet
 make frontend    # build frontend only (bun)
 make docker      # build multi-arch Docker image
 make clean       # remove build artifacts
@@ -85,13 +88,13 @@ Copy `.env.example` to `.env` for local dev. Loaded by godotenv at startup. Giti
 - `events` — speak/play/beep event log for SSE history
 - `preferences` — key-value runtime preferences (port, library path, frigate URL, MQTT)
 - `tts_presets` — named TTS endpoint configurations (klipbord-style)
-- `cameras` — camera definitions (name, type, ip, user, pass, channel, stream)
+- `cameras` — camera definitions (name, type, ip, user, pass, channel, stream, gain, note)
 
 ### Camera types
 | Type | Protocol | Audio Method | Requirements |
 |---|---|---|---|
 | `hikvision` | ISAPI Two-Way Audio | HTTP PUT to `/ISAPI/Streaming/channels/{ch}/audioData` | Camera must support ISAPI (mainstream Hikvision) |
-| `reolink` | go2rtc stream-to-camera (via ONVIF backchannel) | Routes through go2rtc when a stream name is configured; native Reolink protocol is a stub | go2rtc must have a matching stream with `onvif://` source. Set `CAMSPEAK_GO2RTC_URL`. |
+| `reolink` | go2rtc stream-to-camera (via RTSP backchannel) | Routes through go2rtc when a stream name is configured; native Reolink protocol (Baichuan) is a stub | go2rtc must have a matching stream with `#backchannel=1`. Set `CAMSPEAK_GO2RTC_URL`. **LIMITED**: only works on Reolink Doorbells with specific firmware. |
 | `go2rtc` | go2rtc stream-to-camera API | `POST http://go2rtc:1984/api/streams?dst=<stream>&src=ffmpeg:<url>#audio=pcmu` | go2rtc must have a stream with `#backchannel=1`. Set `CAMSPEAK_GO2RTC_URL`. |
 | `onvif` | ONVIF RTSP backchannel | Direct RTP/G.711 via gortsplib (no external deps) | Camera must advertise `a=sendonly` audio track in RTSP SDP |
 - `rules` — MQTT-triggered auto-speak rules

@@ -1,4 +1,4 @@
-.PHONY: help build run test frontend docker clean dev-airtest
+.PHONY: help build run test frontend docker clean dev-airtest lint fmt vet test-go2rtc
 
 BINARY := camspeak
 IMAGE   := ghcr.io/jeeftor/camspeak
@@ -19,6 +19,16 @@ frontend: ## Build the frontend assets
 
 test: ## Run the test suite
 	gotestsum --format testdox ./...
+
+lint: ## Run golangci-lint
+	golangci-lint run ./...
+
+fmt: ## Format Go code (gofumpt + golines)
+	gofumpt -w .
+	golines -w --max-len=100 .
+
+vet: ## Run go vet
+	go vet ./...
 
 docker: ## Build the multi-arch Docker image
 	docker buildx build --build-arg VERSION=$(VERSION) --platform linux/amd64,linux/arm64 -t $(IMAGE):dev .

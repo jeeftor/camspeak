@@ -114,7 +114,10 @@ func NewSpeaker(cam config.CameraConfig, name, go2rtcURL, advertiseIP string) (S
 		return NewReolinkClient(cam.IP, cam.User, cam.Pass), nil
 	case "go2rtc":
 		if go2rtcURL == "" {
-			return nil, fmt.Errorf("camera %q uses go2rtc type but CAMSPEAK_GO2RTC_URL is not set", name)
+			return nil, fmt.Errorf(
+				"camera %q uses go2rtc type but CAMSPEAK_GO2RTC_URL is not set",
+				name,
+			)
 		}
 		if cam.Stream == "" {
 			return nil, fmt.Errorf("camera %q uses go2rtc type but no stream name configured", name)
@@ -171,7 +174,11 @@ func (r *Registry) Get(name string) (Speaker, error) {
 	// Camera may be disabled (not in r.cameras) but config is known — register on-demand.
 	if cam, ok := r.configs[name]; ok {
 		if err := r.register(name, cam); err != nil {
-			return nil, fmt.Errorf("camera %q not registered and on-demand init failed: %w", name, err)
+			return nil, fmt.Errorf(
+				"camera %q not registered and on-demand init failed: %w",
+				name,
+				err,
+			)
 		}
 		return r.cameras[name], nil
 	}

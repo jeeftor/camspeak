@@ -155,7 +155,9 @@ func runTestGo2rtc(cmd *cobra.Command, args []string) error {
 			fmt.Printf("  %s stream source does not contain #backchannel=1\n",
 				tgStyleWarn.Render("WARN:"))
 			fmt.Println(
-				tgStyleDim.Render("        Audio may not work without a backchannel-enabled stream"),
+				tgStyleDim.Render(
+					"        Audio may not work without a backchannel-enabled stream",
+				),
 			)
 		}
 
@@ -179,7 +181,9 @@ func runTestGo2rtc(cmd *cobra.Command, args []string) error {
 			fmt.Println(tgStyleOK.Render("OK"))
 			fmt.Println()
 			fmt.Println(
-				tgStyleBold.Render("  ✓ Beep sent successfully! Check the camera speaker for audio."),
+				tgStyleBold.Render(
+					"  ✓ Beep sent successfully! Check the camera speaker for audio.",
+				),
 			)
 		}
 	} else {

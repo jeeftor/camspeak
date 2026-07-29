@@ -203,7 +203,13 @@ func (c *OnvifClient) SendRaw(rawFile string) error {
 				wasStopped := c.stopped
 				c.activeMu.Unlock()
 				if wasStopped {
-					c.log.Debug("send: stopped by user", "samples", sentSamples, "total", totalSamples)
+					c.log.Debug(
+						"send: stopped by user",
+						"samples",
+						sentSamples,
+						"total",
+						totalSamples,
+					)
 					return nil
 				}
 				return fmt.Errorf("writing RTP packet: %w", err)

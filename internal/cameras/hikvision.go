@@ -15,6 +15,8 @@ import (
 
 	clog "github.com/charmbracelet/log"
 	"github.com/icholy/digest"
+
+	"github.com/jeeftor/camspeak/internal/util"
 )
 
 // HikvisionClient sends audio to a Hikvision camera via ISAPI Two-Way Audio.
@@ -267,7 +269,7 @@ func (c *HikvisionClient) Stream(r io.Reader) error {
 	}()
 
 	c.log.Info("stream: session open, streaming audio", "ip", c.ip, "session", sessionID)
-	err = copyAt8kBps(conn, r, &c.stopped, &c.activeMu)
+	err = util.CopyAt8kBps(conn, r, &c.stopped, &c.activeMu)
 
 	// Log the camera's HTTP response for diagnostics.
 	select {
@@ -284,120 +286,7 @@ func (c *HikvisionClient) Stream(r io.Reader) error {
 // getDigestAuth performs the 401 challenge/response handshake for the given path
 // and returns the Authorization header value.
 func (c *HikvisionClient) getDigestAuth(path string) (string, error) {
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort(c.ip, "80"), 5*time.Second)
-	if err != nil {
-		return "", err
-	}
-	defer conn.Close()
-
-	probe := fmt.Sprintf("PUT %s HTTP/1.1\r\nHost: %s\r\nContent-Length: 0\r\n\r\n", path, c.ip)
-	if _, err := conn.Write([]byte(probe)); err != nil {
-		return "", err
-	}
-
-	r := bufio.NewReader(conn)
-	if _, err := r.ReadString('\n'); err != nil {
-		return "", err
-	}
-	var wwwAuth string
-	for {
-		line, err := r.ReadString('\n')
-		if err != nil {
-			break
-		}
-		line = strings.TrimSpace(line)
-		if line == "" {
-			break
-		}
-		if strings.HasPrefix(strings.ToLower(line), "www-authenticate:") {
-			wwwAuth = strings.TrimSpace(line[len("www-authenticate:"):])
-		}
-	}
-	if wwwAuth == "" {
-		return "", nil
-	}
-	chal, err := digest.FindChallenge(http.Header{"Www-Authenticate": []string{wwwAuth}})
-	if err != nil {
-		return "", err
-	}
-	cred, err := digest.Digest(chal, digest.Options{
-		Method:   http.MethodPut,
-		URI:      path,
-		Username: c.user,
-		Password: c.pass,
-	})
-	if err != nil {
-		return "", err
-	}
-	return cred.String(), nil
-}
-
-// deadliner is implemented by *os.File (returned by cmd.StdoutPipe).
-type deadliner interface {
-	SetReadDeadline(t time.Time) error
-}
-
-// copyAt8kBps copies r → w paced at 8000 bytes/sec (G.711 mulaw real-time rate).
-// It polls the stopped flag every 200 ms so SendRaw preemption is responsive
-// even when the reader has no data (e.g. AirPlay is selected but silent).
-func copyAt8kBps(w io.Writer, r io.Reader, stopped *bool, mu *sync.Mutex) error {
-	const chunkSize = 800 // 100ms at 8000 bytes/sec
-	const interval = 100 * time.Millisecond
-	const readTimeout = 200 * time.Millisecond
-
-	dl, _ := r.(deadliner)
-	buf := make([]byte, chunkSize)
-	pending := 0
-	next := time.Now()
-
-	for {
-		mu.Lock()
-		s := *stopped
-		mu.Unlock()
-		if s {
-			return fmt.Errorf("stream interrupted")
-		}
-
-		if dl != nil {
-			_ = dl.SetReadDeadline(time.Now().Add(readTimeout))
-		}
-		n, err := r.Read(buf[pending:])
-		pending += n
-
-		if pending >= chunkSize {
-			if dl != nil {
-				_ = dl.SetReadDeadline(time.Time{}) // clear deadline before write
-			}
-			if _, werr := w.Write(buf[:chunkSize]); werr != nil {
-				mu.Lock()
-				s := *stopped
-				mu.Unlock()
-				if s {
-					return fmt.Errorf("stream interrupted")
-				}
-				return werr
-			}
-			copy(buf, buf[chunkSize:pending])
-			pending -= chunkSize
-			next = next.Add(interval)
-			if sleep := time.Until(next); sleep > 0 {
-				time.Sleep(sleep)
-			}
-		}
-
-		if err != nil {
-			if dl != nil {
-				type timeouter interface{ Timeout() bool }
-				if t, ok := err.(timeouter); ok && t.Timeout() {
-					continue // just a read deadline — check stopped and retry
-				}
-			}
-			if err == io.EOF || err == io.ErrUnexpectedEOF {
-				return nil
-			}
-			return err
-		}
-	}
+	return util.PerformDigestAuth(c.ip, path, c.user, c.pass)
 }
 
 // Stop immediately stops audio playback by closing the active TCP connection
@@ -444,61 +333,10 @@ func (c *HikvisionClient) sendAudioRaw(sessionID string, data []byte) error {
 	host := c.ip
 	port := "80"
 
-	// Step 1: Open TCP connection for the digest challenge
-	conn1, err := net.DialTimeout("tcp", net.JoinHostPort(host, port), 5*time.Second)
+	// Step 1: Get digest auth header via challenge/response handshake.
+	authHeader, err := util.PerformDigestAuth(c.ip, path, c.user, c.pass)
 	if err != nil {
-		return fmt.Errorf("dialing camera: %w", err)
-	}
-
-	// Send a PUT with Content-Length: 0 to get the 401 challenge
-	headReq := fmt.Sprintf("PUT %s HTTP/1.1\r\nHost: %s\r\nContent-Length: 0\r\n\r\n", path, host)
-	if _, err := conn1.Write([]byte(headReq)); err != nil {
-		conn1.Close()
-		return fmt.Errorf("sending challenge request: %w", err)
-	}
-
-	// Read the 401 response and extract WWW-Authenticate header
-	respReader := bufio.NewReader(conn1)
-	_, err = respReader.ReadString('\n')
-	if err != nil {
-		conn1.Close()
-		return fmt.Errorf("reading status line: %w", err)
-	}
-
-	var wwwAuth string
-	for {
-		line, err := respReader.ReadString('\n')
-		if err != nil {
-			break
-		}
-		line = strings.TrimSpace(line)
-		if line == "" {
-			break
-		}
-		if strings.HasPrefix(strings.ToLower(line), "www-authenticate:") {
-			wwwAuth = strings.TrimSpace(line[len("www-authenticate:"):])
-		}
-	}
-	conn1.Close()
-
-	var authHeader string
-	if wwwAuth != "" {
-		// Parse the digest challenge and compute credentials
-		chal, err := digest.FindChallenge(http.Header{"Www-Authenticate": []string{wwwAuth}})
-		if err != nil {
-			return fmt.Errorf("parsing digest challenge: %w", err)
-		}
-
-		cred, err := digest.Digest(chal, digest.Options{
-			Method:   http.MethodPut,
-			URI:      path,
-			Username: c.user,
-			Password: c.pass,
-		})
-		if err != nil {
-			return fmt.Errorf("computing digest credentials: %w", err)
-		}
-		authHeader = cred.String()
+		return fmt.Errorf("digest auth: %w", err)
 	}
 
 	// Step 2: Open a NEW TCP connection for the authenticated request

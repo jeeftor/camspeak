@@ -31,14 +31,18 @@ log: clog.NewWithOptions(os.Stderr, clog.Options{
 
 ## Project Layout
 
-- `cmd/` — cobra CLI entry point (`root.go`, `serve.go`)
-- `internal/api/` — Echo HTTP server + handlers
-- `internal/airplay/` — RAOP receiver (pure-Go `server.go` + shairport-sync wrapper)
-- `internal/cameras/` — camera client implementations (Hikvision, etc.) + registry
-- `internal/config/` — config model + SQLite persistence
+- `cmd/` — cobra CLI entry point (`root.go`, `serve.go`, `speak.go`, etc.)
+- `internal/api/` — Echo HTTP server + handlers (split by domain: `handlers.go`, `vision.go`, `library.go`, `audio.go`, `camera_config.go`, `tts_config.go`, `rules_airplay_config.go`)
+- `internal/airplay/` — RAOP receiver (pure-Go: `server.go`, `rtsp.go`, `rtsp_handlers.go`, `session.go`, `audio.go`, `fairplay.go` + shairport-sync wrapper)
+- `internal/cameras/` — camera client implementations (Hikvision, Reolink, go2rtc, ONVIF) + registry
+- `internal/config/` — config model (`model.go`), loading (`load.go`), SQLite persistence (`db.go`)
 - `internal/db/` — SQLite schema + migrations
+- `internal/frigate/` — Frigate NVR camera discovery
+- `internal/library/` — preset store (raw audio on disk, metadata in SQLite)
 - `internal/mqtt/` — Frigate MQTT subscriber
 - `internal/tts/` — TTS client (OpenAI-compatible)
+- `internal/util/` — shared utilities (`digest.go`, `stream.go`, `audio.go`, `net.go`, `url.go`)
+- `internal/vision/` — Vision LLM client
 - `frontend/src/` — Svelte components
 
 ## Release
