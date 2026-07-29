@@ -5,6 +5,7 @@
   import { Input } from '$lib/components/ui/input'
   import VoiceSelect from '$lib/components/VoiceSelect.svelte'
   import GainSlider from '$lib/components/GainSlider.svelte'
+  import { apiClient } from '$lib/api'
 
   let { voices = [], presets = [] } = $props()
 
@@ -27,15 +28,11 @@
     status = ''
     try {
       const body = mode === 'preset' ? { preset, gain } : { text, voice, gain }
-      const res = await fetch('/api/broadcast', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      status = res.ok ? '✓ Broadcast sent to all cameras' : '✗ Failed'
-      statusType = res.ok ? 'ok' : 'err'
-    } catch {
-      status = '✗ Error connecting to server'
+      await apiClient.broadcast(body)
+      status = '✓ Broadcast sent to all cameras'
+      statusType = 'ok'
+    } catch (e) {
+      status = '✗ ' + e.message
       statusType = 'err'
     } finally {
       busy = false
@@ -46,7 +43,7 @@
 
   async function stopAll() {
     try {
-      await fetch('/api/stop', { method: 'POST' })
+      await apiClient.stopAll()
       status = '⏹ Stopped all cameras'
       statusType = 'ok'
     } catch {

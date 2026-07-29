@@ -5,6 +5,7 @@
   import { Input } from '$lib/components/ui/input'
   import { Select } from '$lib/components/ui/select'
   import JsonCode from '$lib/components/JsonCode.svelte'
+  import { apiClient } from '$lib/api'
 
   let rules = $state([])
   let voices = $state([])
@@ -192,16 +193,15 @@
   async function load() {
     loading = true
     try {
-      const [rulesRes, voiceRes, statusRes] = await Promise.all([
-        fetch('/api/config/rules'),
-        fetch('/api/voices'),
-        fetch('/api/mqtt/status'),
+      const [rulesData, voicesData, statusData] = await Promise.all([
+        apiClient.listRules(),
+        apiClient.getVoices(),
+        apiClient.getMQTTStatus(),
       ])
-      rules = await rulesRes.json() ?? []
-      voices = await voiceRes.json() ?? []
-      const s = await statusRes.json()
-      mqttStatus = s.status ?? 'unknown'
-      mqttBroker = s.broker ?? ''
+      rules = rulesData ?? []
+      voices = voicesData ?? []
+      mqttStatus = statusData.status ?? 'unknown'
+      mqttBroker = statusData.broker ?? ''
     } catch (e) {
       error = e.message
     } finally {
@@ -243,18 +243,13 @@
     // Auto-subscribe to frigate/# for discovery (best-effort)
     if (mqttStatus === 'connected') {
       try {
-        await fetch('/api/mqtt/subscribe', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ topic: 'frigate/#' }),
-        })
+        await apiClient.subscribeMQTT('frigate/#')
       } catch {}
     }
 
     // Also load any topics already accumulated server-side
     try {
-      const res = await fetch('/api/mqtt/topics')
-      const seenTopics = await res.json()
+      const seenTopics = await apiClient.getMQTTTopics()
       if (Array.isArray(seenTopics)) {
         const newMap = { ...topicMap }
         for (const st of seenTopics) {
@@ -315,20 +310,15 @@
       catch { ruleStatus = '✗ Invalid filter JSON'; return }
     }
     try {
-      const res = await fetch('/api/config/rules', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          topic: ruleTopic,
-          filter,
-          cameras: ruleCameras.split(',').map(s => s.trim()).filter(Boolean),
-          preset: rulePreset,
-          text: ruleText,
-          voice: ruleVoice,
-          enabled: ruleEnabled,
-        }),
+      await apiClient.saveRule({
+        topic: ruleTopic,
+        filter,
+        cameras: ruleCameras.split(',').map(s => s.trim()).filter(Boolean),
+        preset: rulePreset,
+        text: ruleText,
+        voice: ruleVoice,
+        enabled: ruleEnabled,
       })
-      if (!res.ok) throw new Error(await res.text())
       ruleStatus = '✓ Saved'
       ruleTopic = 'frigate/events'; ruleFilter = ''; ruleCameras = ''
       rulePreset = ''; ruleText = ''; ruleVoice = ''; ruleEnabled = true
@@ -347,12 +337,8 @@
       const body = rule.preset
         ? { preset: rule.preset, camera: rule.cameras?.[0] }
         : { text: rule.text || 'Test announcement', voice: rule.voice, camera: rule.cameras?.[0] }
-      const res = await fetch('/api/speak', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      testStatus = { ...testStatus, ['rule_' + rule.id]: res.ok ? '✓ Sent' : '✗ HTTP ' + res.status }
+      await apiClient.speak(body)
+      testStatus = { ...testStatus, ['rule_' + rule.id]: '✓ Sent' }
     } catch (e) {
       testStatus = { ...testStatus, ['rule_' + rule.id]: '✗ ' + e.message }
     }

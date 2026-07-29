@@ -3,6 +3,7 @@
   import { Radio, Volume2, Loader2 } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
+  import { apiClient } from '$lib/api'
 
   let { voices = [], presets = [] } = $props()
 
@@ -22,12 +23,8 @@
     status = ''
     try {
       const body = preset ? { preset, gain } : { text, voice, gain }
-      const res = await fetch('/api/broadcast', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      status = res.ok ? '✓ sent' : '✗ failed'
+      await apiClient.broadcast(body)
+      status = '✓ sent'
     } catch {
       status = '✗ error'
     } finally {

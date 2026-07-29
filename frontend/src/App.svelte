@@ -10,6 +10,7 @@
   import HomeAssistant from './components/HomeAssistant.svelte'
   import { curlState, setCurlBaseUrl, resetCurlBaseUrl } from '$lib/curl.svelte'
   import { Toaster } from '$lib/components/ui/toast'
+  import { apiClient } from '$lib/api'
 
   let tab = $state('cameras')
   let cameras = $state([])
@@ -27,7 +28,7 @@
   async function stopAll() {
     stoppingAll = true
     try {
-      await fetch('/api/stop', { method: 'POST' })
+      await apiClient.stopAll()
     } catch (e) {
       // ignore — best effort
     } finally {
@@ -67,17 +68,16 @@
     loading = true
     loadError = ''
     try {
-      const [camRes, voiceRes, presetRes, healthRes] = await Promise.all([
-        fetch('/api/cameras'),
-        fetch('/api/voices'),
-        fetch('/api/library'),
-        fetch('/api/health'),
+      const [camerasData, voicesData, presetsData, healthData] = await Promise.all([
+        apiClient.getCameras(),
+        apiClient.getVoices(),
+        apiClient.getPresets(),
+        apiClient.health(),
       ])
-      cameras = await camRes.json() ?? []
-      voices = await voiceRes.json() ?? []
-      presets = await presetRes.json() ?? []
-      const health = await healthRes.json() ?? {}
-      version = health.version ?? ''
+      cameras = camerasData ?? []
+      voices = voicesData ?? []
+      presets = presetsData ?? []
+      version = healthData.version ?? ''
     } catch (e) {
       loadError = 'Failed to load data: ' + e.message
     } finally {

@@ -6,6 +6,7 @@
   import { Select } from '$lib/components/ui/select'
   import { Textarea } from '$lib/components/ui/textarea'
   import { toast } from '$lib/components/ui/toast'
+  import { apiClient } from '$lib/api'
 
   let { presets = [], voices = [], onRefresh } = $props()
 
@@ -67,12 +68,7 @@
     if (genAudio) { URL.revokeObjectURL(genAudio); genAudio = null }
     genPlaying = false
     try {
-      const res = await fetch('/api/tts/preview', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: genText, voice: genVoice }),
-      })
-      if (!res.ok) throw new Error(await res.text())
+      const res = await apiClient.ttsPreview({ text: genText, voice: genVoice })
       const blob = await res.blob()
       genAudio = URL.createObjectURL(blob)
       genStatus = '✓ Playing…'
@@ -98,12 +94,7 @@
     if (!genName || !genText || !genAudio) return
     genBusy = true; genStatus = ''
     try {
-      const res = await fetch('/api/library', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: genName, text: genText, category: genCategory, voice: genVoice }),
-      })
-      if (!res.ok) throw new Error(await res.text())
+      await apiClient.savePreset({ name: genName, text: genText, category: genCategory, voice: genVoice })
       genStatus = '✓ Saved'
       toast.success(`Preset "${genName}" saved`)
       genName = ''; genText = ''
@@ -146,8 +137,7 @@
       fd.append('name', uploadName)
       fd.append('category', uploadCategory)
       fd.append('file', uploadFile)
-      const res = await fetch('/api/library/upload', { method: 'POST', body: fd })
-      if (!res.ok) throw new Error(await res.text())
+      await apiClient.uploadPreset(fd)
       uploadStatus = '✓ Uploaded'
       toast.success(`Preset "${uploadName}" uploaded`)
       clearUpload()
@@ -164,8 +154,7 @@
   async function deletePreset(category, name) {
     if (!confirm(`Delete ${category}/${name}?`)) return
     try {
-      const res = await fetch(`/api/library/${category}/${name}`, { method: 'DELETE' })
-      if (!res.ok) throw new Error(await res.text())
+      await apiClient.deletePreset(category, name)
       toast.success(`Preset "${name}" deleted`)
       onRefresh()
     } catch (e) {
@@ -198,12 +187,7 @@
   async function doRename(oldCategory, oldName) {
     renameStatus = ''
     try {
-      const res = await fetch(`/api/library/${encodeURIComponent(oldCategory)}/${encodeURIComponent(oldName)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: editName, category: editCategory }),
-      })
-      if (!res.ok) throw new Error(await res.text())
+      await apiClient.renamePreset(oldCategory, oldName, { name: editName, category: editCategory })
       editingKey = ''
       onRefresh()
     } catch (e) {

@@ -10,6 +10,7 @@
   import VoiceSelect from '$lib/components/VoiceSelect.svelte'
   import GainSlider from '$lib/components/GainSlider.svelte'
   import { buildCurl } from '$lib/curl.svelte'
+  import { apiClient } from '$lib/api'
 
   let { camera, voices = [], presets = [] } = $props()
 
@@ -36,15 +37,6 @@
     clearTimeout(statusTimeout)
   })
 
-  async function post(path, body) {
-    const res = await fetch(path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    if (!res.ok) throw new Error(await res.text())
-  }
-
   function setStatus(msg, type = 'ok') {
     status = msg
     statusType = type
@@ -58,7 +50,7 @@
     if (!text) return
     busy = true; status = ''
     try {
-      await post('/api/speak', { camera: camera.name, text, voice, gain })
+      await apiClient.speak({ camera: camera.name, text, voice, gain })
       setStatus('✓ sent')
     } catch (e) {
       setStatus('✗ ' + e.message, 'err')
@@ -74,7 +66,7 @@
     }
     busy = true; status = ''
     try {
-      await post('/api/play', { camera: camera.name, preset, gain })
+      await apiClient.play({ camera: camera.name, preset, gain })
       setStatus('✓ playing')
     } catch (e) {
       setStatus('✗ ' + e.message, 'err')
@@ -87,7 +79,7 @@
 
   async function saveGain() {
     try {
-      await post('/api/config/cameras', { name: camera.name, gain })
+      await apiClient.saveCamera({ name: camera.name, gain })
     } catch (e) {
       setStatus('✗ gain save failed: ' + e.message, 'err')
     }
@@ -110,7 +102,7 @@
     if (!url) return
     busy = true; status = ''
     try {
-      await post('/api/play-url', { camera: camera.name, url, gain })
+      await apiClient.playURL({ camera: camera.name, url, gain })
       setStatus('✓ playing')
     } catch (e) {
       setStatus('✗ ' + e.message, 'err')
@@ -123,7 +115,7 @@
     if (!url) return
     streaming = true; status = ''
     try {
-      await post('/api/play-stream', { camera: camera.name, url, gain })
+      await apiClient.playStream({ camera: camera.name, url, gain })
       setStatus('✓ streaming')
     } catch (e) {
       streaming = false
@@ -143,7 +135,7 @@
   async function stopStream() {
     busy = true; status = ''
     try {
-      await post('/api/stop', { camera: camera.name })
+      await apiClient.stop(camera.name)
       streaming = false
       setStatus('⏹ stopped')
     } catch (e) {
@@ -156,7 +148,7 @@
   async function beep() {
     busy = true; status = ''
     try {
-      await post('/api/beep', { camera: camera.name })
+      await apiClient.beep({ camera: camera.name })
       setStatus('✓ beep')
     } catch (e) {
       setStatus('✗ ' + e.message, 'err')
@@ -167,7 +159,7 @@
 
   async function stop() {
     try {
-      await post('/api/stop', { camera: camera.name })
+      await apiClient.stop(camera.name)
       setStatus('⏹ stopped')
     } catch (e) {
       setStatus('✗ ' + e.message, 'err')
@@ -180,21 +172,14 @@
     snapshot = ''; description = ''
     try {
       setStatus('Capturing screenshot…')
-      const snapRes = await fetch(`/api/snapshot/${camera.name}`)
-      if (!snapRes.ok) throw new Error('snapshot fetch failed')
+      const snapRes = await apiClient.snapshot(camera.name)
       const snapBlob = await snapRes.blob()
       snapshot = URL.createObjectURL(snapBlob)
 
       setStatus('Describing → speaking…')
       const body = { camera: camera.name, gain }
       if (visionPrompt) body.prompt = visionPrompt
-      const res = await fetch('/api/describe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      if (!res.ok) throw new Error(await res.text())
-      const data = await res.json()
+      const data = await apiClient.describe(body)
       description = data.description || ''
     } catch (e) {
       setStatus('✗ ' + e.message, 'err')
@@ -208,7 +193,7 @@
     if (!description) return
     busy = true; status = ''
     try {
-      await post('/api/speak', { camera: camera.name, text: description, voice, gain })
+      await apiClient.speak({ camera: camera.name, text: description, voice, gain })
       setStatus('✓ replaying')
     } catch (e) {
       setStatus('✗ ' + e.message, 'err')
@@ -258,11 +243,10 @@
       fd.append('category', 'drops')
       fd.append('file', file)
 
-      const upRes = await fetch('/api/library/upload', { method: 'POST', body: fd })
-      if (!upRes.ok) throw new Error(await upRes.text())
+      await apiClient.uploadPreset(fd)
 
       setStatus('Playing…')
-      await post('/api/play', { camera: camera.name, preset: dropName, category: 'drops', gain })
+      await apiClient.play({ camera: camera.name, preset: dropName, category: 'drops', gain })
       setStatus(`✓ playing ${file.name}`)
     } catch (err) {
       setStatus('✗ ' + err.message, 'err')

@@ -10,6 +10,7 @@
   import Frigate from './Frigate.svelte'
   import VisionTest from './VisionTest.svelte'
   import { toast } from '$lib/components/ui/toast'
+  import { apiClient } from '$lib/api'
 
   let { onRefresh } = $props()
 
@@ -95,35 +96,31 @@
   async function loadConfig() {
     loading = true
     try {
-      const [cfgRes, ttsRes, camRes, voiceRes, visionRes, airplayRes, settingsRes] = await Promise.all([
-        fetch('/api/config'),
-        fetch('/api/config/tts'),
-        fetch('/api/config/cameras'),
-        fetch('/api/voices'),
-        fetch('/api/config/vision'),
-        fetch('/api/config/airplay'),
-        fetch('/api/config/settings'),
+      const [cfg, ttsData, cams, v, ap, st] = await Promise.all([
+        apiClient.getConfig(),
+        apiClient.listTTSPresets(),
+        apiClient.listCamerasConfig(),
+        apiClient.getVisionConfig(),
+        apiClient.getAirPlayConfig(),
+        apiClient.getSettings(),
       ])
-      config = await cfgRes.json()
-      const ttsData = await ttsRes.json()
+      config = cfg
       ttsPresets = ttsData.presets ?? []
       activeTTS = ttsData.active?.url ?? ''
-      cameras = await camRes.json() ?? []
-      voices = await voiceRes.json() ?? []
-      const v = await visionRes.json()
+      cameras = cams ?? []
       visionURL = v.url ?? ''
       visionModel = v.model ?? ''
       visionAPIKey = v.api_key ?? ''
       visionPrompt = v.prompt ?? ''
-      const ap = await airplayRes.json()
       airplayEnabled = ap.enabled ?? false
       airplayBasePort = ap.base_port ?? 5000
       airplayPrimeSilenceMs = ap.prime_silence_ms ?? 500
       airplayModel = ap.model ?? 'RealityDevice14,1'
-      const st = await settingsRes.json()
       frigateURL = st.frigate_url ?? ''
       go2rtcURL = st.go2rtc_url ?? ''
       advertiseIP = st.advertise_ip ?? ''
+      // Load voices separately (not always needed)
+      apiClient.getVoices().then(v => voices = v ?? []).catch(() => {})
     } catch (e) {
       console.error('loadConfig error:', e)
     } finally {
@@ -138,15 +135,10 @@
     if (!ttsName || !ttsEndpoint) return
     ttsStatus = ''
     try {
-      const res = await fetch('/api/config/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: ttsName, endpoint: ttsEndpoint, model: ttsModel,
-          default_voice: ttsVoice, api_key: ttsKey, description: ttsDesc,
-        }),
+      await apiClient.saveTTSPreset({
+        name: ttsName, endpoint: ttsEndpoint, model: ttsModel,
+        default_voice: ttsVoice, api_key: ttsKey, description: ttsDesc,
       })
-      if (!res.ok) throw new Error(await res.text())
       ttsStatus = '✓ Saved'
       toast.success(`TTS preset "${ttsName}" saved`)
       ttsFormOpen = false
@@ -161,8 +153,7 @@
 
   async function activateTTS(name) {
     try {
-      const res = await fetch(`/api/config/tts/${name}/activate`, { method: 'POST' })
-      if (!res.ok) throw new Error(await res.text())
+      await apiClient.activateTTSPreset(name)
       loadConfig()
     } catch (e) {
       configError = '✗ ' + e.message
@@ -172,8 +163,7 @@
   async function deleteTTS(name) {
     if (!confirm(`Delete TTS preset "${name}"?`)) return
     try {
-      const res = await fetch(`/api/config/tts/${name}`, { method: 'DELETE' })
-      if (!res.ok) throw new Error(await res.text())
+      await apiClient.deleteTTSPreset(name)
       loadConfig()
     } catch (e) {
       configError = '✗ ' + e.message
@@ -183,13 +173,8 @@
   async function testTTS() {
     testStatus = { ...testStatus, tts: 'testing...' }
     try {
-      const res = await fetch('/api/voices')
-      if (res.ok) {
-        const v = await res.json()
-        testStatus = { ...testStatus, tts: `✓ Connected (${v?.length ?? 0} voices)` }
-      } else {
-        testStatus = { ...testStatus, tts: '✗ HTTP ' + res.status }
-      }
+      const v = await apiClient.getVoices()
+      testStatus = { ...testStatus, tts: `✓ Connected (${v?.length ?? 0} voices)` }
     } catch (e) {
       testStatus = { ...testStatus, tts: '✗ ' + e.message }
     }
@@ -200,19 +185,14 @@
     if (!camName || !camIP) return
     camStatus = ''
     try {
-      const res = await fetch('/api/config/cameras', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: camName, type: camType, ip: camIP,
-          user: camUser, pass: camPass, channel: parseInt(camChannel) || 1,
-          stream: camStream, enabled: camEnabled,
-          vision_prompt: camVisionPrompt,
-          airplay_name: camAirPlayName,
-          airplay_model: camAirPlayModel,
-        }),
+      await apiClient.saveCamera({
+        name: camName, type: camType, ip: camIP,
+        user: camUser, pass: camPass, channel: parseInt(camChannel) || 1,
+        stream: camStream, enabled: camEnabled,
+        vision_prompt: camVisionPrompt,
+        airplay_name: camAirPlayName,
+        airplay_model: camAirPlayModel,
       })
-      if (!res.ok) throw new Error(await res.text())
       camStatus = '✓ Saved'
       toast.success(`Camera "${camName}" saved`)
       camFormOpen = false
@@ -230,8 +210,7 @@
   async function deleteCamera(name) {
     if (!confirm(`Delete camera "${name}"?`)) return
     try {
-      const res = await fetch(`/api/config/cameras/${name}`, { method: 'DELETE' })
-      if (!res.ok) throw new Error(await res.text())
+      await apiClient.deleteCamera(name)
       toast.success(`Camera "${name}" deleted`)
       loadConfig()
       onRefresh?.()
@@ -244,24 +223,13 @@
   async function testCamera(name) {
     testStatus = { ...testStatus, [name]: 'testing...' }
     try {
-      const res = await fetch('/api/beep', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ camera: name }),
-      })
-      if (res.ok) {
-        testStatus = { ...testStatus, [name]: '✓ Beep sent' }
-      } else {
-        const errText = await res.text()
-        // Try to extract a clean error message from the JSON response
-        let msg = errText
-        try { msg = JSON.parse(errText).message || errText } catch {}
-        // Truncate long errors for inline display
-        if (msg.length > 120) msg = msg.slice(0, 117) + '...'
-        testStatus = { ...testStatus, [name]: '✗ ' + msg }
-      }
+      await apiClient.beep({ camera: name })
+      testStatus = { ...testStatus, [name]: '✓ Beep sent' }
     } catch (e) {
-      testStatus = { ...testStatus, [name]: '✗ ' + e.message }
+      let msg = e.message
+      try { msg = JSON.parse(e.message).message || e.message } catch {}
+      if (msg.length > 120) msg = msg.slice(0, 117) + '...'
+      testStatus = { ...testStatus, [name]: '✗ ' + msg }
     }
     setTimeout(() => {
       const s = { ...testStatus }
@@ -302,8 +270,7 @@
     go2rtcStreamsLoading = true
     go2rtcStreamsError = ''
     try {
-      const res = await fetch('/api/config/go2rtc/streams')
-      const data = await res.json()
+      const data = await apiClient.getGo2rtcStreams()
       go2rtcStreams = data.streams ?? []
       if (data.error) go2rtcStreamsError = data.error
     } catch (e) {
@@ -318,8 +285,7 @@
     testCamBusy = true
     testCamStatus = ''
     try {
-      const res = await fetch(`/api/cameras/${encodeURIComponent(name)}/ping`, { method: 'POST' })
-      const data = await res.json()
+      const data = await apiClient.pingCamera(name)
       testCamStatus = data.ok ? '✓ Reachable' : '✗ Unreachable'
     } catch (e) {
       testCamStatus = '✗ ' + e.message
@@ -331,10 +297,7 @@
 
   async function toggleCamera(cam) {
     try {
-      const res = await fetch(`/api/config/cameras/${encodeURIComponent(cam.name)}/toggle`, {
-        method: 'PATCH',
-      })
-      if (!res.ok) throw new Error(await res.text())
+      await apiClient.toggleCamera(cam.name, !cam.enabled)
       loadConfig()
       onRefresh?.()
     } catch (e) {
@@ -386,17 +349,12 @@
       for (const [name, enabled] of changed) {
         const cam = cameras.find(c => c.name === name)
         if (!cam) continue
-        const res = await fetch('/api/config/cameras', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name, type: cam.type, ip: cam.ip, user: cam.user,
-            pass: cam.pass, channel: cam.channel, stream: cam.stream || '',
-            enabled, airplay_name: cam.airplay_name || '', airplay_model: cam.airplay_model || '',
-            vision_prompt: cam.vision_prompt || '',
-          }),
+        await apiClient.saveCamera({
+          name, type: cam.type, ip: cam.ip, user: cam.user,
+          pass: cam.pass, channel: cam.channel, stream: cam.stream || '',
+          enabled, airplay_name: cam.airplay_name || '', airplay_model: cam.airplay_model || '',
+          vision_prompt: cam.vision_prompt || '',
         })
-        if (!res.ok) throw new Error(await res.text())
       }
       pendingEnabled = {}
       camerasStatus = '✓ Saved'
@@ -416,17 +374,12 @@
   async function saveVision() {
     visionStatus = ''
     try {
-      const res = await fetch('/api/config/vision', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          url: visionURL,
-          model: visionModel,
-          api_key: visionAPIKey,
-          prompt: visionPrompt,
-        }),
+      await apiClient.saveVisionConfig({
+        url: visionURL,
+        model: visionModel,
+        api_key: visionAPIKey,
+        prompt: visionPrompt,
       })
-      if (!res.ok) throw new Error(await res.text())
       visionStatus = '✓ Saved'
       toast.success('Vision config saved')
       loadConfig()
@@ -442,12 +395,7 @@
     visionTestBusy = true
     visionTestStatus = ''
     try {
-      const res = await fetch('/api/config/vision/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: visionURL, api_key: visionAPIKey }),
-      })
-      const data = await res.json()
+      const data = await apiClient.testVisionConfig()
       if (data.ok) {
         visionTestStatus = `✓ Connected (${data.models} model${data.models === 1 ? '' : 's'})`
       } else {
@@ -465,10 +413,7 @@
   async function toggleCameraAirPlay(cam) {
     airplayToggling = { ...airplayToggling, [cam.name]: true }
     try {
-      const res = await fetch(`/api/config/airplay/${encodeURIComponent(cam.name)}/toggle`, {
-        method: 'PATCH',
-      })
-      if (!res.ok) throw new Error(await res.text())
+      await apiClient.toggleAirPlay(cam.name)
       loadConfig()
     } catch (e) {
       configError = '✗ ' + e.message
@@ -484,9 +429,7 @@
     discoverBusy = true
     discoverStatus = ''
     try {
-      const res = await fetch('/api/config/cameras/discover', { method: 'POST' })
-      if (!res.ok) throw new Error(await res.text())
-      const data = await res.json()
+      const data = await apiClient.discoverCameras()
       discoverStatus = `✓ Found ${data.discovered} camera${data.discovered === 1 ? '' : 's'}`
       if (data.discovered > 0) loadConfig()
     } catch (e) {
@@ -511,12 +454,7 @@
     frigateTestStatus = ''
     try {
       const url = normalizeURL(frigateURL)
-      const res = await fetch('/api/config/settings/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'frigate', url }),
-      })
-      const data = await res.json()
+      const data = await apiClient.testSettingsURL(url)
       if (data.ok) {
         frigateTestStatus = `✓ Frigate ${data.data?.version ?? 'connected'}`
       } else {
@@ -536,12 +474,7 @@
     go2rtcTestStatus = ''
     try {
       const url = normalizeURL(go2rtcURL)
-      const res = await fetch('/api/config/settings/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'go2rtc', url }),
-      })
-      const data = await res.json()
+      const data = await apiClient.testSettingsURL(url)
       if (data.ok) {
         const count = Object.keys(data.data ?? {}).length
         go2rtcTestStatus = `✓ go2rtc (${count} stream${count === 1 ? '' : 's'})`
@@ -569,17 +502,10 @@
     detectCamBusy = true
     detectCamStatus = ''
     try {
-      const res = await fetch('/api/config/cameras/detect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ip: camIP, user: camUser, pass: camPass }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.message ?? await res.text())
+      const data = await apiClient.detectCamera(camIP)
       if (data.type) {
         camType = data.type
         if (data.type === 'reolink' && !camStream) {
-          // Try to find a matching go2rtc stream by camera IP
           const match = go2rtcStreams.find(s => s.source && s.source.includes(camIP))
           if (match) {
             camStream = match.name
@@ -608,26 +534,17 @@
     settingsStatus = ''
     try {
       // Save settings and AirPlay config sequentially to avoid SQLITE_BUSY
-      // (SQLite has a single writer lock; parallel writes from two requests conflict).
-      const settingsRes = await fetch('/api/config/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ frigate_url: normalizeURL(frigateURL), go2rtc_url: normalizeURL(go2rtcURL), advertise_ip: advertiseIP }),
+      await apiClient.saveSettings({
+        frigate_url: normalizeURL(frigateURL),
+        go2rtc_url: normalizeURL(go2rtcURL),
+        advertise_ip: advertiseIP,
       })
-      if (!settingsRes.ok) throw new Error(await settingsRes.text())
-
-      const airplayRes = await fetch('/api/config/airplay', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          enabled: airplayEnabled,
-          base_port: parseInt(airplayBasePort) || 5000,
-          prime_silence_ms: parseInt(airplayPrimeSilenceMs) || 500,
-          model: airplayModel || 'RealityDevice14,1',
-        }),
+      await apiClient.saveAirPlayConfig({
+        enabled: airplayEnabled,
+        base_port: parseInt(airplayBasePort) || 5000,
+        prime_silence_ms: parseInt(airplayPrimeSilenceMs) || 500,
+        model: airplayModel || 'RealityDevice14,1',
       })
-      if (!airplayRes.ok) throw new Error(await airplayRes.text())
-
       settingsStatus = '✓ Saved'
       loadConfig()
       onRefresh?.()

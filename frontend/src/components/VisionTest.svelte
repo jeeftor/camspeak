@@ -6,6 +6,7 @@
   import CopyButton from '$lib/components/CopyButton.svelte'
   import Markdown from '$lib/components/Markdown.svelte'
   import { buildCurl } from '$lib/curl.svelte'
+  import { apiClient } from '$lib/api'
 
   let { cameras = [], globalPrompt = '', onSavePrompt } = $props()
 
@@ -39,8 +40,7 @@
   // --- Prompt presets ---
   async function loadPresets() {
     try {
-      const res = await fetch('/api/config/vision-prompts')
-      if (res.ok) presets = await res.json() ?? []
+      presets = await apiClient.listVisionPrompts() ?? []
     } catch (e) { /* ignore */ }
   }
 
@@ -49,12 +49,7 @@
   async function savePreset() {
     if (!presetName || !prompt) return
     try {
-      const res = await fetch('/api/config/vision-prompts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: presetName, prompt }),
-      })
-      if (!res.ok) throw new Error(await res.text())
+      await apiClient.saveVisionPrompt({ name: presetName, prompt })
       presetName = ''
       showSavePreset = false
       await loadPresets()
@@ -66,8 +61,7 @@
 
   async function deletePreset(name) {
     try {
-      const res = await fetch(`/api/config/vision-prompts/${encodeURIComponent(name)}`, { method: 'DELETE' })
-      if (!res.ok) throw new Error(await res.text())
+      await apiClient.deleteVisionPrompt(name)
       await loadPresets()
       setStatus('✓ Preset deleted')
     } catch (e) {
@@ -97,8 +91,7 @@
       const fd = new FormData()
       fd.append('prompt', prompt)
       fd.append('image', file)
-      const res = await fetch('/api/vision/test', { method: 'POST', body: fd })
-      if (!res.ok) throw new Error(await res.text())
+      const res = await apiClient.visionTest(fd)
       const data = await res.json()
       image = data.image || ''
       description = data.description || ''
@@ -129,13 +122,7 @@
         body.camera = selectedCamera
       }
       setStatus(capture || !image ? 'Capturing + analyzing…' : 'Analyzing…')
-      const res = await fetch('/api/vision/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      if (!res.ok) throw new Error(await res.text())
-      const data = await res.json()
+      const data = await apiClient.visionTestJSON(body)
       image = data.image || image
       description = data.description || ''
       results = [{ prompt, description, time: new Date().toLocaleTimeString() }, ...results].slice(0, 10)
