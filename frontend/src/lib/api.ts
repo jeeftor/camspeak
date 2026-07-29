@@ -4,6 +4,7 @@
 import type {
   AppConfig,
   Camera,
+  DescribeResponse,
   DetectCameraResponse,
   DiscoverResponse,
   FrigateTestResult,
@@ -13,19 +14,22 @@ import type {
   MQTTTopic,
   PingResponse,
   PlayReq,
+  PlayResponse,
   Preset,
   Rule,
   SaveCameraReq,
+  SavePresetResponse,
   SaveRuleReq,
   SaveTTSReq,
   SaveVisionPromptReq,
   SaveVisionReq,
   Settings,
   SpeakReq,
+  SpeakResponse,
   TTSPreset,
   VisionConfig,
-  VisionDescribeResult,
   VisionPrompt,
+  VisionTestResponse,
   VisionTestResult,
 } from './types'
 
@@ -132,8 +136,10 @@ export const apiClient = {
   getVoices: () => api<string[]>('/api/voices'),
 
   // --- Speak / Play / Stop ---
-  speak: (req: SpeakReq) => api('/api/speak', { method: 'POST', body: JSON.stringify(req) }),
-  play: (req: PlayReq) => api('/api/play', { method: 'POST', body: JSON.stringify(req) }),
+  speak: (req: SpeakReq) =>
+    api<SpeakResponse>('/api/speak', { method: 'POST', body: JSON.stringify(req) }),
+  play: (req: PlayReq) =>
+    api<PlayResponse>('/api/play', { method: 'POST', body: JSON.stringify(req) }),
   playURL: (req: { camera: string; url: string; gain: number }) =>
     api('/api/play-url', { method: 'POST', body: JSON.stringify(req) }),
   playStream: (req: { camera: string; url: string; gain: number }) =>
@@ -149,7 +155,7 @@ export const apiClient = {
   // --- Library ---
   getPresets: () => api<Preset[]>('/api/library'),
   savePreset: (req: { name: string; text: string; category: string; voice: string }) =>
-    api('/api/library', { method: 'POST', body: JSON.stringify(req) }),
+    api<SavePresetResponse>('/api/library', { method: 'POST', body: JSON.stringify(req) }),
   uploadPreset: (fd: FormData) => apiRaw('/api/library/upload', { method: 'POST', body: fd }),
   deletePreset: (category: string, name: string) =>
     api(`/api/library/${encodeURIComponent(category)}/${encodeURIComponent(name)}`, { method: 'DELETE' }),
@@ -168,10 +174,10 @@ export const apiClient = {
   // --- Vision ---
   snapshot: (camera: string) =>
     apiRaw(`/api/snapshot/${encodeURIComponent(camera)}`),
-  describe: (req: { camera: string; prompt: string }) =>
-    api<VisionDescribeResult>('/api/describe', { method: 'POST', body: JSON.stringify(req) }),
+  describe: (req: { camera: string; prompt?: string; gain?: number }) =>
+    api<DescribeResponse>('/api/describe', { method: 'POST', body: JSON.stringify(req) }),
   visionTest: (fd: FormData) =>
     apiRaw('/api/vision/test', { method: 'POST', body: fd }),
-  visionTestJSON: (req: { image: string; prompt: string }) =>
-    api<VisionDescribeResult>('/api/vision/test', { method: 'POST', body: JSON.stringify(req) }),
+  visionTestJSON: (req: { image?: string; camera?: string; prompt: string }) =>
+    api<VisionTestResponse>('/api/vision/test', { method: 'POST', body: JSON.stringify(req) }),
 }

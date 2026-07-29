@@ -137,6 +137,8 @@ func (h *Handlers) Vision(c echo.Context) error {
 //   - Multipart form: "prompt" field + "image" file upload
 func (h *Handlers) VisionTest(c echo.Context) error {
 	log := h.logger(c)
+	start := time.Now()
+	t := NewStepTimings(2)
 
 	var camera, prompt, imageB64 string
 
@@ -209,6 +211,7 @@ func (h *Handlers) VisionTest(c echo.Context) error {
 		if frigateURL == "" {
 			return echo.NewHTTPError(http.StatusServiceUnavailable, "frigate URL not configured")
 		}
+		snapStart := time.Now()
 		snapURL := fmt.Sprintf("%s/api/%s/latest.jpg?h=720", frigateURL, camera)
 		snapReq, err := http.NewRequestWithContext(c.Request().Context(), http.MethodGet, snapURL, nil)
 		if err != nil {
@@ -229,14 +232,17 @@ func (h *Handlers) VisionTest(c echo.Context) error {
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("reading snapshot: %s", err))
 		}
+		t.Add("snapshot_ms", snapStart)
 		imageDataURI = "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(imageBytes)
 	}
 
+	visionStart := time.Now()
 	description, err := visionClient.Describe(imageBytes, "image/jpeg", prompt)
 	if err != nil {
 		log.Error("vision-test: failed", "camera", camera, "err", err)
 		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("vision: %s", err))
 	}
+	t.Add("vision_ms", visionStart)
 
 	log.Info(
 		"vision-test: done",
@@ -246,11 +252,15 @@ func (h *Handlers) VisionTest(c echo.Context) error {
 		len(prompt),
 		"text",
 		description,
+		"elapsed",
+		time.Since(start),
 	)
 
-	return c.JSON(http.StatusOK, map[string]string{
+	return c.JSON(http.StatusOK, map[string]any{
 		"description": description,
 		"image":       imageDataURI,
+		"timings":     t.Ms(),
+		"total_ms":    TotalMs(start),
 	})
 }
 
@@ -283,6 +293,7 @@ func (h *Handlers) Describe(c echo.Context) error {
 	}
 
 	start := time.Now()
+	t := NewStepTimings(4)
 	log.Info("describe: request", "camera", req.Camera)
 
 	// 1. Fetch snapshot from Frigate
@@ -330,6 +341,7 @@ func (h *Handlers) Describe(c echo.Context) error {
 		"elapsed",
 		time.Since(snapStart),
 	)
+	t.Add("snapshot_ms", snapStart)
 
 	// 2. Send to vision model (resolve prompt: request → camera → global → default)
 	prompt := resolveVisionPrompt(req.Prompt, camOk, camCfg.VisionPrompt, globalPrompt)
@@ -348,6 +360,7 @@ func (h *Handlers) Describe(c echo.Context) error {
 		"elapsed",
 		time.Since(visionStart),
 	)
+	t.Add("vision_ms", visionStart)
 
 	// 3. TTS
 	voice := defaultVoice
@@ -366,6 +379,7 @@ func (h *Handlers) Describe(c echo.Context) error {
 		"elapsed",
 		time.Since(ttsStart),
 	)
+	t.Add("tts_ms", ttsStart)
 
 	// 4. Transcode + send to camera
 	gain := req.Gain
@@ -373,6 +387,7 @@ func (h *Handlers) Describe(c echo.Context) error {
 		gain = 3.0
 	}
 
+	transcodeStart := time.Now()
 	rawPath, err := wavBytesToRaw(wav, h.tmpDir, gain)
 	if err != nil {
 		return echo.NewHTTPError(
@@ -380,6 +395,7 @@ func (h *Handlers) Describe(c echo.Context) error {
 			fmt.Sprintf("transcoding: %s", err),
 		)
 	}
+	t.Add("transcode_ms", transcodeStart)
 	defer os.Remove(rawPath)
 
 	cam, err := h.reg.Get(req.Camera)
@@ -392,6 +408,7 @@ func (h *Handlers) Describe(c echo.Context) error {
 		log.Error("describe: send failed", "camera", req.Camera, "err", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+	t.Add("send_ms", sendStart)
 	log.Debug(
 		"describe: camera send complete",
 		"camera",
@@ -406,9 +423,11 @@ func (h *Handlers) Describe(c echo.Context) error {
 	)
 
 	snapB64 := base64.StdEncoding.EncodeToString(imageBytes)
-	return c.JSON(http.StatusOK, map[string]string{
+	return c.JSON(http.StatusOK, map[string]any{
 		"status":      "ok",
 		"description": description,
 		"image":       "data:image/jpeg;base64," + snapB64,
+		"timings":     t.Ms(),
+		"total_ms":    TotalMs(start),
 	})
 }

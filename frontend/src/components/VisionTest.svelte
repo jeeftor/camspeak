@@ -7,6 +7,7 @@
   import Markdown from '$lib/components/Markdown.svelte'
   import { buildCurl } from '$lib/curl.svelte'
   import { apiClient } from '$lib/api'
+  import { formatTimings } from '$lib/utils'
 
   let { cameras = [], globalPrompt = '', onSavePrompt } = $props()
 
@@ -14,6 +15,7 @@
   let prompt = $state(globalPrompt)
   let image = $state('') // base64 data URI
   let description = $state('')
+  let visionTiming = $state('') // compact timing breakdown from last vision run
   let busy = $state(false)
   let status = $state('')
   let statusType = $state('ok')
@@ -95,6 +97,7 @@
       const data = await res.json()
       image = data.image || ''
       description = data.description || ''
+      visionTiming = formatTimings(data.timings)
       results = [{ prompt, description, time: new Date().toLocaleTimeString() }, ...results].slice(0, 10)
       setStatus('✓ Done')
     } catch (e) {
@@ -125,6 +128,7 @@
       const data = await apiClient.visionTestJSON(body)
       image = data.image || image
       description = data.description || ''
+      visionTiming = formatTimings(data.timings)
       results = [{ prompt, description, time: new Date().toLocaleTimeString() }, ...results].slice(0, 10)
       setStatus('✓ Done')
     } catch (e) {
@@ -137,6 +141,7 @@
   function captureAndRun() {
     image = ''
     description = ''
+    visionTiming = ''
     runVision(true)
   }
 
@@ -157,6 +162,7 @@
   function clearAll() {
     image = ''
     description = ''
+    visionTiming = ''
     results = []
     status = ''
   }
@@ -340,6 +346,9 @@
             </div>
             <p class="text-xs text-muted-foreground italic">"{r.prompt || '(empty — hardcoded default)'}"</p>
             <Markdown content={r.description} class="text-sm text-foreground" />
+            {#if i === 0 && visionTiming}
+              <p class="text-xs text-muted-foreground">⏱ {visionTiming}</p>
+            {/if}
             {#if i === 0}
               <div class="flex gap-1.5 mt-1">
                 <Button variant="ghost" size="sm" onclick={() => prompt = r.prompt} title="Load this prompt into the editor">

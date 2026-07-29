@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/labstack/echo/v4"
 )
@@ -43,11 +44,13 @@ func (h *Handlers) TTSPreview(c echo.Context) error {
 		voice = h.cfg.TTS.DefaultVoice
 	}
 
+	start := time.Now()
 	wav, err := h.tts.Speak(req.Text, voice)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("TTS failed: %s", err))
 	}
 
+	c.Response().Header().Set("X-TTS-Ms", fmt.Sprintf("%d", time.Since(start).Milliseconds()))
 	return c.Blob(http.StatusOK, "audio/wav", wav)
 }
 
@@ -67,17 +70,35 @@ func (h *Handlers) GeneratePreset(c echo.Context) error {
 		voice = h.cfg.TTS.DefaultVoice
 	}
 
+	start := time.Now()
+	t := NewStepTimings(2)
+
+	ttsStart := time.Now()
 	wav, err := h.tts.Speak(req.Text, voice)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("TTS failed: %s", err))
 	}
+	t.Add("tts_ms", ttsStart)
 
+	saveStart := time.Now()
 	preset, err := h.store.Save(req.Category, req.Name, req.Text, voice, wav)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+	t.Add("save_ms", saveStart)
 
-	return c.JSON(http.StatusCreated, preset)
+	// preset is a value, not pointer, after Save returns — build response
+	return c.JSON(http.StatusCreated, map[string]any{
+		"name":     preset.Name,
+		"category": preset.Category,
+		"text":     preset.Text,
+		"voice":    preset.Voice,
+		"duration": preset.Duration,
+		"size":     preset.Size,
+		"created":  preset.Created,
+		"timings":  t.Ms(),
+		"total_ms": TotalMs(start),
+	})
 }
 
 // UploadPreset handles POST /api/library/upload — audio file → save preset.

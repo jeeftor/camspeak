@@ -11,6 +11,7 @@
   import GainSlider from '$lib/components/GainSlider.svelte'
   import { buildCurl } from '$lib/curl.svelte'
   import { apiClient } from '$lib/api'
+  import { formatTimingSummary } from '$lib/utils'
 
   let { camera, voices = [], presets = [] } = $props()
 
@@ -25,6 +26,7 @@
   let statusType = $state('ok')
   let snapshot = $state('')
   let description = $state('')
+  let describeTiming = $state('')
   // Pre-fill from saved camera default; user can override per-session
   const savedPrompt = camera.vision_prompt ?? ''
   let visionPrompt = $state(savedPrompt)
@@ -50,8 +52,9 @@
     if (!text) return
     busy = true; status = ''
     try {
-      await apiClient.speak({ camera: camera.name, text, voice, gain })
-      setStatus('✓ sent')
+      const data = await apiClient.speak({ camera: camera.name, text, voice, gain })
+      const timing = formatTimingSummary(data.timings, data.total_ms)
+      setStatus(timing ? `✓ sent (${timing})` : '✓ sent')
     } catch (e) {
       setStatus('✗ ' + e.message, 'err')
     } finally {
@@ -66,8 +69,9 @@
     }
     busy = true; status = ''
     try {
-      await apiClient.play({ camera: camera.name, preset, gain })
-      setStatus('✓ playing')
+      const data = await apiClient.play({ camera: camera.name, preset, gain })
+      const timing = formatTimingSummary(data.timings, data.total_ms)
+      setStatus(timing ? `✓ playing (${timing})` : '✓ playing')
     } catch (e) {
       setStatus('✗ ' + e.message, 'err')
     } finally {
@@ -169,7 +173,7 @@
   async function describe() {
     busy = true; status = ''
     if (snapshot) URL.revokeObjectURL(snapshot)
-    snapshot = ''; description = ''
+    snapshot = ''; description = ''; describeTiming = ''
     try {
       setStatus('Capturing screenshot…')
       const snapRes = await apiClient.snapshot(camera.name)
@@ -181,11 +185,14 @@
       if (visionPrompt) body.prompt = visionPrompt
       const data = await apiClient.describe(body)
       description = data.description || ''
+      describeTiming = formatTimingSummary(data.timings, data.total_ms)
     } catch (e) {
       setStatus('✗ ' + e.message, 'err')
     } finally {
       busy = false
-      if (description) setStatus('✓ described & spoken')
+      if (description) {
+        setStatus(describeTiming ? `✓ described (${describeTiming})` : '✓ described & spoken')
+      }
     }
   }
 
@@ -206,6 +213,7 @@
     if (snapshot) URL.revokeObjectURL(snapshot)
     snapshot = ''
     description = ''
+    describeTiming = ''
     status = ''
   }
 

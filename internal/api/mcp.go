@@ -20,7 +20,7 @@ func buildMCPServer(h *Handlers) *mcp.Server {
 		if in.Camera == "" || in.Text == "" {
 			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "camera and text required"}}}, SpeakOutput{}, nil
 		}
-		if err := h.speakText(h.log, in.Camera, in.Text, in.Voice, 3.0); err != nil {
+		if _, err := h.speakText(h.log, in.Camera, in.Text, in.Voice, 3.0); err != nil {
 			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, SpeakOutput{}, nil
 		}
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Spoke to %s: %q", in.Camera, in.Text)}}}, SpeakOutput{}, nil
@@ -34,7 +34,7 @@ func buildMCPServer(h *Handlers) *mcp.Server {
 		if in.Camera == "" || in.Preset == "" {
 			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "camera and preset required"}}}, PlayPresetOutput{}, nil
 		}
-		if err := h.playPreset(h.log, in.Camera, in.Category, in.Preset, 3.0); err != nil {
+		if _, err := h.playPreset(h.log, in.Camera, in.Category, in.Preset, 3.0); err != nil {
 			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, PlayPresetOutput{}, nil
 		}
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Played preset %q on %s", in.Preset, in.Camera)}}}, PlayPresetOutput{}, nil

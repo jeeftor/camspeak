@@ -7,6 +7,7 @@
   import { Textarea } from '$lib/components/ui/textarea'
   import { toast } from '$lib/components/ui/toast'
   import { apiClient } from '$lib/api'
+  import { formatMs, formatTimingSummary } from '$lib/utils'
 
   let { presets = [], voices = [], onRefresh } = $props()
 
@@ -69,9 +70,11 @@
     genPlaying = false
     try {
       const res = await apiClient.ttsPreview({ text: genText, voice: genVoice })
+      const ttsMs = res.headers.get('X-TTS-Ms')
       const blob = await res.blob()
       genAudio = URL.createObjectURL(blob)
-      genStatus = '✓ Playing…'
+      const ms = ttsMs ? formatMs(Number(ttsMs)) : ''
+      genStatus = ms ? `✓ Playing… (${ms})` : '✓ Playing…'
       genAudioEl = new Audio(genAudio)
       genAudioEl.onended = () => { genPlaying = false }
       genAudioEl.play()
@@ -94,8 +97,9 @@
     if (!genName || !genText || !genAudio) return
     genBusy = true; genStatus = ''
     try {
-      await apiClient.savePreset({ name: genName, text: genText, category: genCategory, voice: genVoice })
-      genStatus = '✓ Saved'
+      const data = await apiClient.savePreset({ name: genName, text: genText, category: genCategory, voice: genVoice })
+      const timing = formatTimingSummary(data.timings, data.total_ms)
+      genStatus = timing ? `✓ Saved (${timing})` : '✓ Saved'
       toast.success(`Preset "${genName}" saved`)
       genName = ''; genText = ''
       if (genAudio) { URL.revokeObjectURL(genAudio); genAudio = null }

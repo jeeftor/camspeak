@@ -3,6 +3,12 @@
 
 export type CameraType = 'hikvision' | 'reolink' | 'go2rtc' | 'onvif'
 
+// Timing breakdown returned by several API endpoints. Keys are step names
+// (e.g. "tts_ms", "transcode_ms", "send_ms") mapped to milliseconds.
+export interface Timings {
+  [key: string]: number
+}
+
 export interface Camera {
   name: string
   type: CameraType
@@ -83,6 +89,8 @@ export interface Preset {
   duration: number
   size: number
   created: string
+  timings?: Timings
+  total_ms?: number
 }
 
 export interface AppConfig {
@@ -214,4 +222,47 @@ export interface Go2rtcTestResult {
 export interface VisionDescribeResult {
   description: string
   image?: string
+  timings?: Timings
+  total_ms?: number
+}
+
+// Responses from speak/play/describe endpoints. These endpoints return
+// { status, ... } plus an optional timing breakdown.
+export interface SpeakResponse {
+  status?: string
+  timings?: Timings
+  total_ms?: number
+}
+
+export interface PlayResponse {
+  status?: string
+  timings?: Timings
+  total_ms?: number
+}
+
+export interface DescribeResponse {
+  status?: string
+  description?: string
+  image?: string
+  timings?: Timings
+  total_ms?: number
+}
+
+export interface VisionTestResponse {
+  description?: string
+  image?: string
+  timings?: Timings
+  total_ms?: number
+}
+
+export interface SavePresetResponse {
+  name?: string
+  category?: string
+  text?: string
+  voice?: string
+  duration?: number
+  size?: number
+  created?: string
+  timings?: Timings
+  total_ms?: number
 }

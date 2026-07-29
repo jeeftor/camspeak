@@ -51,9 +51,9 @@ func (h *Handlers) Broadcast(c echo.Context) error {
 			camStart := time.Now()
 			var err error
 			if req.Preset != "" {
-				err = h.playPreset(log, cam, req.Category, req.Preset, req.Gain)
+				_, err = h.playPreset(log, cam, req.Category, req.Preset, req.Gain)
 			} else {
-				err = h.speakText(log, cam, req.Text, req.Voice, req.Gain)
+				_, err = h.speakText(log, cam, req.Text, req.Voice, req.Gain)
 			}
 
 			mu.Lock()
@@ -104,10 +104,11 @@ func (h *Handlers) Broadcast(c echo.Context) error {
 
 // --- Internal helpers ---
 
-func (h *Handlers) speakText(log *clog.Logger, cameraName, text, voice string, gain float64) error {
+func (h *Handlers) speakText(log *clog.Logger, cameraName, text, voice string, gain float64) (*StepTimings, error) {
+	t := NewStepTimings(3)
 	cam, err := h.reg.Get(cameraName)
 	if err != nil {
-		return err
+		return t, err
 	}
 
 	if voice == "" {
@@ -121,8 +122,9 @@ func (h *Handlers) speakText(log *clog.Logger, cameraName, text, voice string, g
 	ttsStart := time.Now()
 	wav, err := h.tts.Speak(text, voice)
 	if err != nil {
-		return fmt.Errorf("TTS: %w", err)
+		return t, fmt.Errorf("TTS: %w", err)
 	}
+	t.Add("tts_ms", ttsStart)
 	log.Debug(
 		"speak: TTS generated",
 		"camera",
@@ -135,17 +137,20 @@ func (h *Handlers) speakText(log *clog.Logger, cameraName, text, voice string, g
 		time.Since(ttsStart),
 	)
 
+	transcodeStart := time.Now()
 	rawPath, err := wavBytesToRaw(wav, h.tmpDir, gain)
 	if err != nil {
-		return fmt.Errorf("transcoding: %w", err)
+		return t, fmt.Errorf("transcoding: %w", err)
 	}
+	t.Add("transcode_ms", transcodeStart)
 	defer os.Remove(rawPath)
 
 	log.Debug("speak: sending to camera", "camera", cameraName)
 	sendStart := time.Now()
 	if err := cam.SendRaw(rawPath); err != nil {
-		return fmt.Errorf("sending to camera: %w", err)
+		return t, fmt.Errorf("sending to camera: %w", err)
 	}
+	t.Add("send_ms", sendStart)
 	log.Debug(
 		"speak: camera send complete",
 		"camera",
@@ -156,19 +161,21 @@ func (h *Handlers) speakText(log *clog.Logger, cameraName, text, voice string, g
 
 	h.events.publish(event{Camera: cameraName, Action: "speak", Text: text, At: time.Now()})
 
-	return nil
+	return t, nil
 }
 
 func (h *Handlers) playPreset(
 	log *clog.Logger,
 	cameraName, category, presetName string,
 	gain float64,
-) error {
+) (*StepTimings, error) {
+	t := NewStepTimings(3)
 	cam, err := h.reg.Get(cameraName)
 	if err != nil {
-		return err
+		return t, err
 	}
 
+	loadStart := time.Now()
 	var preset *library.Preset
 	if category != "" {
 		preset, err = h.store.Get(category, presetName)
@@ -177,14 +184,16 @@ func (h *Handlers) playPreset(
 	}
 
 	if err != nil {
-		return err
+		return t, err
 	}
+	t.Add("load_ms", loadStart)
 
 	// If gain is specified, re-transcode the raw file with the gain filter.
 	// The stored raw is already G.711ulaw 8kHz, so we read it as mulaw and
 	// apply volume, then output mulaw again.
 	sendPath := preset.RawPath
 	if gain > 0 && gain != 3.0 {
+		boostStart := time.Now()
 		boosted, err := boostRawGain(preset.RawPath, h.tmpDir, gain)
 		if err != nil {
 			log.Warn("play: gain boost failed, sending original", "err", err)
@@ -192,6 +201,7 @@ func (h *Handlers) playPreset(
 			defer os.Remove(boosted)
 			sendPath = boosted
 		}
+		t.Add("transcode_ms", boostStart)
 	}
 
 	log.Debug(
@@ -207,8 +217,9 @@ func (h *Handlers) playPreset(
 	)
 	sendStart := time.Now()
 	if err := cam.SendRaw(sendPath); err != nil {
-		return fmt.Errorf("sending to camera: %w", err)
+		return t, fmt.Errorf("sending to camera: %w", err)
 	}
+	t.Add("send_ms", sendStart)
 	log.Debug(
 		"play: camera send complete",
 		"camera",
@@ -219,7 +230,7 @@ func (h *Handlers) playPreset(
 
 	h.events.publish(event{Camera: cameraName, Action: "play", Text: preset.Name, At: time.Now()})
 
-	return nil
+	return t, nil
 }
 
 // SpeakForMQTT is called by the MQTT subscriber.
@@ -231,9 +242,9 @@ func (h *Handlers) SpeakForMQTT(cams []string, text, preset, voice string) {
 			defer wg.Done()
 
 			if preset != "" {
-				h.playPreset(h.log, c, "", preset, 3.0) //nolint:errcheck
+				_, _ = h.playPreset(h.log, c, "", preset, 3.0)
 			} else if text != "" {
-				h.speakText(h.log, c, text, voice, 3.0) //nolint:errcheck
+				_, _ = h.speakText(h.log, c, text, voice, 3.0)
 			}
 		}(cam)
 	}

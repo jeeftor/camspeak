@@ -113,14 +113,18 @@ func (h *Handlers) Speak(c echo.Context) error {
 	)
 	start := time.Now()
 
-	err = h.speakText(log, req.Camera, req.Text, req.Voice, req.Gain)
+	timings, err := h.speakText(log, req.Camera, req.Text, req.Voice, req.Gain)
 	if err != nil {
 		log.Error("speak: failed", "camera", req.Camera, "elapsed", time.Since(start), "err", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
 	log.Info("speak: done", "camera", req.Camera, "elapsed", time.Since(start))
-	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+	return c.JSON(http.StatusOK, map[string]any{
+		"status":   "ok",
+		"timings":  timings.Ms(),
+		"total_ms": TotalMs(start),
+	})
 }
 
 // Play handles POST /api/play — preset → camera.
@@ -146,7 +150,7 @@ func (h *Handlers) Play(c echo.Context) error {
 	)
 	start := time.Now()
 
-	err = h.playPreset(log, req.Camera, req.Category, req.Preset, req.Gain)
+	timings, err := h.playPreset(log, req.Camera, req.Category, req.Preset, req.Gain)
 	if err != nil {
 		log.Error(
 			"play: failed",
@@ -171,7 +175,11 @@ func (h *Handlers) Play(c echo.Context) error {
 		"elapsed",
 		time.Since(start),
 	)
-	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+	return c.JSON(http.StatusOK, map[string]any{
+		"status":   "ok",
+		"timings":  timings.Ms(),
+		"total_ms": TotalMs(start),
+	})
 }
 
 // PlayURL handles POST /api/play-url — download URL → transcode → camera.
