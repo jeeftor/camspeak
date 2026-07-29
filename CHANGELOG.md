@@ -5,6 +5,65 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v2.6.2] — 2026-07-29
+
+### Migrated to official MCP Go SDK
+
+Switched from the community `mark3labs/mcp-go` (v0.56.0, spec 2025-11-25) to the official `modelcontextprotocol/go-sdk` (v1.7.0, spec 2026-07-28). The official SDK is a Tier 1 implementation maintained with Google, passes the MCP conformance suite, and supports the new stateless protocol.
+
+### Changed
+- **MCP tool definitions now use typed Go structs** with `jsonschema` tags instead of stringly-typed `GetString` calls. Tool schemas are generated from the struct — typos in field names are now compile errors. All 7 tools migrated (speak, play_preset, broadcast, list_cameras, list_presets, generate_preset, beep).
+- `mcp.AddTool` generic function replaces `s.AddTool(mcp.NewTool(...))` pattern.
+- Error results use `CallToolResult{IsError: true, Content: ...}` instead of `mcp.NewToolResultError()`.
+- `mcp.NewStreamableHTTPHandler` replaces `server.NewStreamableHTTPServer` — implements `http.Handler` so `echo.WrapHandler` works as before.
+- `mark3labs/mcp-go` dependency removed entirely.
+
+---
+
+## [v2.6.1] — 2026-07-29
+
+### Centralized API client + shared TypeScript types
+
+### Added
+- **`frontend/src/lib/api.ts`** — typed API client wrapping all 51 fetch calls. Single place for auth headers, error handling, and request formatting. Exports `apiClient` with methods for every endpoint.
+- **`frontend/src/lib/types.ts`** — TypeScript interfaces matching Go backend structs (Camera, TTSPreset, Rule, Preset, VisionConfig, AirPlayConfig, Settings, Health, etc.) plus request/response types.
+
+### Changed
+- All 8 Svelte components updated to use `apiClient` instead of raw `fetch()`. Zero raw `fetch()` calls remain in any component. Config.svelte (27 calls), CameraCard.svelte (10), Library.svelte (5), Frigate.svelte (5), VisionTest.svelte (5), Broadcast.svelte (2), BroadcastBar.svelte (1), App.svelte (5).
+
+---
+
+## [v2.6.0] — 2026-07-29
+
+### New UI components + CI lint gate
+
+### Added
+- **Toast** — store-based notification system (`toast.success/error/warning/show`) with `<Toaster />` renderer. Auto-dismiss with configurable duration.
+- **Tooltip** — CSS hover/focus tooltip with 4 positions (top/bottom/left/right).
+- **Dropdown** — click-to-open menu with outside-click + Escape dismissal, separator + destructive item support.
+- **Accordion** — collapsible sections for organizing complex forms.
+- **golangci-lint** action added to both `ci.yml` and `release.yml` GitHub Actions workflows. Lint version pinned to v2.12.2.
+
+### Changed
+- Toast notifications wired into Config.svelte and Library.svelte for save/delete/upload actions (camera saved, preset deleted, vision config saved, etc.). Inline status strings kept for contextual per-form feedback.
+
+---
+
+## [v2.5.0] — 2026-07-28
+
+### Backend refactoring + CI improvements
+
+### Changed
+- Split large Go files: `internal/airplay/server.go`, `internal/api/handlers.go`, `internal/api/config_handlers.go`, `internal/config/model.go`.
+- Extracted duplicated digest authentication logic to `internal/util/digest.go`.
+- Extracted gain defaulting logic to `internal/util/audio.go`, applied to `internal/api/handlers.go` and `internal/api/stream.go`.
+- Extracted 8kbps throttling utility `util.CopyAt8kBps` to `internal/util/stream.go`.
+- `Makefile` updated with `lint`, `fmt`, and `vet` targets.
+- `go build ./...` step added to both `ci.yml` and `release.yml` workflows.
+- `AGENTS.md` updated to correct misleading Reolink camera configuration info and reflect the new file structure.
+
+---
+
 ## [v2.2.0] — 2026-07-19
 
 ### AirPlay FairPlay decryption support
