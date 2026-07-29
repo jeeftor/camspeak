@@ -64,6 +64,7 @@ type CameraConfig struct {
 	AirPlayModel   string  `json:"airplay_model"`   // custom AirPlay device model/icon; empty = use global AirPlay.Model
 	Gain           float64 `json:"gain"`            // digital gain applied to all audio sent to this camera (default 3.0)
 	VisionPrompt   string  `json:"vision_prompt"`   // default prompt for vision/describe; empty = generic
+	Note           string  `json:"note"`            // limitation/warning shown in UI (e.g. "Limited — see docs")
 }
 
 // Sanitized returns a copy of c with the password removed.
@@ -380,7 +381,7 @@ func seedDefaultPresets(db *sql.DB) {
 func loadCameras(db *sql.DB, cfg *Config) {
 	rows, err := db.Query(
 		`SELECT name, type, ip, user, pass, channel, stream, enabled, vision_prompt,
-		        COALESCE(airplay_enabled, 1), COALESCE(airplay_name, ''), COALESCE(airplay_model, ''), COALESCE(gain, 3.0) FROM cameras`,
+		        COALESCE(airplay_enabled, 1), COALESCE(airplay_name, ''), COALESCE(airplay_model, ''), COALESCE(gain, 3.0), COALESCE(note, '') FROM cameras`,
 	)
 	if err != nil {
 		return
@@ -393,7 +394,7 @@ func loadCameras(db *sql.DB, cfg *Config) {
 		var enabled, airplayEnabled int
 		if err := rows.Scan(
 			&name, &cam.Type, &cam.IP, &cam.User, &cam.Pass,
-			&cam.Channel, &cam.Stream, &enabled, &cam.VisionPrompt, &airplayEnabled, &cam.AirPlayName, &cam.AirPlayModel, &cam.Gain,
+			&cam.Channel, &cam.Stream, &enabled, &cam.VisionPrompt, &airplayEnabled, &cam.AirPlayName, &cam.AirPlayModel, &cam.Gain, &cam.Note,
 		); err != nil {
 			continue
 		}
@@ -554,14 +555,14 @@ func SaveCamera(db *sql.DB, name string, cam CameraConfig) error {
 	}
 	_, err := db.Exec(
 		`INSERT INTO cameras
-		   (name, type, ip, user, pass, channel, stream, enabled, vision_prompt, airplay_enabled, airplay_name, airplay_model, gain)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		   (name, type, ip, user, pass, channel, stream, enabled, vision_prompt, airplay_enabled, airplay_name, airplay_model, gain, note)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(name) DO UPDATE SET
 		   type = excluded.type, ip = excluded.ip, user = excluded.user,
 		   pass = excluded.pass, channel = excluded.channel, stream = excluded.stream,
 		   enabled = excluded.enabled, vision_prompt = excluded.vision_prompt,
 		   airplay_enabled = excluded.airplay_enabled, airplay_name = excluded.airplay_name,
-		   airplay_model = excluded.airplay_model, gain = excluded.gain`,
+		   airplay_model = excluded.airplay_model, gain = excluded.gain, note = excluded.note`,
 		name,
 		cam.Type,
 		cam.IP,
@@ -575,6 +576,7 @@ func SaveCamera(db *sql.DB, name string, cam CameraConfig) error {
 		cam.AirPlayName,
 		cam.AirPlayModel,
 		cam.Gain,
+		cam.Note,
 	)
 	if err != nil {
 		return fmt.Errorf("saving camera %s: %w", name, err)

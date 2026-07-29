@@ -220,6 +220,7 @@ func (h *Handlers) ListCamerasConfig(c echo.Context) error {
 			"gain":            cam.Gain,
 			"airplay_running": apStatus[name],
 			"vision_prompt":   cam.VisionPrompt,
+			"note":            cam.Note,
 		})
 	}
 	return c.JSON(http.StatusOK, cameras)
@@ -322,6 +323,16 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 	if visionPrompt == "" && hasExisting {
 		visionPrompt = existing.VisionPrompt
 	}
+	// Auto-set limitation note for Reolink cameras (native audio not implemented).
+	note := ""
+	if camType == "reolink" {
+		note = "Limited — Reolink audio requires go2rtc with " +
+			"#backchannel=1 (doorbells only, firmware-dependent)"
+	}
+	// Preserve existing note if not a Reolink camera and no new note applies.
+	if note == "" && hasExisting {
+		note = existing.Note
+	}
 	cam := config.CameraConfig{
 		Type:         camType,
 		IP:           req.IP,
@@ -334,6 +345,7 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 		AirPlayModel: airPlayModel,
 		Gain:         gain,
 		VisionPrompt: visionPrompt,
+		Note:         note,
 	}
 	if err := config.SaveCamera(h.db, req.Name, cam); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -418,8 +430,13 @@ func (h *Handlers) DetectCameraType(c echo.Context) error {
 		"type":       detected,
 		"go2rtc_url": go2rtcURL,
 		"note": func() string {
-			if detected == "reolink" && go2rtcURL != "" {
-				return "Reolink detected; configure a go2rtc stream with the same name as the camera"
+			if detected == "reolink" {
+				if go2rtcURL != "" {
+					return "Reolink — LIMITED. Needs go2rtc stream with " +
+						"#backchannel=1 (doorbells only, firmware-dependent)"
+				}
+				return "Reolink — LIMITED. Native protocol not implemented. " +
+					"Needs go2rtc with #backchannel=1 (doorbells only)"
 			}
 			return ""
 		}(),
@@ -791,9 +808,14 @@ func (h *Handlers) DiscoverCameras(c echo.Context) error {
 	h.cfgMu.Lock()
 	for _, cam := range cameras {
 		stream := cam.Stream
+		note := ""
 		// For Reolink cameras, default the go2rtc stream name to the camera name.
-		if cam.Type == "reolink" && stream == "" {
-			stream = cam.Name
+		if cam.Type == "reolink" {
+			note = "Limited — Reolink audio requires go2rtc with " +
+				"#backchannel=1 (doorbells only, firmware-dependent)"
+			if stream == "" {
+				stream = cam.Name
+			}
 		}
 		h.cfg.Cameras[cam.Name] = config.CameraConfig{
 			Type:    cam.Type,
@@ -803,9 +825,17 @@ func (h *Handlers) DiscoverCameras(c echo.Context) error {
 			Channel: cam.Channel,
 			Stream:  stream,
 			Enabled: true,
+			Note:    note,
 		}
 	}
 	h.cfgMu.Unlock()
+
+	// Persist the note for cameras that have one (SaveToDB doesn't include the note column).
+	for name, cam := range h.cfg.Cameras {
+		if cam.Note != "" {
+			_ = config.SaveCamera(h.db, name, cam)
+		}
+	}
 
 	h.logger(c).Info("cameras discovered via Frigate", "count", len(cameras), "frigate", frigateURL)
 	return c.JSON(http.StatusOK, map[string]interface{}{

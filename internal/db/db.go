@@ -62,7 +62,8 @@ CREATE TABLE IF NOT EXISTS cameras (
     airplay_enabled INTEGER DEFAULT 1,
     airplay_name  TEXT DEFAULT '',
     airplay_model TEXT DEFAULT '',
-    gain          REAL DEFAULT 3.0
+    gain          REAL DEFAULT 3.0,
+    note          TEXT DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS rules (
@@ -176,5 +177,12 @@ func migrate(db *sql.DB) {
 	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cameras') WHERE name='gain'`).Scan(&gainCol); err == nil &&
 		gainCol == 0 {
 		_, _ = db.Exec(`ALTER TABLE cameras ADD COLUMN gain REAL DEFAULT 3.0`)
+	}
+	// Add 'note' column to cameras if missing (added in v2.4.0).
+	// Stores per-camera limitation warnings (e.g. Reolink "Limited" tag).
+	var noteCol int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cameras') WHERE name='note'`).Scan(&noteCol); err == nil &&
+		noteCol == 0 {
+		_, _ = db.Exec(`ALTER TABLE cameras ADD COLUMN note TEXT DEFAULT ''`)
 	}
 }

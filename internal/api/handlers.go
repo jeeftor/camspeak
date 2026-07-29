@@ -905,6 +905,7 @@ func (h *Handlers) Cameras(c echo.Context) error {
 			"ip":            cfg.IP,
 			"online":        status[name],
 			"vision_prompt": cfg.VisionPrompt,
+			"note":          cfg.Note,
 		})
 	}
 

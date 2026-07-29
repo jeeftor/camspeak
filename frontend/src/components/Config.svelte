@@ -578,7 +578,9 @@
           }
         }
         detectCamStatus = `✓ Detected ${data.type}`
-        if (data.type === 'reolink' && data.go2rtc_url) {
+        if (data.note) {
+          detectCamStatus += ` — ${data.note}`
+        } else if (data.type === 'reolink' && data.go2rtc_url) {
           detectCamStatus += ' (needs go2rtc stream)'
         }
       } else {
@@ -846,6 +848,9 @@
                 />
                 <span class="font-semibold">{cam.name}</span>
                 <span class="text-sm text-muted-foreground">{cam.type}</span>
+                {#if cam.note}
+                  <span class="text-xs text-amber-500" title={cam.note}>⚠ Limited</span>
+                {/if}
                 <span class="text-sm text-muted-foreground">{cam.ip}</span>
                 <span class="text-sm text-muted-foreground" title="Hikvision ISAPI two-way audio channel number; usually 1">ch{cam.channel}</span>
                 {#if !cam.enabled}<span class="text-xs text-muted-foreground italic">disabled</span>{/if}

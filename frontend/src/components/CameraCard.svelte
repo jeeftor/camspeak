@@ -290,6 +290,11 @@
           : 'bg-muted-foreground/40'}"></span>
         <span class="font-semibold">{camera.name}</span>
         <Badge variant="secondary" class="text-xs flex-shrink-0">{camera.type}</Badge>
+        {#if camera.note}
+          <Badge variant="outline" class="text-xs flex-shrink-0 text-amber-500 border-amber-500/30" title={camera.note}>
+            ⚠ Limited
+          </Badge>
+        {/if}
       </div>
       <div class="flex gap-1 flex-shrink-0">
         <Button
