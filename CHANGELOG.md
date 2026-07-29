@@ -5,6 +5,33 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v2.7.0] — 2026-07-29
+
+### Per-step timing tracking across all actions
+
+Every audio and vision action now returns a timing breakdown so you can see exactly where time is spent — TTS generation, transcoding, snapshot fetch, vision model inference, and camera send.
+
+### Added
+- **`internal/api/timing.go`** — `StepTimings` struct for tracking per-step durations. `Add(name, start)` records elapsed time; `Ms()` returns a map for JSON responses.
+- Timing data in all API responses:
+  - `POST /api/speak` → `timings: {tts_ms, transcode_ms, send_ms}`
+  - `POST /api/play` → `timings: {load_ms, transcode_ms, send_ms}`
+  - `POST /api/describe` → `timings: {snapshot_ms, vision_ms, tts_ms, transcode_ms, send_ms}`
+  - `POST /api/vision/test` → `timings: {snapshot_ms, vision_ms}`
+  - `POST /api/tts/preview` → `X-TTS-Ms` response header
+  - `POST /api/library` → `timings: {tts_ms, save_ms}`
+- Frontend timing display:
+  - CameraCard: `✓ sent (1.4s: TTS 450ms · transcode 120ms · send 800ms)`
+  - VisionTest: `⏱ snap 300ms · vision 2.0s` below description
+  - Library: `✓ Playing… (450ms)` and `✓ Saved (460ms: TTS 450ms)`
+- `frontend/src/lib/utils.ts`: `formatMs`, `formatTimings`, `formatTimingSummary` helpers
+- `frontend/src/lib/types.ts`: `Timings` interface + response types
+
+### Changed
+- `speakText` and `playPreset` now return `(*StepTimings, error)` instead of just `error`. All callers updated (Speak, Play, Describe, Broadcast, SpeakForMQTT, MCP tools).
+
+---
+
 ## [v2.6.2] — 2026-07-29
 
 ### Migrated to official MCP Go SDK
