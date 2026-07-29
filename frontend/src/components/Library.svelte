@@ -5,6 +5,7 @@
   import { Input } from '$lib/components/ui/input'
   import { Select } from '$lib/components/ui/select'
   import { Textarea } from '$lib/components/ui/textarea'
+  import { toast } from '$lib/components/ui/toast'
 
   let { presets = [], voices = [], onRefresh } = $props()
 
@@ -104,6 +105,7 @@
       })
       if (!res.ok) throw new Error(await res.text())
       genStatus = '✓ Saved'
+      toast.success(`Preset "${genName}" saved`)
       genName = ''; genText = ''
       if (genAudio) { URL.revokeObjectURL(genAudio); genAudio = null }
       genPlaying = false
@@ -147,10 +149,12 @@
       const res = await fetch('/api/library/upload', { method: 'POST', body: fd })
       if (!res.ok) throw new Error(await res.text())
       uploadStatus = '✓ Uploaded'
+      toast.success(`Preset "${uploadName}" uploaded`)
       clearUpload()
       onRefresh()
     } catch (e) {
       uploadStatus = '✗ ' + e.message
+      toast.error(`Upload failed: ${e.message}`)
     } finally {
       uploadBusy = false
       clearTimeout(uploadTimeout); uploadTimeout = setTimeout(() => (uploadStatus = ''), 4000)
@@ -162,9 +166,11 @@
     try {
       const res = await fetch(`/api/library/${category}/${name}`, { method: 'DELETE' })
       if (!res.ok) throw new Error(await res.text())
+      toast.success(`Preset "${name}" deleted`)
       onRefresh()
     } catch (e) {
       libError = '✗ ' + e.message
+      toast.error(`Failed to delete preset: ${e.message}`)
     }
   }
 

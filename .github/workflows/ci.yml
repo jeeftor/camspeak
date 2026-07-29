@@ -35,8 +35,16 @@ jobs:
         env:
           NODE_OPTIONS: --no-deprecation
 
+      - name: Build
+        run: go build ./...
+
       - name: Vet
         run: go vet ./...
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.12.2
 
       - name: Test
         run: go test ./...

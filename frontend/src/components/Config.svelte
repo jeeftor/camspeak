@@ -9,6 +9,7 @@
   import Modal from '$lib/components/Modal.svelte'
   import Frigate from './Frigate.svelte'
   import VisionTest from './VisionTest.svelte'
+  import { toast } from '$lib/components/ui/toast'
 
   let { onRefresh } = $props()
 
@@ -147,6 +148,7 @@
       })
       if (!res.ok) throw new Error(await res.text())
       ttsStatus = '✓ Saved'
+      toast.success(`TTS preset "${ttsName}" saved`)
       ttsFormOpen = false
       ttsName = ''; ttsEndpoint = ''; ttsModel = ''; ttsVoice = ''; ttsKey = ''; ttsDesc = ''
       loadConfig()
@@ -212,12 +214,14 @@
       })
       if (!res.ok) throw new Error(await res.text())
       camStatus = '✓ Saved'
+      toast.success(`Camera "${camName}" saved`)
       camFormOpen = false
       camName = ''; camIP = ''; camUser = ''; camPass = ''; camChannel = 1; camStream = ''; camVisionPrompt = ''; camAirPlayName = ''; camAirPlayModel = ''
       loadConfig()
       onRefresh?.()
     } catch (e) {
       camStatus = '✗ ' + e.message
+      toast.error(`Failed to save camera: ${e.message}`)
     } finally {
       setTimeout(() => camStatus = '', 4000)
     }
@@ -228,10 +232,12 @@
     try {
       const res = await fetch(`/api/config/cameras/${name}`, { method: 'DELETE' })
       if (!res.ok) throw new Error(await res.text())
+      toast.success(`Camera "${name}" deleted`)
       loadConfig()
       onRefresh?.()
     } catch (e) {
       configError = '✗ ' + e.message
+      toast.error(`Failed to delete camera: ${e.message}`)
     }
   }
 
@@ -394,10 +400,12 @@
       }
       pendingEnabled = {}
       camerasStatus = '✓ Saved'
+      toast.success('Camera settings saved')
       loadConfig()
       onRefresh?.()
     } catch (e) {
       camerasStatus = '✗ ' + e.message
+      toast.error(`Failed to save: ${e.message}`)
     } finally {
       camerasSaving = false
       setTimeout(() => camerasStatus = '', 4000)
@@ -420,9 +428,11 @@
       })
       if (!res.ok) throw new Error(await res.text())
       visionStatus = '✓ Saved'
+      toast.success('Vision config saved')
       loadConfig()
     } catch (e) {
       visionStatus = '✗ ' + e.message
+      toast.error(`Failed to save vision config: ${e.message}`)
     } finally {
       setTimeout(() => visionStatus = '', 4000)
     }

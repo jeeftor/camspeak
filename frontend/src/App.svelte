@@ -9,6 +9,7 @@
   import McpDocs from './components/McpDocs.svelte'
   import HomeAssistant from './components/HomeAssistant.svelte'
   import { curlState, setCurlBaseUrl, resetCurlBaseUrl } from '$lib/curl.svelte'
+  import { Toaster } from '$lib/components/ui/toast'
 
   let tab = $state('cameras')
   let cameras = $state([])
@@ -289,3 +290,5 @@
     </div>
   </main>
 </div>
+
+<Toaster />
