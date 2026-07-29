@@ -14,7 +14,7 @@ import (
 	clog "github.com/charmbracelet/log"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"github.com/mark3labs/mcp-go/server"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/time/rate"
 
 	"github.com/jeeftor/camspeak/internal/cameras"
@@ -195,7 +195,8 @@ func New(
 
 	// MCP endpoint
 	mcpServer := buildMCPServer(h)
-	e.Any("/mcp", echo.WrapHandler(server.NewStreamableHTTPServer(mcpServer)))
+	mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return mcpServer }, nil)
+	e.Any("/mcp", echo.WrapHandler(mcpHandler))
 
 	// Swagger UI + OpenAPI spec
 	e.GET("/swagger", SwaggerUI)

@@ -5,214 +5,186 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // buildMCPServer creates an MCP server exposing camspeak tools.
-func buildMCPServer(h *Handlers) *server.MCPServer {
-	s := server.NewMCPServer("camspeak", Version,
-		server.WithToolCapabilities(true),
-	)
+func buildMCPServer(h *Handlers) *mcp.Server {
+	s := mcp.NewServer(&mcp.Implementation{Name: "camspeak", Version: Version}, nil)
 
 	// speak — TTS to a named camera
-	s.AddTool(
-		mcp.NewTool(
-			"speak",
-			mcp.WithDescription("Send text-to-speech audio to a named camera speaker"),
-			mcp.WithString(
-				"camera",
-				mcp.Required(),
-				mcp.Description("Camera name (e.g. backyard, frontyard)"),
-			),
-			mcp.WithString("text", mcp.Required(), mcp.Description("Text to speak")),
-			mcp.WithString("voice", mcp.Description("TTS voice (e.g. af_sky, af_bella)")),
-		),
-		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			camera := req.GetString("camera", "")
-			text := req.GetString("text", "")
-			voice := req.GetString("voice", "")
-
-			if camera == "" || text == "" {
-				return mcp.NewToolResultError("camera and text required"), nil
-			}
-
-			err := h.speakText(h.log, camera, text, voice, 3.0)
-			if err != nil {
-				return mcp.NewToolResultError(err.Error()), nil
-			}
-
-			return mcp.NewToolResultText(fmt.Sprintf("Spoke to %s: %q", camera, text)), nil
-		},
-	)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "speak",
+		Description: "Send text-to-speech audio to a named camera speaker",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in SpeakInput) (*mcp.CallToolResult, SpeakOutput, error) {
+		if in.Camera == "" || in.Text == "" {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "camera and text required"}}}, SpeakOutput{}, nil
+		}
+		if err := h.speakText(h.log, in.Camera, in.Text, in.Voice, 3.0); err != nil {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, SpeakOutput{}, nil
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Spoke to %s: %q", in.Camera, in.Text)}}}, SpeakOutput{}, nil
+	})
 
 	// play_preset — play a library preset
-	s.AddTool(
-		mcp.NewTool("play_preset",
-			mcp.WithDescription("Play a saved audio preset on a camera speaker"),
-			mcp.WithString("camera", mcp.Required(), mcp.Description("Camera name")),
-			mcp.WithString("preset", mcp.Required(), mcp.Description("Preset name")),
-			mcp.WithString("category", mcp.Description("Preset category (optional)")),
-		),
-		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			camera := req.GetString("camera", "")
-			preset := req.GetString("preset", "")
-			category := req.GetString("category", "")
-
-			if camera == "" || preset == "" {
-				return mcp.NewToolResultError("camera and preset required"), nil
-			}
-
-			err := h.playPreset(h.log, camera, category, preset, 3.0)
-			if err != nil {
-				return mcp.NewToolResultError(err.Error()), nil
-			}
-
-			return mcp.NewToolResultText(fmt.Sprintf("Played preset %q on %s", preset, camera)), nil
-		},
-	)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "play_preset",
+		Description: "Play a saved audio preset on a camera speaker",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in PlayPresetInput) (*mcp.CallToolResult, PlayPresetOutput, error) {
+		if in.Camera == "" || in.Preset == "" {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "camera and preset required"}}}, PlayPresetOutput{}, nil
+		}
+		if err := h.playPreset(h.log, in.Camera, in.Category, in.Preset, 3.0); err != nil {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, PlayPresetOutput{}, nil
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Played preset %q on %s", in.Preset, in.Camera)}}}, PlayPresetOutput{}, nil
+	})
 
 	// broadcast — TTS or preset to all cameras
-	s.AddTool(
-		mcp.NewTool("broadcast",
-			mcp.WithDescription("Send TTS or a preset to all cameras simultaneously"),
-			mcp.WithString("text", mcp.Description("Text to speak")),
-			mcp.WithString("preset", mcp.Description("Preset name to play")),
-			mcp.WithString("voice", mcp.Description("TTS voice")),
-		),
-		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			text := req.GetString("text", "")
-			preset := req.GetString("preset", "")
-			voice := req.GetString("voice", "")
-
-			if text == "" && preset == "" {
-				return mcp.NewToolResultError("text or preset required"), nil
-			}
-
-			h.SpeakForMQTT(h.reg.Names(), text, preset, voice)
-
-			return mcp.NewToolResultText("Broadcast sent to all cameras"), nil
-		},
-	)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "broadcast",
+		Description: "Send TTS or a preset to all cameras simultaneously",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in BroadcastInput) (*mcp.CallToolResult, BroadcastOutput, error) {
+		if in.Text == "" && in.Preset == "" {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "text or preset required"}}}, BroadcastOutput{}, nil
+		}
+		h.SpeakForMQTT(h.reg.Names(), in.Text, in.Preset, in.Voice)
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "Broadcast sent to all cameras"}}}, BroadcastOutput{}, nil
+	})
 
 	// list_cameras
-	s.AddTool(
-		mcp.NewTool("list_cameras",
-			mcp.WithDescription("List all configured cameras and their online status"),
-		),
-		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			status := h.reg.Status()
-			lines := make([]string, 0)
-
-			for name, online := range status {
-				s := "offline"
-				if online {
-					s = "online"
-				}
-
-				lines = append(lines, fmt.Sprintf("- %s: %s", name, s))
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "list_cameras",
+		Description: "List all configured cameras and their online status",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in ListCamerasInput) (*mcp.CallToolResult, ListCamerasOutput, error) {
+		status := h.reg.Status()
+		lines := make([]string, 0, len(status))
+		for name, online := range status {
+			s := "offline"
+			if online {
+				s = "online"
 			}
-
-			return mcp.NewToolResultText(strings.Join(lines, "\n")), nil
-		},
-	)
+			lines = append(lines, fmt.Sprintf("- %s: %s", name, s))
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: strings.Join(lines, "\n")}}}, ListCamerasOutput{}, nil
+	})
 
 	// list_presets
-	s.AddTool(
-		mcp.NewTool("list_presets",
-			mcp.WithDescription("List all saved audio presets in the library"),
-		),
-		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			presets, err := h.store.List()
-			if err != nil {
-				return mcp.NewToolResultError(err.Error()), nil
-			}
-
-			lines := make([]string, 0, len(presets))
-			for _, p := range presets {
-				lines = append(
-					lines,
-					fmt.Sprintf("- %s/%s (%.1fs) %q", p.Category, p.Name, p.Duration, p.Text),
-				)
-			}
-
-			if len(lines) == 0 {
-				return mcp.NewToolResultText("No presets saved yet"), nil
-			}
-
-			return mcp.NewToolResultText(strings.Join(lines, "\n")), nil
-		},
-	)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "list_presets",
+		Description: "List all saved audio presets in the library",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in ListPresetsInput) (*mcp.CallToolResult, ListPresetsOutput, error) {
+		presets, err := h.store.List()
+		if err != nil {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, ListPresetsOutput{}, nil
+		}
+		lines := make([]string, 0, len(presets))
+		for _, p := range presets {
+			lines = append(lines, fmt.Sprintf("- %s/%s (%.1fs) %q", p.Category, p.Name, p.Duration, p.Text))
+		}
+		if len(lines) == 0 {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "No presets saved yet"}}}, ListPresetsOutput{}, nil
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: strings.Join(lines, "\n")}}}, ListPresetsOutput{}, nil
+	})
 
 	// generate_preset
-	s.AddTool(
-		mcp.NewTool("generate_preset",
-			mcp.WithDescription("Generate a TTS audio clip and save it as a reusable preset"),
-			mcp.WithString("name", mcp.Required(), mcp.Description("Preset name")),
-			mcp.WithString("text", mcp.Required(), mcp.Description("Text to synthesize")),
-			mcp.WithString("category", mcp.Description("Category (default: alerts)")),
-			mcp.WithString("voice", mcp.Description("TTS voice")),
-		),
-		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			name := req.GetString("name", "")
-			text := req.GetString("text", "")
-			category := req.GetString("category", "alerts")
-			voice := req.GetString("voice", h.cfg.TTS.DefaultVoice)
-
-			if name == "" || text == "" {
-				return mcp.NewToolResultError("name and text required"), nil
-			}
-
-			wav, err := h.tts.Speak(text, voice)
-			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("TTS failed: %s", err)), nil
-			}
-
-			preset, err := h.store.Save(category, name, text, voice, wav)
-			if err != nil {
-				return mcp.NewToolResultError(err.Error()), nil
-			}
-
-			return mcp.NewToolResultText(
-				fmt.Sprintf(
-					"Preset saved: %s/%s (%.1fs)",
-					preset.Category,
-					preset.Name,
-					preset.Duration,
-				),
-			), nil
-		},
-	)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "generate_preset",
+		Description: "Generate a TTS audio clip and save it as a reusable preset",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in GeneratePresetInput) (*mcp.CallToolResult, GeneratePresetOutput, error) {
+		if in.Name == "" || in.Text == "" {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "name and text required"}}}, GeneratePresetOutput{}, nil
+		}
+		category := in.Category
+		if category == "" {
+			category = "alerts"
+		}
+		voice := in.Voice
+		if voice == "" {
+			voice = h.cfg.TTS.DefaultVoice
+		}
+		wav, err := h.tts.Speak(in.Text, voice)
+		if err != nil {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("TTS failed: %s", err)}}}, GeneratePresetOutput{}, nil
+		}
+		preset, err := h.store.Save(category, in.Name, in.Text, voice, wav)
+		if err != nil {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, GeneratePresetOutput{}, nil
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Preset saved: %s/%s (%.1fs)", preset.Category, preset.Name, preset.Duration)}}}, GeneratePresetOutput{}, nil
+	})
 
 	// beep
-	s.AddTool(
-		mcp.NewTool("beep",
-			mcp.WithDescription("Play an 800Hz test beep on a camera"),
-			mcp.WithString("camera", mcp.Required(), mcp.Description("Camera name")),
-		),
-		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			camera := req.GetString("camera", "")
-			if camera == "" {
-				return mcp.NewToolResultError("camera required"), nil
-			}
-
-			cam, err := h.reg.Get(camera)
-			if err != nil {
-				return mcp.NewToolResultError(err.Error()), nil
-			}
-
-			raw, err := GenerateBeep(h.tmpDir)
-			if err != nil {
-				return mcp.NewToolResultError(err.Error()), nil
-			}
-
-			if err := cam.SendRaw(raw); err != nil {
-				return mcp.NewToolResultError(err.Error()), nil
-			}
-
-			return mcp.NewToolResultText("Beeped " + camera), nil
-		},
-	)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "beep",
+		Description: "Play an 800Hz test beep on a camera",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in BeepInput) (*mcp.CallToolResult, BeepOutput, error) {
+		if in.Camera == "" {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "camera required"}}}, BeepOutput{}, nil
+		}
+		cam, err := h.reg.Get(in.Camera)
+		if err != nil {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, BeepOutput{}, nil
+		}
+		raw, err := GenerateBeep(h.tmpDir)
+		if err != nil {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, BeepOutput{}, nil
+		}
+		if err := cam.SendRaw(raw); err != nil {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, BeepOutput{}, nil
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "Beeped " + in.Camera}}}, BeepOutput{}, nil
+	})
 
 	return s
 }
+
+// Tool input/output types. The jsonschema tags generate the MCP tool schema.
+
+type SpeakInput struct {
+	Camera string `json:"camera" jsonschema:"the camera name (e.g. backyard, frontyard),required"`
+	Text   string `json:"text" jsonschema:"the text to speak,required"`
+	Voice  string `json:"voice,omitempty" jsonschema:"optional TTS voice (e.g. af_sky, af_bella)"`
+}
+
+type SpeakOutput struct{}
+
+type PlayPresetInput struct {
+	Camera   string `json:"camera" jsonschema:"the camera name,required"`
+	Preset   string `json:"preset" jsonschema:"the preset name,required"`
+	Category string `json:"category,omitempty" jsonschema:"optional preset category"`
+}
+
+type PlayPresetOutput struct{}
+
+type BroadcastInput struct {
+	Text   string `json:"text,omitempty" jsonschema:"text to speak (if using TTS)"`
+	Preset string `json:"preset,omitempty" jsonschema:"preset name to play (if using a preset)"`
+	Voice  string `json:"voice,omitempty" jsonschema:"optional TTS voice"`
+}
+
+type BroadcastOutput struct{}
+
+type ListCamerasInput struct{}
+
+type ListCamerasOutput struct{}
+
+type ListPresetsInput struct{}
+
+type ListPresetsOutput struct{}
+
+type GeneratePresetInput struct {
+	Name     string `json:"name" jsonschema:"the preset name,required"`
+	Text     string `json:"text" jsonschema:"the text to synthesize,required"`
+	Category string `json:"category,omitempty" jsonschema:"optional category (default: alerts)"`
+	Voice    string `json:"voice,omitempty" jsonschema:"optional TTS voice"`
+}
+
+type GeneratePresetOutput struct{}
+
+type BeepInput struct {
+	Camera string `json:"camera" jsonschema:"the camera name,required"`
+}
+
+type BeepOutput struct{}
