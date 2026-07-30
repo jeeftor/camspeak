@@ -5,6 +5,7 @@
     content = '',
     side = 'top',
     delay = 200,
+    multiline = false,
     children,
     class: className = '',
   } = $props()
@@ -36,8 +37,9 @@
     <span
       role="tooltip"
       class={cn(
-        'absolute z-50 whitespace-nowrap rounded-md border bg-popover px-3 py-1.5 text-xs text-popover-foreground shadow-md',
+        'absolute z-50 rounded-md border bg-popover px-3 py-1.5 text-xs text-popover-foreground shadow-md',
         'animate-in fade-in zoom-in-95 duration-150',
+        multiline ? 'whitespace-pre-line max-w-[340px]' : 'whitespace-nowrap',
         positions[side],
         className,
       )}

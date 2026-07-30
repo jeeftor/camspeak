@@ -49,3 +49,45 @@ export function formatTimingSummary(
   }
   return breakdown
 }
+
+// Detect whether the current device is a touch-only / mobile device.
+// Returns true when the primary pointer is coarse (no hover) and touch is supported.
+export function isMobile(): boolean {
+  if (typeof window === 'undefined') return false
+  const hasTouch = navigator.maxTouchPoints > 0 || 'ontouchstart' in window
+  const coarsePointer = window.matchMedia?.('(pointer: coarse)')?.matches ?? false
+  const noHover = window.matchMedia?.('(hover: none)')?.matches ?? false
+  return hasTouch && (coarsePointer || noHover)
+}
+
+// Human-readable description for each timing step, used in tooltips.
+const STEP_DESCRIPTIONS: Record<string, string> = {
+  snapshot_ms: 'Time to capture a still image from the camera stream',
+  vision_ms: 'Time for the vision AI model to analyze the image and produce a description',
+  tts_ms: 'Time to convert the description text into speech audio',
+  transcode_ms: 'Time to transcode audio to G.711 μ-law 8 kHz mono (camera format)',
+  send_ms: 'Time to stream the audio to the camera speaker',
+  load_ms: 'Time to load audio data from disk',
+  save_ms: 'Time to save audio data to disk',
+}
+
+// Build a detailed, multi-line timing breakdown for use in a tooltip.
+// Each line: "Label  450ms — description of what this step does"
+export function timingTooltipContent(
+  timings: Record<string, number> | undefined,
+  totalMs: number | undefined,
+): string {
+  const lines: string[] = []
+  if (totalMs != null && !isNaN(totalMs)) {
+    lines.push(`Total: ${formatMs(totalMs)}`)
+  }
+  if (timings) {
+    for (const [key, val] of Object.entries(timings)) {
+      if (val == null || isNaN(val)) continue
+      const label = stepLabel(key)
+      const desc = STEP_DESCRIPTIONS[key] ?? ''
+      lines.push(desc ? `${label} ${formatMs(val)} — ${desc}` : `${label} ${formatMs(val)}`)
+    }
+  }
+  return lines.join('\n')
+}

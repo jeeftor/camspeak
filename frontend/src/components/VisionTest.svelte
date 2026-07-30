@@ -7,7 +7,8 @@
   import Markdown from '$lib/components/Markdown.svelte'
   import { buildCurl } from '$lib/curl.svelte'
   import { apiClient } from '$lib/api'
-  import { formatTimings } from '$lib/utils'
+  import { Tooltip } from '$lib/components/ui/tooltip'
+  import { formatTimings, timingTooltipContent, isMobile } from '$lib/utils'
 
   let { cameras = [], globalPrompt = '', onSavePrompt } = $props()
 
@@ -16,6 +17,9 @@
   let image = $state('') // base64 data URI
   let description = $state('')
   let visionTiming = $state('') // compact timing breakdown from last vision run
+  let visionTimingsRaw = $state(undefined)
+  let visionTotalMs = $state(undefined)
+  let desktop = $state(!isMobile())
   let busy = $state(false)
   let status = $state('')
   let statusType = $state('ok')
@@ -98,6 +102,8 @@
       image = data.image || ''
       description = data.description || ''
       visionTiming = formatTimings(data.timings)
+      visionTimingsRaw = data.timings
+      visionTotalMs = data.total_ms
       results = [{ prompt, description, time: new Date().toLocaleTimeString() }, ...results].slice(0, 10)
       setStatus('✓ Done')
     } catch (e) {
@@ -129,6 +135,8 @@
       image = data.image || image
       description = data.description || ''
       visionTiming = formatTimings(data.timings)
+      visionTimingsRaw = data.timings
+      visionTotalMs = data.total_ms
       results = [{ prompt, description, time: new Date().toLocaleTimeString() }, ...results].slice(0, 10)
       setStatus('✓ Done')
     } catch (e) {
@@ -142,6 +150,8 @@
     image = ''
     description = ''
     visionTiming = ''
+    visionTimingsRaw = undefined
+    visionTotalMs = undefined
     runVision(true)
   }
 
@@ -163,6 +173,8 @@
     image = ''
     description = ''
     visionTiming = ''
+    visionTimingsRaw = undefined
+    visionTotalMs = undefined
     results = []
     status = ''
   }
@@ -347,7 +359,18 @@
             <p class="text-xs text-muted-foreground italic">"{r.prompt || '(empty — hardcoded default)'}"</p>
             <Markdown content={r.description} class="text-sm text-foreground" />
             {#if i === 0 && visionTiming}
-              <p class="text-xs text-muted-foreground">⏱ {visionTiming}</p>
+              {#if desktop}
+                <Tooltip
+                  content={timingTooltipContent(visionTimingsRaw, visionTotalMs)}
+                  multiline
+                  side="bottom"
+                  class="text-xs"
+                >
+                  <p class="text-xs text-muted-foreground cursor-help w-fit">⏱ {visionTiming}</p>
+                </Tooltip>
+              {:else}
+                <p class="text-xs text-muted-foreground">⏱ {visionTiming}</p>
+              {/if}
             {/if}
             {#if i === 0}
               <div class="flex gap-1.5 mt-1">

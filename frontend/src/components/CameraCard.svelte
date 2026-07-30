@@ -11,7 +11,8 @@
   import GainSlider from '$lib/components/GainSlider.svelte'
   import { buildCurl } from '$lib/curl.svelte'
   import { apiClient } from '$lib/api'
-  import { formatTimingSummary } from '$lib/utils'
+  import { Tooltip } from '$lib/components/ui/tooltip'
+  import { formatTimingSummary, timingTooltipContent, isMobile } from '$lib/utils'
 
   let { camera, voices = [], presets = [] } = $props()
 
@@ -27,6 +28,9 @@
   let snapshot = $state('')
   let description = $state('')
   let describeTiming = $state('')
+  let describeTimingsRaw = $state(undefined)
+  let describeTotalMs = $state(undefined)
+  let desktop = $state(!isMobile())
   // Pre-fill from saved camera default; user can override per-session
   const savedPrompt = camera.vision_prompt ?? ''
   let visionPrompt = $state(savedPrompt)
@@ -174,6 +178,7 @@
     busy = true; status = ''
     if (snapshot) URL.revokeObjectURL(snapshot)
     snapshot = ''; description = ''; describeTiming = ''
+    describeTimingsRaw = undefined; describeTotalMs = undefined
     try {
       setStatus('Capturing screenshot…')
       const snapRes = await apiClient.snapshot(camera.name)
@@ -185,6 +190,8 @@
       if (visionPrompt) body.prompt = visionPrompt
       const data = await apiClient.describe(body)
       description = data.description || ''
+      describeTimingsRaw = data.timings
+      describeTotalMs = data.total_ms
       describeTiming = formatTimingSummary(data.timings, data.total_ms)
     } catch (e) {
       setStatus('✗ ' + e.message, 'err')
@@ -214,6 +221,8 @@
     snapshot = ''
     description = ''
     describeTiming = ''
+    describeTimingsRaw = undefined
+    describeTotalMs = undefined
     status = ''
   }
 
@@ -433,6 +442,24 @@
         {#if description}
           <div class="flex flex-col gap-2 p-2 bg-muted/30">
             <p class="text-xs text-muted-foreground">{description}</p>
+            {#if describeTiming}
+              {#if desktop}
+                <Tooltip
+                  content={timingTooltipContent(describeTimingsRaw, describeTotalMs)}
+                  multiline
+                  side="bottom"
+                  class="text-xs"
+                >
+                  <span class="text-xs text-primary/70 cursor-help inline-flex items-center gap-1 w-fit">
+                    ⏱ {describeTiming}
+                  </span>
+                </Tooltip>
+              {:else}
+                <span class="text-xs text-primary/70 inline-flex items-center gap-1 w-fit">
+                  ⏱ {describeTiming}
+                </span>
+              {/if}
+            {/if}
             <div class="flex items-center gap-1.5">
               <Button
                 variant="outline" size="icon"
