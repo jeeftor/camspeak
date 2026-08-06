@@ -167,8 +167,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       id-token: write
-      packages: read
+      packages: write
       contents: read
+      attestations: write
 
     steps:
       - uses: actions/checkout@v5
