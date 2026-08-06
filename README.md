@@ -13,6 +13,7 @@
 [![Security](https://github.com/jeeftor/camspeak/actions/workflows/security.yml/badge.svg)](https://github.com/jeeftor/camspeak/actions/workflows/security.yml)
 [![Release](https://img.shields.io/github/v/release/jeeftor/camspeak)](https://github.com/jeeftor/camspeak/releases)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/github.com/jeeftor/camspeak/badge)](https://securityscorecards.dev/viewer/?uri=github.com/jeeftor/camspeak)
 
 ## Overview
 
