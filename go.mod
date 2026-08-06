@@ -5,7 +5,7 @@ go 1.26.3
 require (
 	github.com/alicebob/alac v0.0.0-20251224094718-0cfeed25bc2f
 	github.com/bluenviron/gortsplib/v4 v4.15.0
-	github.com/bluenviron/mediacommon/v2 v2.9.1
+	github.com/bluenviron/mediacommon/v2 v2.9.2
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/log v1.0.0
 	github.com/eclipse/paho.mqtt.golang v1.5.1
