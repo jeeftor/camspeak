@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Generate SBOM (SPDX JSON)
         uses: aquasecurity/trivy-action@v0.28.0
@@ -24,7 +24,7 @@ jobs:
           output: sbom.spdx.json
 
       - name: Upload SBOM artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sbom-spdx-json
           path: sbom.spdx.json
