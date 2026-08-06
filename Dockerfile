@@ -23,7 +23,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 ### Stage 3: build shairport-sync from source with --with-stdout and --with-tinysvcmdns
 # The Alpine package (4.3.2) omits stdout support; we build it ourselves.
 # tinysvcmdns is bundled in the shairport-sync source — no avahi/dbus needed at runtime.
-FROM alpine:3.20 AS shairport-builder
+FROM alpine:3.24 AS shairport-builder
 RUN apk add --no-cache \
       git autoconf automake libtool \
       pkgconfig build-base \
@@ -45,7 +45,7 @@ RUN autoreconf -fi && \
     make install DESTDIR=/build
 
 ### Stage 4: runtime
-FROM alpine:3.20
+FROM alpine:3.24
 # ffmpeg: PCM→G.711ulaw transcoding
 # runtime libs for our custom shairport-sync build (tinysvcmdns is built-in, no avahi/dbus needed)
 RUN apk add --no-cache \
