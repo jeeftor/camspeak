@@ -1,6 +1,6 @@
 <script>
   import { onDestroy } from 'svelte'
-  import { Eye, Bell, Play, Loader2, FileAudio, X, MessageSquare, Square } from 'lucide-svelte'
+  import { Eye, Bell, Play, Loader2, FileAudio, X, MessageSquare, Square, Info } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Textarea } from '$lib/components/ui/textarea'
@@ -9,6 +9,7 @@
   import CopyButton from '$lib/components/CopyButton.svelte'
   import VoiceSelect from '$lib/components/VoiceSelect.svelte'
   import GainSlider from '$lib/components/GainSlider.svelte'
+  import CameraInfoModal from './CameraInfoModal.svelte'
   import { buildCurl } from '$lib/curl.svelte'
   import { apiClient } from '$lib/api'
   import { Tooltip } from '$lib/components/ui/tooltip'
@@ -35,6 +36,7 @@
   const savedPrompt = camera.vision_prompt ?? ''
   let visionPrompt = $state(savedPrompt)
   let showPromptPopup = $state(false)
+  let showInfoModal = $state(false)
   let isDragOver = $state(false)
   let statusTimeout
 
@@ -300,6 +302,14 @@
       <div class="flex gap-1 flex-shrink-0">
         <Button
           variant="outline" size="icon"
+          onclick={() => showInfoModal = true}
+          title="Camera settings — device info, streams, codecs" aria-label="Camera info"
+          class="h-8 w-8"
+        >
+          <Info class="h-4 w-4" />
+        </Button>
+        <Button
+          variant="outline" size="icon"
           onclick={describe} disabled={busy}
           title="Describe — snapshot → vision → TTS → speak" aria-label="Describe"
           class="h-8 w-8"
@@ -542,4 +552,12 @@
       </div>
     </div>
   {/if}
+
+  <!-- Camera info modal -->
+  <CameraInfoModal
+    cameraName={camera.name}
+    cameraType={camera.type}
+    show={showInfoModal}
+    onClose={() => showInfoModal = false}
+  />
 </div>

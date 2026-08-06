@@ -353,6 +353,32 @@ func (h *Handlers) ListGo2rtcStreams(c echo.Context) error {
 	})
 }
 
+// CameraInfoHandler handles GET /api/cameras/:name/info — queries the camera's
+// vendor API (ISAPI for Hikvision, SOAP for ONVIF) and returns device info,
+// streaming configuration (codec, resolution, framerate, bitrate), and network info.
+func (h *Handlers) CameraInfoHandler(c echo.Context) error {
+	log := h.logger(c)
+	name := c.Param("name")
+	h.cfgMu.Lock()
+	cam, ok := h.cfg.Cameras[name]
+	h.cfgMu.Unlock()
+	if !ok {
+		return echo.NewHTTPError(http.StatusNotFound, "camera not found")
+	}
+
+	info, err := cameras.QueryCameraInfo(cam)
+	if err != nil {
+		log.Warn("camera info query failed", "camera", name, "err", err)
+		// Return partial info with errors rather than a hard 500 — the UI can
+		// still show whatever fields were successfully retrieved.
+		if !info.Online && len(info.Streams) == 0 && info.Device.Manufacturer == "" {
+			return echo.NewHTTPError(http.StatusBadGateway, err.Error())
+		}
+	}
+	log.Debug("camera info queried", "camera", name, "type", cam.Type, "streams", len(info.Streams))
+	return c.JSON(http.StatusOK, info)
+}
+
 // DiscoverCameras handles POST /api/cameras/discover — queries Frigate for cameras,
 // saves them to the database, and returns the discovered list.
 func (h *Handlers) DiscoverCameras(c echo.Context) error {

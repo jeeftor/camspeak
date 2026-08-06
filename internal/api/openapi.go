@@ -230,6 +230,21 @@ const openAPISpec = `{
         }
       }
     },
+    "/cameras/{name}/info": {
+      "get": {
+        "tags": ["system"],
+        "summary": "Query camera device info and streaming settings (ISAPI/ONVIF)",
+        "description": "Queries the camera's vendor API (Hikvision ISAPI or ONVIF SOAP) and returns device info, video/audio encoder configuration, and network info. Read-only.",
+        "parameters": [
+          {"name": "name", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "200": {"description": "OK", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CameraInfo"}}}},
+          "404": {"description": "Camera not found"},
+          "502": {"description": "Camera unreachable or query failed"}
+        }
+      }
+    },
     "/voices": {
       "get": {
         "tags": ["system"],
@@ -556,6 +571,71 @@ const openAPISpec = `{
   },
   "components": {
     "schemas": {
+      "CameraInfo": {
+        "type": "object",
+        "description": "Vendor-neutral camera settings (device info, streaming config, network).",
+        "properties": {
+          "type": {"type": "string", "example": "hikvision"},
+          "online": {"type": "boolean"},
+          "device": {"$ref": "#/components/schemas/DeviceInfo"},
+          "network": {"$ref": "#/components/schemas/NetworkInfo"},
+          "streams": {"type": "array", "items": {"$ref": "#/components/schemas/StreamInfo"}},
+          "errors": {"type": "array", "items": {"type": "string"}}
+        }
+      },
+      "DeviceInfo": {
+        "type": "object",
+        "properties": {
+          "manufacturer": {"type": "string", "example": "Hikvision"},
+          "model": {"type": "string", "example": "DS-2CD2042WD-I"},
+          "firmware": {"type": "string", "example": "V5.5.0"},
+          "serial": {"type": "string"},
+          "device_type": {"type": "string"},
+          "hardware": {"type": "string"}
+        }
+      },
+      "NetworkInfo": {
+        "type": "object",
+        "properties": {
+          "ip": {"type": "string", "example": "192.168.1.100"},
+          "mac": {"type": "string", "example": "aa:bb:cc:dd:ee:ff"},
+          "gateway": {"type": "string"},
+          "subnet": {"type": "string"},
+          "dns": {"type": "string"}
+        }
+      },
+      "StreamInfo": {
+        "type": "object",
+        "properties": {
+          "channel": {"type": "integer", "example": 1},
+          "name": {"type": "string", "example": "Camera 01"},
+          "video": {"$ref": "#/components/schemas/VideoInfo"},
+          "audio": {"$ref": "#/components/schemas/AudioInfo"}
+        }
+      },
+      "VideoInfo": {
+        "type": "object",
+        "properties": {
+          "codec": {"type": "string", "example": "H.264"},
+          "resolution": {"type": "string", "example": "1920x1080"},
+          "width": {"type": "integer", "example": 1920},
+          "height": {"type": "integer", "example": 1080},
+          "framerate": {"type": "integer", "description": "fps", "example": 25},
+          "bitrate": {"type": "integer", "description": "kbps", "example": 4096},
+          "bitrate_type": {"type": "string", "example": "VBR"},
+          "gop": {"type": "integer", "example": 50},
+          "profile": {"type": "string", "example": "main"}
+        }
+      },
+      "AudioInfo": {
+        "type": "object",
+        "properties": {
+          "codec": {"type": "string", "example": "G.711ulaw"},
+          "sample_rate": {"type": "integer", "description": "Hz", "example": 8000},
+          "bitrate": {"type": "integer", "description": "kbps", "example": 64},
+          "channels": {"type": "integer", "example": 1}
+        }
+      },
       "SpeakRequest": {
         "type": "object",
         "required": ["camera", "text"],

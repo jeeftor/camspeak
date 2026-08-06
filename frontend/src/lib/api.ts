@@ -4,6 +4,7 @@
 import type {
   AppConfig,
   Camera,
+  CameraInfo,
   DescribeResponse,
   DetectCameraResponse,
   DiscoverResponse,
@@ -56,6 +57,8 @@ export const apiClient = {
   getCameras: () => api<Camera[]>('/api/cameras'),
   pingCamera: (name: string) =>
     api<PingResponse>(`/api/cameras/${encodeURIComponent(name)}/ping`, { method: 'POST' }),
+  getCameraInfo: (name: string) =>
+    api<CameraInfo>(`/api/cameras/${encodeURIComponent(name)}/info`),
 
   // --- Config: general ---
   getConfig: () => api<AppConfig>('/api/config'),

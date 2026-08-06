@@ -145,6 +145,7 @@ func New(
 	api.POST("/broadcast", h.Broadcast)
 	api.GET("/cameras", h.Cameras)
 	api.POST("/cameras/:name/ping", h.PingCamera)
+	api.GET("/cameras/:name/info", h.CameraInfoHandler)
 	api.GET("/voices", h.Voices)
 	api.GET("/library", h.ListLibrary)
 	api.POST("/library", h.GeneratePreset)

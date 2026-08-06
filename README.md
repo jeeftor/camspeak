@@ -10,6 +10,9 @@
 [![GHCR](https://img.shields.io/badge/ghcr.io-jeeftor%2Fcamspeak-blue)](https://github.com/jeeftor/camspeak/pkgs/container/camspeak)
 ![Go](https://img.shields.io/badge/Go-1.26-00ADD8)
 ![Platform](https://img.shields.io/badge/platform-linux%2Famd64%20%7C%20linux%2Farm64-lightgrey)
+[![Security](https://github.com/jeeftor/camspeak/actions/workflows/security.yml/badge.svg)](https://github.com/jeeftor/camspeak/actions/workflows/security.yml)
+[![Release](https://img.shields.io/github/v/release/jeeftor/camspeak)](https://github.com/jeeftor/camspeak/releases)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 ## Overview
 

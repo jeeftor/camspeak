@@ -266,3 +266,57 @@ export interface SavePresetResponse {
   timings?: Timings
   total_ms?: number
 }
+
+// --- Camera Info (settings view) ---
+
+export interface DeviceInfo {
+  manufacturer: string
+  model: string
+  firmware: string
+  serial: string
+  device_type?: string
+  hardware?: string
+}
+
+export interface NetworkInfo {
+  ip: string
+  mac: string
+  gateway?: string
+  subnet?: string
+  dns?: string
+}
+
+export interface VideoInfo {
+  codec: string
+  resolution: string
+  width: number
+  height: number
+  framerate: number
+  bitrate: number
+  bitrate_type?: string
+  gop?: number
+  profile?: string
+}
+
+export interface AudioInfo {
+  codec: string
+  sample_rate: number
+  bitrate: number
+  channels: number
+}
+
+export interface StreamInfo {
+  channel: number
+  name: string
+  video?: VideoInfo
+  audio?: AudioInfo
+}
+
+export interface CameraInfo {
+  type: string
+  online: boolean
+  device: DeviceInfo
+  network?: NetworkInfo
+  streams: StreamInfo[]
+  errors?: string[]
+}

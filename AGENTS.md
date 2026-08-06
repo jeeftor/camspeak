@@ -106,6 +106,7 @@ Copy `.env.example` to `.env` for local dev. Loaded by godotenv at startup. Giti
 - `PUT/DELETE /api/config/tts/:name` — update/delete TTS preset
 - `POST /api/config/tts/:name/activate` — set active TTS preset
 - `GET/POST /api/config/cameras` — list/add cameras
+- `GET /api/cameras/:name/info` — query camera device info & streaming settings (ISAPI/ONVIF, read-only)
 - `POST /api/config/cameras/detect` — probe camera IP and auto-detect vendor type
 - `POST /api/config/cameras/discover` — discover cameras from Frigate NVR
 - `DELETE /api/config/cameras/:name` — remove camera
