@@ -19,17 +19,29 @@ jobs:
         uses: aquasecurity/setup-trivy@v0.2.6
         with:
           version: v0.69.2
-      - name: Generate SBOM
+      - name: Generate SPDX SBOM
         run: trivy fs --format spdx-json --output sbom.spdx.json .
 
-      - name: Upload SBOM artifact
+      - name: Generate CycloneDX SBOM
+        run: trivy fs --format cyclonedx --output sbom.cyclonedx.json .
+
+      - name: Upload SPDX artifact
         uses: actions/upload-artifact@v4
         with:
           name: sbom-spdx-json
           path: sbom.spdx.json
           retention-days: 90
 
-      - name: Attach SBOM to GitHub release
+      - name: Upload CycloneDX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx-json
+          path: sbom.cyclonedx.json
+          retention-days: 90
+
+      - name: Attach SBOMs to GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: sbom.spdx.json
+          files: |
+            sbom.spdx.json
+            sbom.cyclonedx.json
