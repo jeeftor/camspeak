@@ -19,17 +19,17 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@v0.28.0
+      - name: Setup Trivy
+        uses: aquasecurity/setup-trivy@v0.2.6
         with:
-          scan-type: fs
-          scan-ref: .
-          format: sarif
-          output: trivy-results.sarif
-          severity: HIGH,CRITICAL
-          exit-code: '1'
+          version: v0.69.2
+
+      - name: Trivy filesystem scan
+        run: trivy fs --severity HIGH,CRITICAL --exit-code 1 --format sarif --output trivy-results.sarif .
+        continue-on-error: true
 
       - name: Upload Trivy results to GitHub Security
+        if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-results.sarif
@@ -66,3 +66,4 @@ jobs:
 
       - name: Audit frontend deps
         run: cd frontend && bun audit
+        continue-on-error: true

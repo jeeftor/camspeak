@@ -194,13 +194,12 @@ jobs:
           subject-digest: ${{ steps.digest.outputs.digest }}
           push-to-registry: true
 
-      - name: Generate SBOM (SPDX JSON)
-        uses: aquasecurity/trivy-action@v0.28.0
+      - name: Setup Trivy
+        uses: aquasecurity/setup-trivy@v0.2.6
         with:
-          scan-type: fs
-          scan-ref: .
-          format: spdx-json
-          output: sbom.spdx.json
+          version: v0.69.2
+      - name: Generate SBOM
+        run: trivy fs --format spdx-json --output sbom.spdx.json .
 
       - name: Attest SBOM
         uses: actions/attest-sbom@v2
