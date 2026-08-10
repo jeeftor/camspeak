@@ -117,7 +117,7 @@ export const apiClient = {
   getAirPlayConfig: () =>
     api<{ enabled: boolean; base_port: number; prime_silence_ms: number; model: string; gain: number; per_camera: Record<string, unknown> }>('/api/config/airplay'),
   toggleAirPlay: (name: string) =>
-    api(`/api/config/airplay/${encodeURIComponent(name)}/toggle`, { method: 'POST' }),
+    api(`/api/config/airplay/${encodeURIComponent(name)}/toggle`, { method: 'PATCH' }),
   saveAirPlayConfig: (cfg: { enabled: boolean; base_port: number; prime_silence_ms: number; model: string; gain: number }) =>
     api('/api/config/airplay', { method: 'PUT', body: JSON.stringify(cfg) }),
 
