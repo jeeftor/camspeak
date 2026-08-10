@@ -5,6 +5,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v2.8.1] — 2026-08-10
+
+### Fixed
+- **AirPlay toggle 405 Method Not Allowed** — the frontend called `POST /api/config/airplay/:camera/toggle` but the backend registers that route as `PATCH`. Fixed `frontend/src/lib/api.ts` to use `PATCH`, matching `internal/api/server.go`.
+
+### Added
+- CODEOWNERS, OpenSSF Scorecard config, and Scorecard badge.
+
+---
+
 ## [v2.7.0] — 2026-07-29
 
 ### Per-step timing tracking across all actions
