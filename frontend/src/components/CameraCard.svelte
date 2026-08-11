@@ -291,18 +291,17 @@
     <!-- Camera header -->
     <div class="flex items-center justify-between gap-2">
       <div class="flex items-center gap-2 min-w-0">
-        <span class="h-2.5 w-2.5 rounded-full flex-shrink-0 {camera.online
-          ? 'bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.5)]'
-          : 'bg-muted-foreground/40'}"></span>
+        {#if camera.airplay_enabled}
+          <Tooltip content={'AirPlay active' + (camera.airplay_name ? ` — "${camera.airplay_name}"` : '') + (camera.online ? '' : ' (camera offline)')}>
+            <Airplay class="h-4 w-4 flex-shrink-0 {camera.online ? 'text-violet-500' : 'text-violet-500/40'}" />
+          </Tooltip>
+        {:else}
+          <span class="h-2.5 w-2.5 rounded-full flex-shrink-0 {camera.online
+            ? 'bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.5)]'
+            : 'bg-muted-foreground/40'}"></span>
+        {/if}
         <span class="font-semibold">{camera.name}</span>
         <Badge variant="secondary" class="text-xs flex-shrink-0">{camera.type}</Badge>
-        {#if camera.airplay_enabled}
-          <Tooltip content={'AirPlay receiver active' + (camera.airplay_name ? ` — "${camera.airplay_name}"` : '')}>
-            <Badge variant="outline" class="text-xs flex-shrink-0 text-violet-500 border-violet-500/40 bg-violet-500/5">
-              <Airplay class="h-3 w-3" />
-            </Badge>
-          </Tooltip>
-        {/if}
         {#if camera.note}
           <Badge variant="outline" class="text-xs flex-shrink-0 text-amber-500 border-amber-500/30" title={camera.note}>
             ⚠ Limited
