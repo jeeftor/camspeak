@@ -35,3 +35,17 @@ func (t *StepTimings) Ms() map[string]int64 {
 func TotalMs(start time.Time) int64 {
 	return time.Since(start).Milliseconds()
 }
+
+// TTFS returns the "time to first sound" in milliseconds — the sum of all
+// latency steps (everything before the camera starts playing audio).
+// This excludes send_playback_ms (the throttled streaming duration).
+func (t *StepTimings) TTFS() int64 {
+	var sum int64
+	for k, v := range t.steps {
+		if k == "send_playback_ms" {
+			continue
+		}
+		sum += v.Milliseconds()
+	}
+	return sum
+}

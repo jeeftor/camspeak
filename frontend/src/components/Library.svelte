@@ -98,7 +98,7 @@
     genBusy = true; genStatus = ''
     try {
       const data = await apiClient.savePreset({ name: genName, text: genText, category: genCategory, voice: genVoice })
-      const timing = formatTimingSummary(data.timings, data.total_ms)
+      const timing = formatTimingSummary(data.timings, data.total_ms, data.ttfs_ms)
       genStatus = timing ? `✓ Saved (${timing})` : '✓ Saved'
       toast.success(`Preset "${genName}" saved`)
       genName = ''; genText = ''

@@ -260,6 +260,7 @@ func (h *Handlers) VisionTest(c echo.Context) error {
 		"description": description,
 		"image":       imageDataURI,
 		"timings":     t.Ms(),
+		"ttfs_ms":     t.TTFS(),
 		"total_ms":    TotalMs(start),
 	})
 }
@@ -403,21 +404,24 @@ func (h *Handlers) Describe(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
 
-	sendStart := time.Now()
-	if err := cam.SendRaw(rawPath); err != nil {
+	sendTiming, err := cam.SendRaw(rawPath)
+	if err != nil {
 		log.Error("describe: send failed", "camera", req.Camera, "err", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	t.Add("send_ms", sendStart)
+	t.steps["send_open_ms"] = time.Duration(sendTiming.OpenMs) * time.Millisecond
+	t.steps["send_playback_ms"] = time.Duration(sendTiming.PlaybackMs) * time.Millisecond
 	log.Debug(
 		"describe: camera send complete",
 		"camera",
 		req.Camera,
-		"elapsed",
-		time.Since(sendStart),
+		"open_ms",
+		sendTiming.OpenMs,
+		"playback_ms",
+		sendTiming.PlaybackMs,
 	)
 
-	log.Info("describe: done", "camera", req.Camera, "elapsed", time.Since(start))
+	log.Info("describe: done", "camera", req.Camera, "elapsed", time.Since(start), "ttfs_ms", t.TTFS())
 	h.events.publish(
 		event{Camera: req.Camera, Action: "describe", Text: description, At: time.Now()},
 	)
@@ -428,6 +432,7 @@ func (h *Handlers) Describe(c echo.Context) error {
 		"description": description,
 		"image":       "data:image/jpeg;base64," + snapB64,
 		"timings":     t.Ms(),
+		"ttfs_ms":     t.TTFS(),
 		"total_ms":    TotalMs(start),
 	})
 }

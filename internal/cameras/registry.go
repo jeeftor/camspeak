@@ -27,9 +27,17 @@ func newLogger(prefix string) *clog.Logger {
 	return logging.New(prefix, LogLevel)
 }
 
+// SendTiming breaks down the time spent inside SendRaw into latency
+// (everything before the first audio byte reaches the camera) and
+// playback (the throttled streaming of the rest of the audio).
+type SendTiming struct {
+	OpenMs     int64 // latency: channel open + auth + first audio byte
+	PlaybackMs int64 // streaming duration: rest of the audio at real-time speed
+}
+
 // Speaker is the interface all camera types implement.
 type Speaker interface {
-	SendRaw(rawFile string) error
+	SendRaw(rawFile string) (SendTiming, error)
 	Stream(r io.Reader) error
 	Ping() bool
 	Stop() error

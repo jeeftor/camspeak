@@ -46,7 +46,7 @@ var beepCmd = &cobra.Command{
 
 		appLog.Info("beeping", "camera", args[0])
 
-		if err := cam.SendRaw(raw); err != nil {
+		if _, err := cam.SendRaw(raw); err != nil {
 			return fmt.Errorf("camera: %w", err)
 		}
 

@@ -126,7 +126,7 @@ func (c *HikvisionClient) closeChannel(sessionID string) {
 // By using a raw TCP connection, we can write all the data at 8000
 // bytes/sec before reading the response — matching curl's behavior
 // with --limit-rate.
-func (c *HikvisionClient) SendRaw(rawFile string) error {
+func (c *HikvisionClient) SendRaw(rawFile string) (SendTiming, error) {
 	// If a long-running Stream session is active (e.g. AirPlay), interrupt it
 	// so this send doesn't block indefinitely. The audioStream reconnect loop
 	// will reopen the session automatically once SendRaw completes.
@@ -143,7 +143,7 @@ func (c *HikvisionClient) SendRaw(rawFile string) error {
 
 	data, err := os.ReadFile(rawFile)
 	if err != nil {
-		return fmt.Errorf("reading audio file: %w", err)
+		return SendTiming{}, fmt.Errorf("reading audio file: %w", err)
 	}
 
 	size := int64(len(data))
@@ -163,7 +163,7 @@ func (c *HikvisionClient) SendRaw(rawFile string) error {
 	sessionID, err := c.openChannel()
 	if err != nil {
 		c.log.Debug("send: open channel failed", "ip", c.ip, "err", err)
-		return fmt.Errorf("open channel for %s: %w", c.ip, err)
+		return SendTiming{}, fmt.Errorf("open channel for %s: %w", c.ip, err)
 	}
 	c.log.Debug("send: channel opened", "session", sessionID, "elapsed", time.Since(openStart))
 
@@ -181,15 +181,15 @@ func (c *HikvisionClient) SendRaw(rawFile string) error {
 	}()
 
 	c.log.Info("send: streaming audio", "ip", c.ip, "session", sessionID, "bytes", size)
-	sendStart := time.Now()
 
-	if err := c.sendAudioRaw(sessionID, data); err != nil {
+	timing, err := c.sendAudioRaw(sessionID, data)
+	if err != nil {
 		c.log.Debug("send: upload failed", "ip", c.ip, "err", err)
-		return fmt.Errorf("sending audio to %s: %w", c.ip, err)
+		return SendTiming{}, fmt.Errorf("sending audio to %s: %w", c.ip, err)
 	}
 
-	c.log.Info("send: complete", "ip", c.ip, "bytes", size, "elapsed", time.Since(sendStart))
-	return nil
+	c.log.Info("send: complete", "ip", c.ip, "bytes", size, "open_ms", timing.OpenMs, "playback_ms", timing.PlaybackMs)
+	return timing, nil
 }
 
 // Stream opens a single long-lived ISAPI two-way audio session and copies r
@@ -324,7 +324,7 @@ func (c *HikvisionClient) Stop() error {
 
 // sendAudioRaw opens a raw TCP connection and sends the audio data
 // with digest auth, throttled to 8000 bytes/sec.
-func (c *HikvisionClient) sendAudioRaw(sessionID string, data []byte) error {
+func (c *HikvisionClient) sendAudioRaw(sessionID string, data []byte) (SendTiming, error) {
 	path := fmt.Sprintf(
 		"/ISAPI/System/TwoWayAudio/channels/%d/audioData?sessionId=%s",
 		c.channel,
@@ -336,13 +336,13 @@ func (c *HikvisionClient) sendAudioRaw(sessionID string, data []byte) error {
 	// Step 1: Get digest auth header via challenge/response handshake.
 	authHeader, err := util.PerformDigestAuth(c.ip, path, c.user, c.pass)
 	if err != nil {
-		return fmt.Errorf("digest auth: %w", err)
+		return SendTiming{}, fmt.Errorf("digest auth: %w", err)
 	}
 
 	// Step 2: Open a NEW TCP connection for the authenticated request
 	conn2, err := net.DialTimeout("tcp", net.JoinHostPort(host, port), 5*time.Second)
 	if err != nil {
-		return fmt.Errorf("dialing camera for audio: %w", err)
+		return SendTiming{}, fmt.Errorf("dialing camera for audio: %w", err)
 	}
 	defer conn2.Close()
 
@@ -359,12 +359,14 @@ func (c *HikvisionClient) sendAudioRaw(sessionID string, data []byte) error {
 }
 
 // sendAudioWithAuth sends the PUT request with the audio body, throttled to 8000 bytes/sec.
+// Returns SendTiming with OpenMs (through first chunk write) and PlaybackMs (rest of streaming).
 func (c *HikvisionClient) sendAudioWithAuth(
 	conn net.Conn,
 	path, host, authHeader string,
 	data []byte,
-) error {
+) (SendTiming, error) {
 	size := int64(len(data))
+	start := time.Now()
 
 	// Build request headers
 	var headers string
@@ -379,12 +381,14 @@ func (c *HikvisionClient) sendAudioWithAuth(
 	headers += "\r\n"
 
 	if _, err := conn.Write([]byte(headers)); err != nil {
-		return fmt.Errorf("writing request headers: %w", err)
+		return SendTiming{}, fmt.Errorf("writing request headers: %w", err)
 	}
 
 	// Write body at 8000 bytes/sec (800 bytes per 100ms chunk)
 	chunkSize := 800
 	totalWritten := 0
+	firstChunk := true
+	var openMs int64
 	for totalWritten < len(data) {
 		end := totalWritten + chunkSize
 		if end > len(data) {
@@ -399,7 +403,7 @@ func (c *HikvisionClient) sendAudioWithAuth(
 			c.activeMu.Unlock()
 			if wasStopped {
 				c.log.Debug("send: stopped by user", "written", totalWritten+n, "total", size)
-				return nil
+				return SendTiming{OpenMs: openMs}, nil
 			}
 			// If we've written most of the data, the camera may have closed
 			// after receiving enough — treat as success if we wrote >50%.
@@ -413,11 +417,15 @@ func (c *HikvisionClient) sendAudioWithAuth(
 					"err",
 					err,
 				)
-				return nil
+				return SendTiming{OpenMs: openMs, PlaybackMs: time.Since(start).Milliseconds() - openMs}, nil
 			}
-			return fmt.Errorf("writing audio data: %w", err)
+			return SendTiming{}, fmt.Errorf("writing audio data: %w", err)
 		}
 		totalWritten += n
+		if firstChunk {
+			openMs = time.Since(start).Milliseconds()
+			firstChunk = false
+		}
 		if totalWritten < len(data) {
 			time.Sleep(100 * time.Millisecond)
 		}
@@ -432,21 +440,21 @@ func (c *HikvisionClient) sendAudioWithAuth(
 		// Timeout or connection closed after full send — that's fine,
 		// the camera got all the data.
 		c.log.Debug("send: no response (connection closed after send)", "err", err)
-		return nil
+		return SendTiming{OpenMs: openMs, PlaybackMs: time.Since(start).Milliseconds() - openMs}, nil
 	}
 
 	// Check status code
 	if !strings.Contains(statusLine, "200") && !strings.Contains(statusLine, "204") {
 		// Read a bit of body for error context
 		body, _ := respReader.ReadString('\n')
-		return fmt.Errorf(
+		return SendTiming{}, fmt.Errorf(
 			"camera returned %s: %s",
 			strings.TrimSpace(statusLine),
 			strings.TrimSpace(body),
 		)
 	}
 
-	return nil
+	return SendTiming{OpenMs: openMs, PlaybackMs: time.Since(start).Milliseconds() - openMs}, nil
 }
 
 // Ping checks if the camera ISAPI is reachable.

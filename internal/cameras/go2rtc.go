@@ -55,7 +55,7 @@ func NewGo2rtcClient(go2rtcURL, stream, ip, advertiseIP, name string) *Go2rtcCli
 // SendRaw plays a raw G.711ulaw 8kHz file on the camera via go2rtc.
 // It starts a temporary HTTP server to serve the file, then tells go2rtc
 // to fetch and transcode it.
-func (c *Go2rtcClient) SendRaw(rawFile string) error {
+func (c *Go2rtcClient) SendRaw(rawFile string) (SendTiming, error) {
 	// Reset stopped flag from any previous Stop() call
 	c.activeMu.Lock()
 	c.stopped = false
@@ -64,7 +64,7 @@ func (c *Go2rtcClient) SendRaw(rawFile string) error {
 	// Start a temporary HTTP server to serve the raw file
 	listener, err := net.Listen("tcp", ":0")
 	if err != nil {
-		return fmt.Errorf("starting temp server: %w", err)
+		return SendTiming{}, fmt.Errorf("starting temp server: %w", err)
 	}
 
 	port := listener.Addr().(*net.TCPAddr).Port
@@ -113,7 +113,7 @@ func (c *Go2rtcClient) SendRaw(rawFile string) error {
 	// Get file size for timeout calculation
 	info, err := os.Stat(rawFile)
 	if err != nil {
-		return fmt.Errorf("stat raw file: %w", err)
+		return SendTiming{}, fmt.Errorf("stat raw file: %w", err)
 	}
 
 	// Timeout = playback duration + 10s grace (go2rtc needs time to connect + transcode)
@@ -136,10 +136,11 @@ func (c *Go2rtcClient) SendRaw(rawFile string) error {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, nil)
 	if err != nil {
-		return fmt.Errorf("building go2rtc request: %w", err)
+		return SendTiming{}, fmt.Errorf("building go2rtc request: %w", err)
 	}
 	req.Header.Set("Content-Type", "text/plain")
 
+	sendStart := time.Now()
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
 		// Check if Stop() was called — intentional cancellation
@@ -148,19 +149,21 @@ func (c *Go2rtcClient) SendRaw(rawFile string) error {
 		c.activeMu.Unlock()
 		if wasStopped {
 			c.log.Debug("send: stopped by user", "stream", c.stream)
-			return nil
+			return SendTiming{}, nil
 		}
-		return fmt.Errorf("go2rtc API call: %w", err)
+		return SendTiming{}, fmt.Errorf("go2rtc API call: %w", err)
 	}
 	defer resp.Body.Close()
+	openMs := time.Since(sendStart).Milliseconds()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 512))
 	if err != nil {
 		c.log.Warn("send: reading response body failed", "err", err)
 	}
+	playbackMs := time.Since(sendStart).Milliseconds() - openMs
 
 	if resp.StatusCode != http.StatusOK {
-		return c.formatGo2rtcError(resp.StatusCode, body)
+		return SendTiming{}, c.formatGo2rtcError(resp.StatusCode, body)
 	}
 
 	// Stop the stream (send empty src to clean up)
@@ -170,7 +173,7 @@ func (c *Go2rtcClient) SendRaw(rawFile string) error {
 		stopResp.Body.Close()
 	}
 
-	return nil
+	return SendTiming{OpenMs: openMs, PlaybackMs: playbackMs}, nil
 }
 
 // Stream is not yet implemented for go2rtc; it buffers r and calls SendRaw.
@@ -185,7 +188,8 @@ func (c *Go2rtcClient) Stream(r io.Reader) error {
 		return err
 	}
 	tmp.Close()
-	return c.SendRaw(tmp.Name())
+	_, err = c.SendRaw(tmp.Name())
+	return err
 }
 
 // Stop immediately stops audio playback by cancelling the active go2rtc API call

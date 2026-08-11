@@ -131,7 +131,7 @@ func buildMCPServer(h *Handlers) *mcp.Server {
 		if err != nil {
 			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, BeepOutput{}, nil
 		}
-		if err := cam.SendRaw(raw); err != nil {
+		if _, err := cam.SendRaw(raw); err != nil {
 			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, BeepOutput{}, nil
 		}
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "Beeped " + in.Camera}}}, BeepOutput{}, nil

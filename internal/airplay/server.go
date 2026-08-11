@@ -50,10 +50,16 @@ type Server struct {
 	fpSessionKey []byte
 }
 
+// SendTiming breaks down SendRaw into latency vs playback (mirrors cameras.SendTiming).
+type SendTiming struct {
+	OpenMs     int64
+	PlaybackMs int64
+}
+
 // Speaker is the interface for sending raw G.711ulaw audio to a camera.
 // This matches cameras.Speaker but we define it locally to avoid import cycles.
 type Speaker interface {
-	SendRaw(rawFile string) error
+	SendRaw(rawFile string) (SendTiming, error)
 	Stream(r io.Reader) error
 	Stop() error
 }

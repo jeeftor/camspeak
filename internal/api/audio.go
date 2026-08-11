@@ -146,17 +146,20 @@ func (h *Handlers) speakText(log *clog.Logger, cameraName, text, voice string, g
 	defer os.Remove(rawPath)
 
 	log.Debug("speak: sending to camera", "camera", cameraName)
-	sendStart := time.Now()
-	if err := cam.SendRaw(rawPath); err != nil {
+	sendTiming, err := cam.SendRaw(rawPath)
+	if err != nil {
 		return t, fmt.Errorf("sending to camera: %w", err)
 	}
-	t.Add("send_ms", sendStart)
+	t.steps["send_open_ms"] = time.Duration(sendTiming.OpenMs) * time.Millisecond
+	t.steps["send_playback_ms"] = time.Duration(sendTiming.PlaybackMs) * time.Millisecond
 	log.Debug(
 		"speak: camera send complete",
 		"camera",
 		cameraName,
-		"elapsed",
-		time.Since(sendStart),
+		"open_ms",
+		sendTiming.OpenMs,
+		"playback_ms",
+		sendTiming.PlaybackMs,
 	)
 
 	h.events.publish(event{Camera: cameraName, Action: "speak", Text: text, At: time.Now()})
@@ -215,17 +218,20 @@ func (h *Handlers) playPreset(
 		"gain",
 		gain,
 	)
-	sendStart := time.Now()
-	if err := cam.SendRaw(sendPath); err != nil {
+	sendTiming, err := cam.SendRaw(sendPath)
+	if err != nil {
 		return t, fmt.Errorf("sending to camera: %w", err)
 	}
-	t.Add("send_ms", sendStart)
+	t.steps["send_open_ms"] = time.Duration(sendTiming.OpenMs) * time.Millisecond
+	t.steps["send_playback_ms"] = time.Duration(sendTiming.PlaybackMs) * time.Millisecond
 	log.Debug(
 		"play: camera send complete",
 		"camera",
 		cameraName,
-		"elapsed",
-		time.Since(sendStart),
+		"open_ms",
+		sendTiming.OpenMs,
+		"playback_ms",
+		sendTiming.PlaybackMs,
 	)
 
 	h.events.publish(event{Camera: cameraName, Action: "play", Text: preset.Name, At: time.Now()})

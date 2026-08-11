@@ -227,9 +227,12 @@ func (m *Manager) stopLocked(name string) {
 // different types due to Go's structural typing across packages).
 type speakerAdapter struct{ cameras.Speaker }
 
-func (a speakerAdapter) SendRaw(rawFile string) error { return a.Speaker.SendRaw(rawFile) }
-func (a speakerAdapter) Stream(r io.Reader) error     { return a.Speaker.Stream(r) }
-func (a speakerAdapter) Stop() error                  { return a.Speaker.Stop() }
+func (a speakerAdapter) SendRaw(rawFile string) (SendTiming, error) {
+	t, err := a.Speaker.SendRaw(rawFile)
+	return SendTiming{OpenMs: t.OpenMs, PlaybackMs: t.PlaybackMs}, err
+}
+func (a speakerAdapter) Stream(r io.Reader) error { return a.Speaker.Stream(r) }
+func (a speakerAdapter) Stop() error              { return a.Speaker.Stop() }
 
 // cameraDisplayName converts a camera key like "backyard" to "Backyard Camera".
 func cameraDisplayName(name string) string {

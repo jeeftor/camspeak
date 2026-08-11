@@ -119,10 +119,11 @@ func (h *Handlers) Speak(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	log.Info("speak: done", "camera", req.Camera, "elapsed", time.Since(start))
+	log.Info("speak: done", "camera", req.Camera, "elapsed", time.Since(start), "ttfs_ms", timings.TTFS())
 	return c.JSON(http.StatusOK, map[string]any{
 		"status":   "ok",
 		"timings":  timings.Ms(),
+		"ttfs_ms":  timings.TTFS(),
 		"total_ms": TotalMs(start),
 	})
 }
@@ -178,6 +179,7 @@ func (h *Handlers) Play(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{
 		"status":   "ok",
 		"timings":  timings.Ms(),
+		"ttfs_ms":  timings.TTFS(),
 		"total_ms": TotalMs(start),
 	})
 }
@@ -276,7 +278,7 @@ func (h *Handlers) PlayURL(c echo.Context) error {
 	defer os.Remove(rawName)
 
 	log.Debug("play-url: sending to camera", "camera", req.Camera, "url", redactedURL)
-	if err := cam.SendRaw(rawName); err != nil {
+	if _, err := cam.SendRaw(rawName); err != nil {
 		log.Error(
 			"play-url: send failed",
 			"camera",
@@ -397,7 +399,7 @@ func (h *Handlers) Beep(c echo.Context) error {
 	log.Info("beep: sending", "camera", req.Camera, "type", h.cfg.Cameras[req.Camera].Type)
 	start := time.Now()
 
-	if err := cam.SendRaw(raw); err != nil {
+	if _, err := cam.SendRaw(raw); err != nil {
 		log.Error(
 			"beep: send failed",
 			"camera",

@@ -5,6 +5,20 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v2.9.0] — 2026-08-10
+
+### Added
+- **Time to first sound (TTFS) metric** — the timing display now shows `⏱ X.Xs` as the headline, representing the latency from request start to the first audio byte reaching the camera. This is the number that matters for responsiveness — like "time to first token" in LLM chat.
+- **Split send timing into `send_open_ms` (latency) and `send_playback_ms` (duration)** — the old `send_ms` lumped together the connection setup and the real-time audio streaming. Now `send_open_ms` measures channel open + auth + first chunk write (latency), and `send_playback_ms` measures the throttled streaming at 8000 bytes/sec (playback duration, not latency).
+- `ttfs_ms` field added to all API responses (`/api/speak`, `/api/play`, `/api/describe`, `/api/vision/test`).
+- Tooltip now shows "Time to first sound" and "Total (incl. playback)" separately, with per-step descriptions.
+
+### Changed
+- `Speaker.SendRaw` interface changed from `error` to `(SendTiming, error)` where `SendTiming` has `OpenMs` and `PlaybackMs` fields. All camera implementations (Hikvision, go2rtc, ONVIF, Reolink) and callers updated.
+- `formatTimingSummary` now excludes `send_playback_ms` from the breakdown (it's not latency) and uses `ttfs_ms` as the headline instead of `total_ms`.
+
+---
+
 ## [v2.8.4] — 2026-08-10
 
 ### Fixed

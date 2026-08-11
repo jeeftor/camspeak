@@ -31,6 +31,7 @@
   let describeTiming = $state('')
   let describeTimingsRaw = $state(undefined)
   let describeTotalMs = $state(undefined)
+  let describeTtfsMs = $state(undefined)
   let desktop = $state(!isMobile())
   // Pre-fill from saved camera default; user can override per-session
   const savedPrompt = camera.vision_prompt ?? ''
@@ -59,7 +60,7 @@
     busy = true; status = ''
     try {
       const data = await apiClient.speak({ camera: camera.name, text, voice, gain })
-      const timing = formatTimingSummary(data.timings, data.total_ms)
+      const timing = formatTimingSummary(data.timings, data.total_ms, data.ttfs_ms)
       setStatus(timing ? `✓ sent (${timing})` : '✓ sent')
     } catch (e) {
       setStatus('✗ ' + e.message, 'err')
@@ -76,7 +77,7 @@
     busy = true; status = ''
     try {
       const data = await apiClient.play({ camera: camera.name, preset, gain })
-      const timing = formatTimingSummary(data.timings, data.total_ms)
+      const timing = formatTimingSummary(data.timings, data.total_ms, data.ttfs_ms)
       setStatus(timing ? `✓ playing (${timing})` : '✓ playing')
     } catch (e) {
       setStatus('✗ ' + e.message, 'err')
@@ -180,7 +181,7 @@
     busy = true; status = ''
     if (snapshot) URL.revokeObjectURL(snapshot)
     snapshot = ''; description = ''; describeTiming = ''
-    describeTimingsRaw = undefined; describeTotalMs = undefined
+    describeTimingsRaw = undefined; describeTotalMs = undefined; describeTtfsMs = undefined
     try {
       setStatus('Capturing screenshot…')
       const snapRes = await apiClient.snapshot(camera.name)
@@ -194,7 +195,8 @@
       description = data.description || ''
       describeTimingsRaw = data.timings
       describeTotalMs = data.total_ms
-      describeTiming = formatTimingSummary(data.timings, data.total_ms)
+      describeTtfsMs = data.ttfs_ms
+      describeTiming = formatTimingSummary(data.timings, data.total_ms, data.ttfs_ms)
     } catch (e) {
       setStatus('✗ ' + e.message, 'err')
     } finally {
@@ -225,6 +227,7 @@
     describeTiming = ''
     describeTimingsRaw = undefined
     describeTotalMs = undefined
+    describeTtfsMs = undefined
     status = ''
   }
 
@@ -462,7 +465,7 @@
             {#if describeTiming}
               {#if desktop}
                 <Tooltip
-                  content={timingTooltipContent(describeTimingsRaw, describeTotalMs)}
+                  content={timingTooltipContent(describeTimingsRaw, describeTotalMs, describeTtfsMs)}
                   multiline
                   side="bottom"
                   class="text-xs"

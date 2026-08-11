@@ -78,7 +78,7 @@ var speakCmd = &cobra.Command{
 			fmt.Sprintf("%.1fs", preset.Duration),
 		)
 
-		if err := cam.SendRaw(preset.RawPath); err != nil {
+		if _, err := cam.SendRaw(preset.RawPath); err != nil {
 			return fmt.Errorf("camera: %w", err)
 		}
 

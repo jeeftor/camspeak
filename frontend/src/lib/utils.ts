@@ -16,6 +16,8 @@ const STEP_ALIASES: Record<string, string> = {
   tts_ms: 'TTS',
   transcode_ms: 'transcode',
   send_ms: 'send',
+  send_open_ms: 'send open',
+  send_playback_ms: 'playback',
   load_ms: 'load',
   snapshot_ms: 'snap',
   vision_ms: 'vision',
@@ -37,15 +39,25 @@ export function formatTimings(timings: Record<string, number> | undefined): stri
   return parts.join(' · ')
 }
 
-// Render a total + breakdown summary, e.g. "1.4s: TTS 450ms · send 800ms".
-// Falls back to just the breakdown if total is missing.
+// Render a TTFS + breakdown summary, e.g. "⏱ 4.4s: snap 23ms · vision 2.5s · TTS 1.6s · transcode 96ms · send open 200ms".
+// If ttfs_ms is available, uses it as the headline (time to first sound = latency).
+// Falls back to total_ms if ttfs_ms is missing. Playback duration is excluded
+// from the breakdown since it's not latency.
 export function formatTimingSummary(
   timings: Record<string, number> | undefined,
   totalMs: number | undefined,
+  ttfsMs?: number,
 ): string {
-  const breakdown = formatTimings(timings)
-  if (totalMs != null && !isNaN(totalMs)) {
-    return breakdown ? `${formatMs(totalMs)}: ${breakdown}` : formatMs(totalMs)
+  // Filter out playback from the breakdown — it's not latency
+  const latencyTimings: Record<string, number> | undefined = timings
+    ? Object.fromEntries(
+        Object.entries(timings).filter(([k]) => k !== 'send_playback_ms'),
+      )
+    : undefined
+  const breakdown = formatTimings(latencyTimings)
+  const headline = ttfsMs != null && !isNaN(ttfsMs) ? ttfsMs : totalMs
+  if (headline != null && !isNaN(headline)) {
+    return breakdown ? `⏱ ${formatMs(headline)}: ${breakdown}` : `⏱ ${formatMs(headline)}`
   }
   return breakdown
 }
@@ -67,6 +79,8 @@ const STEP_DESCRIPTIONS: Record<string, string> = {
   tts_ms: 'Time to convert the description text into speech audio',
   transcode_ms: 'Time to transcode audio to G.711 μ-law 8 kHz mono (camera format)',
   send_ms: 'Time to stream the audio to the camera speaker',
+  send_open_ms: 'Latency: channel open + auth + first audio byte to camera',
+  send_playback_ms: 'Playback duration: audio streamed at real-time speed (not latency)',
   load_ms: 'Time to load audio data from disk',
   save_ms: 'Time to save audio data to disk',
 }
@@ -76,10 +90,14 @@ const STEP_DESCRIPTIONS: Record<string, string> = {
 export function timingTooltipContent(
   timings: Record<string, number> | undefined,
   totalMs: number | undefined,
+  ttfsMs?: number,
 ): string {
   const lines: string[] = []
+  if (ttfsMs != null && !isNaN(ttfsMs)) {
+    lines.push(`Time to first sound: ${formatMs(ttfsMs)}`)
+  }
   if (totalMs != null && !isNaN(totalMs)) {
-    lines.push(`Total: ${formatMs(totalMs)}`)
+    lines.push(`Total (incl. playback): ${formatMs(totalMs)}`)
   }
   if (timings) {
     for (const [key, val] of Object.entries(timings)) {

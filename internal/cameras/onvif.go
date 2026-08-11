@@ -58,7 +58,7 @@ func findG711BackChannel(desc *description.Session) (*description.Media, *format
 // SendRaw plays a raw G.711ulaw 8kHz file on the camera via RTSP backchannel.
 // It reads the raw file, converts G.711ulaw → LPCM, encodes to RTP, and
 // sends packets at real-time speed (8000 samples/sec).
-func (c *OnvifClient) SendRaw(rawFile string) error {
+func (c *OnvifClient) SendRaw(rawFile string) (SendTiming, error) {
 	// Reset stopped flag from any previous Stop() call
 	c.activeMu.Lock()
 	c.stopped = false
@@ -67,18 +67,20 @@ func (c *OnvifClient) SendRaw(rawFile string) error {
 	// Read the raw G.711ulaw file
 	rawData, err := os.ReadFile(rawFile)
 	if err != nil {
-		return fmt.Errorf("reading raw file: %w", err)
+		return SendTiming{}, fmt.Errorf("reading raw file: %w", err)
 	}
 
 	if len(rawData) == 0 {
-		return fmt.Errorf("raw file is empty")
+		return SendTiming{}, fmt.Errorf("raw file is empty")
 	}
 
 	// Parse the RTSP URL
 	u, err := base.ParseURL(c.rtspURL)
 	if err != nil {
-		return fmt.Errorf("parsing RTSP URL: %w", err)
+		return SendTiming{}, fmt.Errorf("parsing RTSP URL: %w", err)
 	}
+
+	start := time.Now()
 
 	// Create RTSP client with backchannel support
 	client := gortsplib.Client{
@@ -88,7 +90,7 @@ func (c *OnvifClient) SendRaw(rawFile string) error {
 	}
 
 	if err := client.Start2(); err != nil {
-		return fmt.Errorf("connecting to RTSP server: %w", err)
+		return SendTiming{}, fmt.Errorf("connecting to RTSP server: %w", err)
 	}
 
 	// Track active client for Stop()
@@ -106,13 +108,13 @@ func (c *OnvifClient) SendRaw(rawFile string) error {
 	// Describe to get the SDP (with backchannel tracks)
 	desc, _, err := client.Describe(u)
 	if err != nil {
-		return fmt.Errorf("RTSP DESCRIBE: %w", err)
+		return SendTiming{}, fmt.Errorf("RTSP DESCRIBE: %w", err)
 	}
 
 	// Find the G.711 backchannel
 	medi, forma := findG711BackChannel(desc)
 	if medi == nil {
-		return fmt.Errorf(
+		return SendTiming{}, fmt.Errorf(
 			"no G.711 backchannel found in RTSP SDP — camera may not support two-way audio",
 		)
 	}
@@ -125,29 +127,27 @@ func (c *OnvifClient) SendRaw(rawFile string) error {
 
 	// Setup the backchannel media
 	if _, err := client.Setup(desc.BaseURL, medi, 0, 0); err != nil {
-		return fmt.Errorf("RTSP SETUP backchannel: %w", err)
+		return SendTiming{}, fmt.Errorf("RTSP SETUP backchannel: %w", err)
 	}
 
 	// Start PLAY
 	if _, err := client.Play(nil); err != nil {
-		return fmt.Errorf("RTSP PLAY: %w", err)
+		return SendTiming{}, fmt.Errorf("RTSP PLAY: %w", err)
 	}
 
 	// Create RTP encoder for G.711
 	rtpEnc, err := forma.CreateEncoder()
 	if err != nil {
-		return fmt.Errorf("creating RTP encoder: %w", err)
+		return SendTiming{}, fmt.Errorf("creating RTP encoder: %w", err)
 	}
 
 	// Generate random timestamp start
 	randomStart, err := randUint32()
 	if err != nil {
-		return fmt.Errorf("generating random start: %w", err)
+		return SendTiming{}, fmt.Errorf("generating random start: %w", err)
 	}
 
 	// Convert G.711ulaw raw bytes → LPCM samples (16-bit, big-endian)
-	// The g711.Mulaw.Unmarshal expects []byte of LPCM and produces G.711,
-	// but we have G.711 and need LPCM. We need to decode mulaw → LPCM first.
 	lpcmSamples := decodeMulaw(rawData)
 
 	// Send in 100ms chunks (800 samples per chunk at 8kHz)
@@ -159,6 +159,8 @@ func (c *OnvifClient) SendRaw(rawFile string) error {
 
 	totalSamples := len(lpcmSamples) / 2 // 16-bit = 2 bytes per sample
 	sentSamples := 0
+	firstPacket := true
+	var openMs int64
 
 	for sentSamples < totalSamples {
 		<-ticker.C
@@ -170,9 +172,9 @@ func (c *OnvifClient) SendRaw(rawFile string) error {
 		}
 
 		// Extract n samples (n*2 bytes) from the LPCM buffer
-		start := sentSamples * 2
-		end := start + n*2
-		chunk := lpcmSamples[start:end]
+		startIdx := sentSamples * 2
+		endIdx := startIdx + n*2
+		chunk := lpcmSamples[startIdx:endIdx]
 
 		// Current PTS
 		pts := int64(sentSamples)
@@ -185,13 +187,13 @@ func (c *OnvifClient) SendRaw(rawFile string) error {
 			g711Samples, err = g711.Alaw(chunk).Marshal()
 		}
 		if err != nil {
-			return fmt.Errorf("encoding G.711: %w", err)
+			return SendTiming{}, fmt.Errorf("encoding G.711: %w", err)
 		}
 
 		// Generate RTP packets
 		pkts, err := rtpEnc.Encode(g711Samples)
 		if err != nil {
-			return fmt.Errorf("encoding RTP: %w", err)
+			return SendTiming{}, fmt.Errorf("encoding RTP: %w", err)
 		}
 
 		// Write RTP packets
@@ -210,18 +212,23 @@ func (c *OnvifClient) SendRaw(rawFile string) error {
 						"total",
 						totalSamples,
 					)
-					return nil
+					return SendTiming{OpenMs: openMs}, nil
 				}
-				return fmt.Errorf("writing RTP packet: %w", err)
+				return SendTiming{}, fmt.Errorf("writing RTP packet: %w", err)
 			}
+		}
+
+		if firstPacket {
+			openMs = time.Since(start).Milliseconds()
+			firstPacket = false
 		}
 
 		sentSamples += n
 	}
 
-	c.log.Info("send: complete", "samples", sentSamples, "duration_ms", sentSamples/8)
+	c.log.Info("send: complete", "samples", sentSamples, "duration_ms", sentSamples/8, "open_ms", openMs)
 
-	return nil
+	return SendTiming{OpenMs: openMs, PlaybackMs: time.Since(start).Milliseconds() - openMs}, nil
 }
 
 // Stream is not yet implemented for ONVIF; it buffers r and calls SendRaw.
@@ -236,7 +243,8 @@ func (c *OnvifClient) Stream(r io.Reader) error {
 		return err
 	}
 	tmp.Close()
-	return c.SendRaw(tmp.Name())
+	_, err = c.SendRaw(tmp.Name())
+	return err
 }
 
 // Stop immediately stops audio playback by closing the active RTSP client.

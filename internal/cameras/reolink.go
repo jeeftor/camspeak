@@ -39,8 +39,8 @@ func NewReolinkClient(ip, user, pass string) *ReolinkClient {
 // SendRaw attempts to play audio on the Reolink camera speaker.
 // Native Reolink two-way audio (Baichuan protocol) is not implemented.
 // Audio must be routed through go2rtc with a backchannel-enabled stream.
-func (c *ReolinkClient) SendRaw(rawFile string) error {
-	return fmt.Errorf("reolink native audio not implemented for %s — "+
+func (c *ReolinkClient) SendRaw(rawFile string) (SendTiming, error) {
+	return SendTiming{}, fmt.Errorf("reolink native audio not implemented for %s — "+
 		"Reolink uses a proprietary Baichuan protocol (port 9000) that is not yet supported. "+
 		"Workaround: configure a go2rtc stream with #backchannel=1 "+
 		"(e.g. rtsp://USER:PASS@%s:554/h264Preview_01_sub#backchannel=1) "+

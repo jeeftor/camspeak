@@ -90,6 +90,7 @@ export interface Preset {
   size: number
   created: string
   timings?: Timings
+  ttfs_ms?: number
   total_ms?: number
 }
 
@@ -223,6 +224,7 @@ export interface VisionDescribeResult {
   description: string
   image?: string
   timings?: Timings
+  ttfs_ms?: number
   total_ms?: number
 }
 
@@ -231,12 +233,14 @@ export interface VisionDescribeResult {
 export interface SpeakResponse {
   status?: string
   timings?: Timings
+  ttfs_ms?: number
   total_ms?: number
 }
 
 export interface PlayResponse {
   status?: string
   timings?: Timings
+  ttfs_ms?: number
   total_ms?: number
 }
 
@@ -245,6 +249,7 @@ export interface DescribeResponse {
   description?: string
   image?: string
   timings?: Timings
+  ttfs_ms?: number
   total_ms?: number
 }
 
@@ -252,6 +257,7 @@ export interface VisionTestResponse {
   description?: string
   image?: string
   timings?: Timings
+  ttfs_ms?: number
   total_ms?: number
 }
 
@@ -264,6 +270,7 @@ export interface SavePresetResponse {
   size?: number
   created?: string
   timings?: Timings
+  ttfs_ms?: number
   total_ms?: number
 }
 

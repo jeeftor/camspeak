@@ -20,9 +20,9 @@ type mockSpeaker struct {
 	stopErr  error
 }
 
-func (m *mockSpeaker) SendRaw(rawFile string) error {
+func (m *mockSpeaker) SendRaw(rawFile string) (SendTiming, error) {
 	m.rawFiles = append(m.rawFiles, rawFile)
-	return nil
+	return SendTiming{}, nil
 }
 
 func (m *mockSpeaker) Stream(r io.Reader) error {

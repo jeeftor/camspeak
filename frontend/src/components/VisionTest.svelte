@@ -19,6 +19,7 @@
   let visionTiming = $state('') // compact timing breakdown from last vision run
   let visionTimingsRaw = $state(undefined)
   let visionTotalMs = $state(undefined)
+  let visionTtfsMs = $state(undefined)
   let desktop = $state(!isMobile())
   let busy = $state(false)
   let status = $state('')
@@ -104,6 +105,7 @@
       visionTiming = formatTimings(data.timings)
       visionTimingsRaw = data.timings
       visionTotalMs = data.total_ms
+      visionTtfsMs = data.ttfs_ms
       results = [{ prompt, description, time: new Date().toLocaleTimeString() }, ...results].slice(0, 10)
       setStatus('✓ Done')
     } catch (e) {
@@ -137,6 +139,7 @@
       visionTiming = formatTimings(data.timings)
       visionTimingsRaw = data.timings
       visionTotalMs = data.total_ms
+      visionTtfsMs = data.ttfs_ms
       results = [{ prompt, description, time: new Date().toLocaleTimeString() }, ...results].slice(0, 10)
       setStatus('✓ Done')
     } catch (e) {
@@ -152,6 +155,7 @@
     visionTiming = ''
     visionTimingsRaw = undefined
     visionTotalMs = undefined
+    visionTtfsMs = undefined
     runVision(true)
   }
 
@@ -175,6 +179,7 @@
     visionTiming = ''
     visionTimingsRaw = undefined
     visionTotalMs = undefined
+    visionTtfsMs = undefined
     results = []
     status = ''
   }
@@ -361,7 +366,7 @@
             {#if i === 0 && visionTiming}
               {#if desktop}
                 <Tooltip
-                  content={timingTooltipContent(visionTimingsRaw, visionTotalMs)}
+                  content={timingTooltipContent(visionTimingsRaw, visionTotalMs, visionTtfsMs)}
                   multiline
                   side="bottom"
                   class="text-xs"
