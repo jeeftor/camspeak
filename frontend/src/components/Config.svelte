@@ -434,6 +434,7 @@
     try {
       await apiClient.toggleAirPlay(cam.name)
       loadConfig()
+      onRefresh?.()
     } catch (e) {
       configError = '✗ ' + e.message
     } finally {
