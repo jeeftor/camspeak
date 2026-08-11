@@ -11,7 +11,6 @@
   import VisionTest from './VisionTest.svelte'
   import { toast } from '$lib/components/ui/toast'
   import { apiClient } from '$lib/api'
-  import type { StreamInfo } from '$lib/types'
 
   let { onRefresh } = $props()
 
@@ -61,7 +60,7 @@
   let camVisionStream = $state('')
   let camVisionWidth = $state(0)
   let camStatus = $state('')
-  let availableStreams = $state<StreamInfo[]>([])
+  let availableStreams = $state([])
 
   // Vision form
   let visionURL = $state('')
