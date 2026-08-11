@@ -426,12 +426,15 @@ func (h *Handlers) Cameras(c echo.Context) error {
 			continue
 		}
 		out = append(out, map[string]any{
-			"name":          name,
-			"type":          cfg.Type,
-			"ip":            cfg.IP,
-			"online":        status[name],
-			"vision_prompt": cfg.VisionPrompt,
-			"note":          cfg.Note,
+			"name":            name,
+			"type":            cfg.Type,
+			"ip":              cfg.IP,
+			"online":          status[name],
+			"vision_prompt":   cfg.VisionPrompt,
+			"note":            cfg.Note,
+			"airplay_enabled": cfg.AirPlayEnabled,
+			"airplay_name":    cfg.AirPlayName,
+			"airplay_model":   cfg.AirPlayModel,
 		})
 	}
 

@@ -5,6 +5,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v2.8.3] — 2026-08-10
+
+### Fixed
+- **AirPlay badge not showing on camera cards** — `GET /api/cameras` was not returning `airplay_enabled`, `airplay_name`, or `airplay_model` fields, so the frontend had no data to show the indicator. Added the missing fields to the handler response.
+
+---
+
 ## [v2.8.2] — 2026-08-10
 
 ### Added

@@ -118,9 +118,11 @@ func TestCameras(t *testing.T) {
 
 	// Two cameras: one enabled, one disabled.
 	h.cfg.Cameras["front"] = config.CameraConfig{
-		Type:    "hikvision",
-		IP:      "192.168.1.100",
-		Enabled: true,
+		Type:            "hikvision",
+		IP:              "192.168.1.100",
+		Enabled:         true,
+		AirPlayEnabled:  true,
+		AirPlayName:     "Front Camera",
 	}
 	h.cfg.Cameras["back"] = config.CameraConfig{
 		Type:    "hikvision",
@@ -148,6 +150,12 @@ func TestCameras(t *testing.T) {
 	}
 	if cams[0]["ip"] != "192.168.1.100" {
 		t.Errorf("ip = %v, want %q", cams[0]["ip"], "192.168.1.100")
+	}
+	if cams[0]["airplay_enabled"] != true {
+		t.Errorf("airplay_enabled = %v, want true", cams[0]["airplay_enabled"])
+	}
+	if cams[0]["airplay_name"] != "Front Camera" {
+		t.Errorf("airplay_name = %v, want %q", cams[0]["airplay_name"], "Front Camera")
 	}
 }
 
