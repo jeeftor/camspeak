@@ -1,6 +1,6 @@
 <script>
   import { onDestroy } from 'svelte'
-  import { Eye, Bell, Play, Loader2, FileAudio, X, MessageSquare, Square, Info } from 'lucide-svelte'
+  import { Eye, Bell, Play, Loader2, FileAudio, X, MessageSquare, Square, Info, AirPlay } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Textarea } from '$lib/components/ui/textarea'
@@ -293,6 +293,13 @@
           : 'bg-muted-foreground/40'}"></span>
         <span class="font-semibold">{camera.name}</span>
         <Badge variant="secondary" class="text-xs flex-shrink-0">{camera.type}</Badge>
+        {#if camera.airplay_enabled}
+          <Tooltip content={'AirPlay receiver active' + (camera.airplay_name ? ` — "${camera.airplay_name}"` : '')}>
+            <Badge variant="outline" class="text-xs flex-shrink-0 text-violet-500 border-violet-500/40 bg-violet-500/5">
+              <AirPlay class="h-3 w-3" />
+            </Badge>
+          </Tooltip>
+        {/if}
         {#if camera.note}
           <Badge variant="outline" class="text-xs flex-shrink-0 text-amber-500 border-amber-500/30" title={camera.note}>
             ⚠ Limited

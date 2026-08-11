@@ -5,6 +5,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v2.8.2] — 2026-08-10
+
+### Added
+- **AirPlay status indicator on camera cards** — a violet AirPlay icon badge now appears in each camera card header when AirPlay is enabled for that camera, with a tooltip showing the receiver name. Makes it easy to see at a glance which cameras have AirPlay active.
+
+---
+
 ## [v2.8.1] — 2026-08-10
 
 ### Fixed
