@@ -433,6 +433,8 @@ func (h *Handlers) Cameras(c echo.Context) error {
 			"ip":              cfg.IP,
 			"online":          status[name],
 			"vision_prompt":   cfg.VisionPrompt,
+			"vision_stream":   cfg.VisionStream,
+			"vision_width":    cfg.VisionWidth,
 			"note":            cfg.Note,
 			"airplay_enabled": cfg.AirPlayEnabled,
 			"airplay_name":    cfg.AirPlayName,

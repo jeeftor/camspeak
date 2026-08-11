@@ -185,4 +185,18 @@ func migrate(db *sql.DB) {
 		noteCol == 0 {
 		_, _ = db.Exec(`ALTER TABLE cameras ADD COLUMN note TEXT DEFAULT ''`)
 	}
+	// Add 'vision_stream' column to cameras if missing (added in v2.10.0).
+	// go2rtc stream name for vision snapshots (e.g. "frontyard_sub"); empty = Frigate detect.
+	var visStreamCol int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cameras') WHERE name='vision_stream'`).Scan(&visStreamCol); err == nil &&
+		visStreamCol == 0 {
+		_, _ = db.Exec(`ALTER TABLE cameras ADD COLUMN vision_stream TEXT DEFAULT ''`)
+	}
+	// Add 'vision_width' column to cameras if missing (added in v2.10.0).
+	// Max width in pixels for vision snapshots (0 = no resize).
+	var visWidthCol int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cameras') WHERE name='vision_width'`).Scan(&visWidthCol); err == nil &&
+		visWidthCol == 0 {
+		_, _ = db.Exec(`ALTER TABLE cameras ADD COLUMN vision_width INTEGER DEFAULT 0`)
+	}
 }

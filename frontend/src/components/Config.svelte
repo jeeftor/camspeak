@@ -57,7 +57,10 @@
   let camAirPlayName = $state('')
   let camAirPlayModel = $state('')
   let camVisionPrompt = $state('')
+  let camVisionStream = $state('')
+  let camVisionWidth = $state(0)
   let camStatus = $state('')
+  let availableStreams = $state<{name: string, video: string, active: boolean}[]>([])
 
   // Vision form
   let visionURL = $state('')
@@ -190,13 +193,15 @@
         user: camUser, pass: camPass, channel: parseInt(camChannel) || 1,
         stream: camStream, enabled: camEnabled,
         vision_prompt: camVisionPrompt,
+        vision_stream: camVisionStream,
+        vision_width: camVisionWidth || 0,
         airplay_name: camAirPlayName,
         airplay_model: camAirPlayModel,
       })
       camStatus = '✓ Saved'
       toast.success(`Camera "${camName}" saved`)
       camFormOpen = false
-      camName = ''; camIP = ''; camUser = ''; camPass = ''; camChannel = 1; camStream = ''; camVisionPrompt = ''; camAirPlayName = ''; camAirPlayModel = ''
+      camName = ''; camIP = ''; camUser = ''; camPass = ''; camChannel = 1; camStream = ''; camVisionPrompt = ''; camVisionStream = ''; camVisionWidth = 0; camAirPlayName = ''; camAirPlayModel = ''
       loadConfig()
       onRefresh?.()
     } catch (e) {
@@ -241,10 +246,12 @@
   function openAddCamera() {
     camName = ''; camType = 'hikvision'; camIP = ''; camUser = ''; camPass = ''
     camChannel = 1; camStream = ''; camEnabled = false; camVisionPrompt = ''
+    camVisionStream = ''; camVisionWidth = 0
     camAirPlayName = ''; camAirPlayModel = ''
     camStatus = ''; testCamStatus = ''; detectCamStatus = ''
     camStreamCustom = false
     loadGo2rtcStreams()
+    loadAvailableStreams()
     camFormOpen = true
   }
 
@@ -258,12 +265,24 @@
     camStream = cam.stream || ''
     camEnabled = cam.enabled ?? false
     camVisionPrompt = cam.vision_prompt ?? ''
+    camVisionStream = cam.vision_stream ?? ''
+    camVisionWidth = cam.vision_width ?? 0
     camAirPlayName = cam.airplay_name ?? ''
     camAirPlayModel = cam.airplay_model ?? airplayModel ?? 'RealityDevice14,1'
     camStatus = ''; testCamStatus = ''; detectCamStatus = ''
     camStreamCustom = false
     loadGo2rtcStreams()
+    loadAvailableStreams()
     camFormOpen = true
+  }
+
+  async function loadAvailableStreams() {
+    try {
+      const res = await apiClient.streams()
+      availableStreams = res.streams ?? []
+    } catch {
+      availableStreams = []
+    }
   }
 
   async function loadGo2rtcStreams() {
@@ -927,6 +946,30 @@
           ></textarea>
           <span class="text-[11px] opacity-60">Used when clicking Describe on this camera. Can be overridden per-session.</span>
         </label>
+        <div class="mt-3 border-t pt-3">
+          <h4 class="mb-2 text-sm font-semibold text-primary">Vision Stream</h4>
+          <div class="grid grid-cols-2 gap-2.5 max-sm:grid-cols-1">
+            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+              Stream for vision snapshots
+              <select
+                bind:value={camVisionStream}
+                class="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm
+                       focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <option value="">Frigate detect (default)</option>
+                {#each availableStreams as s}
+                  <option value={s.name}>{s.name} ({s.video || 'no video'}){!s.active ? ' — inactive' : ''}</option>
+                {/each}
+              </select>
+              <span class="text-[11px] opacity-60">Which go2rtc stream to grab frames from for vision/describe. Substreams are faster (smaller images).</span>
+            </label>
+            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+              Max width (px)
+              <Input type="number" bind:value={camVisionWidth} placeholder="1280" />
+              <span class="text-[11px] opacity-60">0 = no resize. 1280 recommended for vision models.</span>
+            </label>
+          </div>
+        </div>
         <label class="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
           <input type="checkbox" bind:checked={camEnabled} class="h-4 w-4 cursor-pointer rounded border-input accent-primary" />
           Enabled (camera will receive speak/broadcast)

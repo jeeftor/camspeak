@@ -26,6 +26,7 @@ import type {
   SaveVisionReq,
   Settings,
   SpeakReq,
+  StreamInfo,
   SpeakResponse,
   TTSPreset,
   VisionConfig,
@@ -175,8 +176,15 @@ export const apiClient = {
     }),
 
   // --- Vision ---
-  snapshot: (camera: string) =>
-    apiRaw(`/api/snapshot/${encodeURIComponent(camera)}`),
+  snapshot: (camera: string, stream?: string, width?: number) => {
+    const params = new URLSearchParams()
+    if (stream) params.set('stream', stream)
+    if (width) params.set('width', String(width))
+    const qs = params.toString()
+    return apiRaw(`/api/snapshot/${encodeURIComponent(camera)}${qs ? '?' + qs : ''}`)
+  },
+  streams: () =>
+    api<{ status: string; streams: StreamInfo[] }>('/api/streams'),
   describe: (req: { camera: string; prompt?: string; gain?: number }) =>
     api<DescribeResponse>('/api/describe', { method: 'POST', body: JSON.stringify(req) }),
   visionTest: (fd: FormData) =>

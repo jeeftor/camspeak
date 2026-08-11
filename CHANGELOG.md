@@ -5,6 +5,21 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v2.10.0] — 2026-08-11
+
+### Added
+- **Per-camera vision stream selection** — cameras can now be configured to grab vision snapshots from any go2rtc stream instead of Frigate's detect stream. Set `vision_stream` (e.g. `frontyard_sub`) and optionally `vision_width` (e.g. 1280) in the camera settings. This allows using lower-resolution substreams for vision, dramatically reducing image size and vision model latency (e.g. frontyard was sending 4K/1.9MB images; with a substream at 1280px it's ~9KB).
+- **`GET /api/streams`** — lists all available go2rtc streams with video codec and active status. Used by the camera settings UI to populate the stream dropdown.
+- **`GET /api/snapshot/:camera?stream=<name>&width=<px>`** — snapshot endpoint now accepts optional `stream` and `width` query params. When `stream` is specified, grabs a frame from that go2rtc stream via ffmpeg (with optional scaling) instead of Frigate.
+- **ffmpeg-based frame capture** — `grabFrameFromStream()` uses ffmpeg to capture a single JPEG frame from any go2rtc RTSP stream, with optional width scaling.
+- Camera settings UI now has a "Vision Stream" section with a dropdown of available go2rtc streams and a max-width input.
+
+### Changed
+- The describe/vision flow now uses `fetchSnapshot()` which checks the camera's `vision_stream` config first, falling back to Frigate's detect stream if not set.
+- `CameraConfig` struct has new `VisionStream` and `VisionWidth` fields, stored in SQLite (`vision_stream`, `vision_width` columns).
+
+---
+
 ## [v2.9.0] — 2026-08-10
 
 ### Added

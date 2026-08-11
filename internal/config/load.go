@@ -203,7 +203,8 @@ func seedDefaultPresets(db *sql.DB) {
 func loadCameras(db *sql.DB, cfg *Config) {
 	rows, err := db.Query(
 		`SELECT name, type, ip, user, pass, channel, stream, enabled, vision_prompt,
-		        COALESCE(airplay_enabled, 1), COALESCE(airplay_name, ''), COALESCE(airplay_model, ''), COALESCE(gain, 3.0), COALESCE(note, '') FROM cameras`,
+		        COALESCE(airplay_enabled, 1), COALESCE(airplay_name, ''), COALESCE(airplay_model, ''), COALESCE(gain, 3.0), COALESCE(note, ''),
+		        COALESCE(vision_stream, ''), COALESCE(vision_width, 0) FROM cameras`,
 	)
 	if err != nil {
 		return
@@ -217,6 +218,7 @@ func loadCameras(db *sql.DB, cfg *Config) {
 		if err := rows.Scan(
 			&name, &cam.Type, &cam.IP, &cam.User, &cam.Pass,
 			&cam.Channel, &cam.Stream, &enabled, &cam.VisionPrompt, &airplayEnabled, &cam.AirPlayName, &cam.AirPlayModel, &cam.Gain, &cam.Note,
+			&cam.VisionStream, &cam.VisionWidth,
 		); err != nil {
 			continue
 		}

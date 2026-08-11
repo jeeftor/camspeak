@@ -23,7 +23,16 @@ export interface Camera {
   airplay_model: string
   gain: number
   vision_prompt: string
+  vision_stream: string
+  vision_width: number
   note: string
+}
+
+export interface StreamInfo {
+  name: string
+  video: string
+  active: boolean
+  source: string
 }
 
 export interface TTSConfig {
@@ -138,6 +147,8 @@ export interface SaveCameraReq {
   stream: string
   enabled: boolean
   vision_prompt: string
+  vision_stream: string
+  vision_width: number
   airplay_name: string
   airplay_model: string
   gain?: number

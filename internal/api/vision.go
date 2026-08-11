@@ -12,12 +12,39 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-// Snapshot handles GET /api/snapshot/:camera — proxies Frigate snapshot as JPEG.
+// Snapshot handles GET /api/snapshot/:camera — grabs a JPEG frame.
+// By default uses Frigate's latest.jpg (detect stream). If ?stream=<name> is
+// provided, uses ffmpeg to grab a frame from that go2rtc RTSP stream instead.
+// ?width=<px> optionally scales the frame (ffmpeg only).
 func (h *Handlers) Snapshot(c echo.Context) error {
 	camera := c.Param("camera")
 	if camera == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "camera required")
 	}
+
+	streamName := c.QueryParam("stream")
+	width := 0
+	if w := c.QueryParam("width"); w != "" {
+		if _, err := fmt.Sscanf(w, "%d", &width); err != nil || width <= 0 {
+			width = 0
+		}
+	}
+
+	// If a stream is specified, use ffmpeg to grab from go2rtc.
+	if streamName != "" {
+		if h.cfg.Go2rtcURL == "" {
+			return echo.NewHTTPError(http.StatusServiceUnavailable, "go2rtc URL not configured")
+		}
+		data, err := grabFrameFromStream(h.cfg.Go2rtcURL, streamName, width, 10*time.Second)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadGateway, err.Error())
+		}
+		c.Response().Header().Set("Content-Type", "image/jpeg")
+		c.Response().Header().Set("Cache-Control", "no-cache")
+		return c.Blob(http.StatusOK, "image/jpeg", data)
+	}
+
+	// Default: Frigate detect stream.
 	if h.cfg.FrigateURL == "" {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "frigate URL not configured")
 	}
@@ -79,36 +106,13 @@ func (h *Handlers) Vision(c echo.Context) error {
 	visionClient := h.vision
 	h.cfgMu.Unlock()
 
-	if frigateURL == "" {
-		return echo.NewHTTPError(http.StatusServiceUnavailable, "frigate URL not configured")
-	}
 	if visionClient == nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "vision model not configured")
 	}
 
-	snapURL := fmt.Sprintf("%s/api/%s/latest.jpg?h=720", frigateURL, req.Camera)
-	snapReq, err := http.NewRequestWithContext(c.Request().Context(), http.MethodGet, snapURL, nil)
+	imageBytes, err := h.fetchSnapshot(c.Request().Context(), req.Camera, cam, frigateURL)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	snapResp, err := (&http.Client{Timeout: 30 * time.Second}).Do(snapReq)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("frigate snapshot: %s", err))
-	}
-	defer snapResp.Body.Close()
-	if snapResp.StatusCode != 200 {
-		return echo.NewHTTPError(
-			http.StatusBadGateway,
-			fmt.Sprintf("frigate returned HTTP %d", snapResp.StatusCode),
-		)
-	}
-
-	imageBytes, err := io.ReadAll(snapResp.Body)
-	if err != nil {
-		return echo.NewHTTPError(
-			http.StatusInternalServerError,
-			fmt.Sprintf("reading snapshot: %s", err),
-		)
+		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
 	}
 
 	prompt := resolveVisionPrompt(req.Prompt, camOk, cam.VisionPrompt, globalPrompt)
@@ -204,33 +208,19 @@ func (h *Handlers) VisionTest(c echo.Context) error {
 		imageBytes = decoded
 		imageDataURI = imageB64
 	} else {
-		// Capture a fresh snapshot from Frigate
+		// Capture a fresh snapshot (from configured vision_stream or Frigate)
 		if camera == "" {
 			return echo.NewHTTPError(http.StatusBadRequest, "camera required (or provide image)")
 		}
-		if frigateURL == "" {
-			return echo.NewHTTPError(http.StatusServiceUnavailable, "frigate URL not configured")
-		}
+		h.cfgMu.Lock()
+		camCfg := h.cfg.Cameras[camera]
+		h.cfgMu.Unlock()
+
 		snapStart := time.Now()
-		snapURL := fmt.Sprintf("%s/api/%s/latest.jpg?h=720", frigateURL, camera)
-		snapReq, err := http.NewRequestWithContext(c.Request().Context(), http.MethodGet, snapURL, nil)
-		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-		}
-		snapResp, err := (&http.Client{Timeout: 30 * time.Second}).Do(snapReq)
-		if err != nil {
-			return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("frigate snapshot: %s", err))
-		}
-		defer snapResp.Body.Close()
-		if snapResp.StatusCode != 200 {
-			return echo.NewHTTPError(
-				http.StatusBadGateway,
-				fmt.Sprintf("frigate returned HTTP %d", snapResp.StatusCode),
-			)
-		}
-		imageBytes, err = io.ReadAll(snapResp.Body)
-		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("reading snapshot: %s", err))
+		var snapErr error
+		imageBytes, snapErr = h.fetchSnapshot(c.Request().Context(), camera, camCfg, frigateURL)
+		if snapErr != nil {
+			return echo.NewHTTPError(http.StatusBadGateway, snapErr.Error())
 		}
 		t.Add("snapshot_ms", snapStart)
 		imageDataURI = "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(imageBytes)
@@ -286,9 +276,6 @@ func (h *Handlers) Describe(c echo.Context) error {
 	defaultVoice := h.cfg.TTS.DefaultVoice
 	h.cfgMu.Unlock()
 
-	if frigateURL == "" {
-		return echo.NewHTTPError(http.StatusServiceUnavailable, "frigate URL not configured")
-	}
 	if visionClient == nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "vision model not configured")
 	}
@@ -297,42 +284,14 @@ func (h *Handlers) Describe(c echo.Context) error {
 	t := NewStepTimings(4)
 	log.Info("describe: request", "camera", req.Camera)
 
-	// 1. Fetch snapshot from Frigate
-	snapURL := fmt.Sprintf("%s/api/%s/latest.jpg?h=720", frigateURL, req.Camera)
+	// 1. Fetch snapshot (from configured vision_stream or Frigate)
 	snapStart := time.Now()
-	snapReq, err := http.NewRequestWithContext(c.Request().Context(), http.MethodGet, snapURL, nil)
-	if err != nil {
-		log.Error("describe: build snapshot request failed", "camera", req.Camera, "err", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	snapResp, err := (&http.Client{Timeout: 30 * time.Second}).Do(snapReq)
+	imageBytes, err := h.fetchSnapshot(c.Request().Context(), req.Camera, camCfg, frigateURL)
 	if err != nil {
 		log.Error("describe: snapshot failed", "camera", req.Camera, "err", err)
-		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("frigate snapshot: %s", err))
+		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
 	}
-	defer snapResp.Body.Close()
-
-	if snapResp.StatusCode != 200 {
-		log.Error(
-			"describe: snapshot bad status",
-			"camera",
-			req.Camera,
-			"status",
-			snapResp.StatusCode,
-		)
-		return echo.NewHTTPError(
-			http.StatusBadGateway,
-			fmt.Sprintf("frigate returned HTTP %d", snapResp.StatusCode),
-		)
-	}
-
-	imageBytes, err := io.ReadAll(snapResp.Body)
-	if err != nil {
-		return echo.NewHTTPError(
-			http.StatusInternalServerError,
-			fmt.Sprintf("reading snapshot: %s", err),
-		)
-	}
+	t.Add("snap_ms", snapStart)
 	log.Debug(
 		"describe: snapshot fetched",
 		"camera",

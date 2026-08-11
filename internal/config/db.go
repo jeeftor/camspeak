@@ -32,14 +32,17 @@ func SaveCamera(db *sql.DB, name string, cam CameraConfig) error {
 	}
 	_, err := db.Exec(
 		`INSERT INTO cameras
-		   (name, type, ip, user, pass, channel, stream, enabled, vision_prompt, airplay_enabled, airplay_name, airplay_model, gain, note)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		   (name, type, ip, user, pass, channel, stream, enabled, vision_prompt,
+		    airplay_enabled, airplay_name, airplay_model, gain, note,
+		    vision_stream, vision_width)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(name) DO UPDATE SET
 		   type = excluded.type, ip = excluded.ip, user = excluded.user,
 		   pass = excluded.pass, channel = excluded.channel, stream = excluded.stream,
 		   enabled = excluded.enabled, vision_prompt = excluded.vision_prompt,
 		   airplay_enabled = excluded.airplay_enabled, airplay_name = excluded.airplay_name,
-		   airplay_model = excluded.airplay_model, gain = excluded.gain, note = excluded.note`,
+		   airplay_model = excluded.airplay_model, gain = excluded.gain, note = excluded.note,
+		   vision_stream = excluded.vision_stream, vision_width = excluded.vision_width`,
 		name,
 		cam.Type,
 		cam.IP,
@@ -54,6 +57,8 @@ func SaveCamera(db *sql.DB, name string, cam CameraConfig) error {
 		cam.AirPlayModel,
 		cam.Gain,
 		cam.Note,
+		cam.VisionStream,
+		cam.VisionWidth,
 	)
 	if err != nil {
 		return fmt.Errorf("saving camera %s: %w", name, err)

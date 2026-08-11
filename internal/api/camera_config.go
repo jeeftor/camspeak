@@ -34,6 +34,8 @@ func (h *Handlers) ListCamerasConfig(c echo.Context) error {
 			"gain":            cam.Gain,
 			"airplay_running": apStatus[name],
 			"vision_prompt":   cam.VisionPrompt,
+			"vision_stream":   cam.VisionStream,
+			"vision_width":    cam.VisionWidth,
 			"note":            cam.Note,
 		})
 	}
@@ -56,6 +58,8 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 		AirPlayModel string  `json:"airplay_model"`
 		Gain         float64 `json:"gain"`
 		VisionPrompt string  `json:"vision_prompt"`
+		VisionStream string  `json:"vision_stream"`
+		VisionWidth  int     `json:"vision_width"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid JSON body")
@@ -137,6 +141,16 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 	if visionPrompt == "" && hasExisting {
 		visionPrompt = existing.VisionPrompt
 	}
+	// Preserve existing vision_stream if not provided
+	visionStream := req.VisionStream
+	if visionStream == "" && hasExisting {
+		visionStream = existing.VisionStream
+	}
+	// Preserve existing vision_width if not provided
+	visionWidth := req.VisionWidth
+	if visionWidth == 0 && hasExisting {
+		visionWidth = existing.VisionWidth
+	}
 	// Auto-set limitation note for Reolink cameras (native audio not implemented).
 	note := ""
 	if camType == "reolink" {
@@ -159,6 +173,8 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 		AirPlayModel: airPlayModel,
 		Gain:         gain,
 		VisionPrompt: visionPrompt,
+		VisionStream: visionStream,
+		VisionWidth:  visionWidth,
 		Note:         note,
 	}
 	if err := config.SaveCamera(h.db, req.Name, cam); err != nil {
