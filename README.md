@@ -284,6 +284,9 @@ All routes are under `/api`. The server listens on port `8585` by default.
 | `POST` | `/api/play-stream` | Stream a live URL or `.pls`/`.m3u` playlist to a camera |
 | `POST` | `/api/beep` | Play an 800Hz test beep on a camera |
 | `POST` | `/api/stop` | Stop audio, live streams, and reset AirPlay for a camera (or all) |
+| `POST` | `/api/pause` | Pause a live `/api/play-stream` stream (camera or all) — suspends ffmpeg without closing the speaker connection |
+| `POST` | `/api/resume` | Resume a paused live stream (camera or all) |
+| `GET` | `/api/playback` | Current playback state for all cameras (playing/paused/idle + what's playing) |
 | `POST` | `/api/broadcast` | Broadcast TTS or a preset to all cameras |
 | `GET` | `/api/cameras` | List cameras with online status |
 | `GET` | `/api/voices` | List available TTS voices |
@@ -294,7 +297,8 @@ All routes are under `/api`. The server listens on port `8585` by default.
 |---|---|---|
 | `GET` | `/api/library` | List all saved presets |
 | `POST` | `/api/library` | Generate a TTS clip and save as a preset |
-| `POST` | `/api/library/upload` | Upload an audio file as a preset |
+| `POST` | `/api/library/upload` | Upload an audio file (async — returns `job_id` for progress polling) |
+| `GET` | `/api/library/upload/jobs/:id` | Poll upload/transcode job progress (percent, step, error) |
 | `DELETE` | `/api/library/:category/:name` | Delete a preset |
 | `GET` | `/api/library/:category/:name/preview` | Preview a preset's audio |
 

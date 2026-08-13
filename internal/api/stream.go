@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	clog "github.com/charmbracelet/log"
@@ -18,10 +19,15 @@ import (
 	"github.com/jeeftor/camspeak/internal/util"
 )
 
-// streamSession tracks a live ffmpeg → camera stream so it can be stopped on demand.
+// streamSession tracks a live ffmpeg → camera stream so it can be stopped or
+// paused on demand. Pause suspends the ffmpeg process via SIGSTOP without
+// tearing down the camera speaker connection; resume sends SIGCONT.
 type streamSession struct {
-	cmd    *exec.Cmd
-	cancel context.CancelFunc
+	cmd     *exec.Cmd
+	cancel  context.CancelFunc
+	paused  bool
+	url     string
+	started time.Time
 }
 
 var (
@@ -187,7 +193,7 @@ func (h *Handlers) PlayStream(c echo.Context) error {
 	}
 
 	activeStreamsMu.Lock()
-	activeStreams[req.Camera] = &streamSession{cmd: cmd, cancel: cancel}
+	activeStreams[req.Camera] = &streamSession{cmd: cmd, cancel: cancel, url: req.URL, started: now()}
 	activeStreamsMu.Unlock()
 
 	go logStderr(stderr, log, req.Camera)
@@ -204,6 +210,7 @@ func (h *Handlers) PlayStream(c echo.Context) error {
 	}()
 
 	log.Info("stream: started", "camera", req.Camera, "url", req.URL)
+	setPlayback(req.Camera, "stream", req.URL)
 	h.events.publish(event{Camera: req.Camera, Action: "play-stream", Text: req.URL, At: now()})
 	return c.JSON(http.StatusOK, map[string]string{"status": "streaming"})
 }
@@ -229,6 +236,7 @@ func stopStream(camera string) {
 	if sess.cmd.Process != nil {
 		_ = sess.cmd.Process.Kill()
 	}
+	clearPlayback(camera)
 }
 
 // stopAllStreams kills every active ffmpeg stream.
@@ -246,6 +254,85 @@ func stopAllStreams() {
 			_ = sess.cmd.Process.Kill()
 		}
 	}
+}
+
+// pauseStream suspends the ffmpeg process for a camera's active stream by
+// sending SIGSTOP. The camera speaker connection stays open; ffmpeg's read
+// position is preserved. Returns the stream URL and whether it was already
+// paused. ok is false when there is no active stream for the camera.
+func pauseStream(camera string) (url string, alreadyPaused, ok bool) {
+	activeStreamsMu.Lock()
+	sess := activeStreams[camera]
+	activeStreamsMu.Unlock()
+	if sess == nil {
+		return "", false, false
+	}
+	if sess.paused {
+		return sess.url, true, true
+	}
+	if sess.cmd != nil && sess.cmd.Process != nil {
+		_ = sess.cmd.Process.Signal(syscall.SIGSTOP)
+	}
+	sess.paused = true
+	return sess.url, false, true
+}
+
+// resumeStream resumes a paused ffmpeg process via SIGCONT. Returns the stream
+// URL and whether it was not paused. ok is false when there is no active
+// stream for the camera.
+func resumeStream(camera string) (url string, notPaused, ok bool) {
+	activeStreamsMu.Lock()
+	sess := activeStreams[camera]
+	activeStreamsMu.Unlock()
+	if sess == nil {
+		return "", false, false
+	}
+	if !sess.paused {
+		return sess.url, true, true
+	}
+	if sess.cmd != nil && sess.cmd.Process != nil {
+		_ = sess.cmd.Process.Signal(syscall.SIGCONT)
+	}
+	sess.paused = false
+	return sess.url, false, true
+}
+
+// pauseAllStreams suspends every active stream. Returns the list of camera
+// names that were paused (excluding already-paused ones).
+func pauseAllStreams() []string {
+	activeStreamsMu.Lock()
+	names := make([]string, 0, len(activeStreams))
+	for name, sess := range activeStreams {
+		if sess.paused {
+			continue
+		}
+		if sess.cmd != nil && sess.cmd.Process != nil {
+			_ = sess.cmd.Process.Signal(syscall.SIGSTOP)
+		}
+		sess.paused = true
+		names = append(names, name)
+	}
+	activeStreamsMu.Unlock()
+	return names
+}
+
+// resumeAllStreams resumes every paused stream. Returns the list of camera
+// names that were resumed.
+func resumeAllStreams() []string {
+	activeStreamsMu.Lock()
+	names := make([]string, 0, len(activeStreams))
+	for name, sess := range activeStreams {
+		if !sess.paused {
+			continue
+		}
+		if sess.cmd != nil && sess.cmd.Process != nil {
+			_ = sess.cmd.Process.Signal(syscall.SIGCONT)
+		}
+		sess.paused = false
+		names = append(names, name)
+	}
+	activeStreamsMu.Unlock()
+	return names
 }
 
 func now() time.Time {

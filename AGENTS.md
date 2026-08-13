@@ -123,8 +123,13 @@ Copy `.env.example` to `.env` for local dev. Loaded by godotenv at startup. Giti
 - `POST /api/config/cameras` — create/update camera; includes `gain` per camera (default 3.0)
 - `POST /api/beep` — test tone
 - `POST /api/stop` — stop audio on a camera (or all cameras if body empty)
+- `POST /api/pause` — pause a live `/api/play-stream` stream on a camera (or all if body empty); suspends ffmpeg via SIGSTOP without tearing down the camera connection
+- `POST /api/resume` — resume a paused stream on a camera (or all if body empty) via SIGCONT
+- `GET /api/playback` — current playback state for all enabled cameras (state: playing/paused/idle, source, detail, timestamps)
 - `POST /api/broadcast` — broadcast to all cameras
 - `GET/POST /api/library` — preset management
+- `POST /api/library/upload` — upload audio file (async: returns `job_id`, transcodes via ffmpeg in background)
+- `GET /api/library/upload/jobs/:id` — poll upload/transcode job progress (percent, step, error)
 - `PATCH /api/library/:category/:name` — rename preset
 - `DELETE /api/library/:category/:name` — delete preset
 - `ANY /mcp` — MCP endpoint

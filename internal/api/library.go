@@ -102,6 +102,10 @@ func (h *Handlers) GeneratePreset(c echo.Context) error {
 }
 
 // UploadPreset handles POST /api/library/upload — audio file → save preset.
+// The file upload (HTTP transfer) completes before this handler runs (Echo
+// parses the multipart body first). The handler saves the temp file, starts
+// ffmpeg transcoding in a goroutine, and returns a job ID immediately so the
+// client can poll GET /api/library/upload/jobs/:id for transcoding progress.
 func (h *Handlers) UploadPreset(c echo.Context) error {
 	name := c.FormValue("name")
 	category := c.FormValue("category")
@@ -132,25 +136,66 @@ func (h *Handlers) UploadPreset(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	defer os.Remove(tmp.Name())
+	tmpName := tmp.Name()
 
 	if _, err := io.Copy(tmp, src); err != nil {
 		tmp.Close()
-
+		os.Remove(tmpName)
 		return echo.NewHTTPError(
 			http.StatusInternalServerError,
 			fmt.Sprintf("reading upload: %s", err),
 		)
 	}
-
 	tmp.Close()
 
-	preset, err := h.store.SaveFile(category, name, tmp.Name())
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
+	// Create a job and start transcoding in the background.
+	job := newUploadJob(name, category, file.Filename)
+	jobID := job.ID
 
-	return c.JSON(http.StatusCreated, preset)
+	go func() {
+		defer os.Remove(tmpName)
+
+		preset, err := h.store.SaveFileWithProgress(category, name, tmpName,
+			func(percent float64) {
+				step := "Transcoding"
+				if percent < 0 {
+					step = "Transcoding (indeterminate)"
+					percent = 0
+				}
+				updateUploadJob(jobID, percent, step)
+			},
+		)
+		if err != nil {
+			h.log.Error("upload: transcode failed", "job", jobID, "name", name, "err", err)
+			failUploadJob(jobID, err.Error())
+			return
+		}
+
+		completeUploadJob(jobID, preset)
+		h.log.Info("upload: done", "job", jobID, "name", name, "category", category)
+	}()
+
+	// Clean up old completed jobs (keep for 10 minutes so clients can read
+	// the final status).
+	cleanupOldUploadJobs(10 * time.Minute)
+
+	return c.JSON(http.StatusAccepted, map[string]any{
+		"job_id":   jobID,
+		"status":   JobTranscoding,
+		"name":     name,
+		"category": category,
+		"filename": file.Filename,
+	})
+}
+
+// UploadJobStatus handles GET /api/library/upload/jobs/:id — polls the
+// progress of an async upload/transcode job.
+func (h *Handlers) UploadJobStatus(c echo.Context) error {
+	job := getUploadJob(c.Param("id"))
+	if job == nil {
+		return echo.NewHTTPError(http.StatusNotFound, "job not found")
+	}
+	return c.JSON(http.StatusOK, job)
 }
 
 // DeletePreset handles DELETE /api/library/:category/:name.

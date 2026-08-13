@@ -1,6 +1,6 @@
 <script>
   import { onDestroy } from 'svelte'
-  import { Eye, Bell, Play, Loader2, FileAudio, X, MessageSquare, Square, Info, Airplay } from 'lucide-svelte'
+  import { Eye, Bell, Play, Pause, Loader2, FileAudio, X, MessageSquare, Square, Info, Airplay } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Textarea } from '$lib/components/ui/textarea'
@@ -24,6 +24,8 @@
   let gain = $state(camera.gain ?? 3.0)
   let busy = $state(false)
   let streaming = $state(false)
+  let paused = $state(false)
+  let playbackDetail = $state('')
   let status = $state('')
   let statusType = $state('ok')
   let snapshot = $state('')
@@ -44,6 +46,29 @@
   onDestroy(() => {
     if (snapshot) URL.revokeObjectURL(snapshot)
     clearTimeout(statusTimeout)
+  })
+
+  // Poll the server for playback state so the UI stays in sync even when
+  // playback is started/stopped from another client (MQTT, REST, etc.).
+  // Skipped while busy to avoid racing with in-flight requests.
+  $effect(() => {
+    const interval = setInterval(async () => {
+      if (busy) return
+      try {
+        const states = await apiClient.getPlayback()
+        const ps = states[camera.name]
+        if (ps) {
+          streaming = ps.state !== 'idle'
+          paused = ps.state === 'paused'
+          playbackDetail = ps.detail ?? ''
+        } else {
+          streaming = false
+          paused = false
+          playbackDetail = ''
+        }
+      } catch { /* server unreachable — keep last known state */ }
+    }, 3000)
+    return () => clearInterval(interval)
   })
 
   function setStatus(msg, type = 'ok') {
@@ -124,7 +149,7 @@
 
   async function playStream() {
     if (!url) return
-    streaming = true; status = ''
+    streaming = true; paused = false; status = ''
     try {
       await apiClient.playStream({ camera: camera.name, url, gain })
       setStatus('✓ streaming')
@@ -143,11 +168,38 @@
     }
   }
 
+  async function pauseStream() {
+    busy = true; status = ''
+    try {
+      await apiClient.pause(camera.name)
+      paused = true
+      setStatus('⏸ paused')
+    } catch (e) {
+      setStatus('✗ ' + e.message, 'err')
+    } finally {
+      busy = false
+    }
+  }
+
+  async function resumeStream() {
+    busy = true; status = ''
+    try {
+      await apiClient.resume(camera.name)
+      paused = false
+      setStatus('✓ streaming')
+    } catch (e) {
+      setStatus('✗ ' + e.message, 'err')
+    } finally {
+      busy = false
+    }
+  }
+
   async function stopStream() {
     busy = true; status = ''
     try {
       await apiClient.stop(camera.name)
       streaming = false
+      paused = false
       setStatus('⏹ stopped')
     } catch (e) {
       setStatus('✗ ' + e.message, 'err')
@@ -415,6 +467,15 @@
         class="flex-1 text-sm min-w-0"
       />
       {#if streaming}
+        {#if paused}
+          <Button size="sm" onclick={resumeStream} disabled={busy} aria-label="Resume stream" title="Resume paused stream" class="flex-shrink-0">
+            <Play class="h-4 w-4" />
+          </Button>
+        {:else}
+          <Button size="sm" onclick={pauseStream} disabled={busy} aria-label="Pause stream" title="Pause live stream" class="flex-shrink-0">
+            <Pause class="h-4 w-4" />
+          </Button>
+        {/if}
         <Button size="sm" onclick={stopStream} disabled={busy} aria-label="Stop stream" title="Stop live stream" class="flex-shrink-0">
           <Square class="h-4 w-4" />
         </Button>
@@ -443,6 +504,18 @@
     {#if status}
       <div class="text-sm {statusType === 'err' ? 'text-destructive' : statusType === 'warn' ? 'text-yellow-500' : 'text-primary'}">
         {status}
+      </div>
+    {/if}
+
+    <!-- Playback indicator (from server state, survives page refresh) -->
+    {#if streaming && playbackDetail && !status}
+      <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
+        {#if paused}
+          <Pause class="h-3 w-3" />
+        {:else}
+          <Play class="h-3 w-3" />
+        {/if}
+        <span class="truncate">{playbackDetail}</span>
       </div>
     {/if}
 

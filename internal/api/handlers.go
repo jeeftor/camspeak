@@ -9,6 +9,7 @@ import (
 	neturl "net/url"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -278,7 +279,9 @@ func (h *Handlers) PlayURL(c echo.Context) error {
 	defer os.Remove(rawName)
 
 	log.Debug("play-url: sending to camera", "camera", req.Camera, "url", redactedURL)
+	setPlayback(req.Camera, "play-url", redactedURL)
 	if _, err := cam.SendRaw(rawName); err != nil {
+		clearPlayback(req.Camera)
 		log.Error(
 			"play-url: send failed",
 			"camera",
@@ -303,6 +306,7 @@ func (h *Handlers) PlayURL(c echo.Context) error {
 	h.events.publish(
 		event{Camera: req.Camera, Action: "play-url", Text: redactedURL, At: time.Now()},
 	)
+	clearPlayback(req.Camera)
 
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
@@ -327,6 +331,7 @@ func (h *Handlers) Stop(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusNotFound, err.Error())
 		}
 		stopStream(req.Camera)
+		clearPlayback(req.Camera)
 		h.resetAirPlay(req.Camera, log)
 		log.Info("stop: stopped and reset camera", "camera", req.Camera)
 		h.events.publish(event{Camera: req.Camera, Action: "stop", At: time.Now()})
@@ -336,10 +341,95 @@ func (h *Handlers) Stop(c echo.Context) error {
 	// Stop all cameras, live streams, and reset AirPlay receivers.
 	h.reg.StopAll()
 	stopAllStreams()
+	clearAllPlayback()
 	h.resetAllAirPlay(log)
 	log.Info("stop: stopped and reset all cameras")
 	h.events.publish(event{Action: "stop-all", At: time.Now()})
 	return c.JSON(http.StatusOK, map[string]string{"status": "stopped", "camera": "all"})
+}
+
+// Pause handles POST /api/pause — suspends a live stream on a specific camera
+// or all cameras. Unlike /api/stop, this keeps the ffmpeg process and the
+// camera speaker connection alive; the transcoder is frozen via SIGSTOP so
+// playback can be resumed in place with /api/resume. Only affects streams
+// started via /api/play-stream.
+func (h *Handlers) Pause(c echo.Context) error {
+	log := h.logger(c)
+
+	var req struct {
+		Camera string `json:"camera"`
+	}
+	_ = c.Bind(&req)
+
+	if req.Camera != "" {
+		url, alreadyPaused, ok := pauseStream(req.Camera)
+		if !ok {
+			log.Warn("pause: no active stream", "camera", req.Camera)
+			return echo.NewHTTPError(
+				http.StatusNotFound,
+				fmt.Sprintf("no active stream for camera %s", req.Camera),
+			)
+		}
+		status := "paused"
+		if alreadyPaused {
+			status = "already-paused"
+		}
+		setPlaybackPaused(req.Camera, true)
+		log.Info("pause: stream", "camera", req.Camera, "status", status, "url", url)
+		h.events.publish(event{Camera: req.Camera, Action: "pause", Text: url, At: time.Now()})
+		return c.JSON(http.StatusOK, map[string]string{"status": status, "camera": req.Camera})
+	}
+
+	paused := pauseAllStreams()
+	for _, name := range paused {
+		setPlaybackPaused(name, true)
+	}
+	log.Info("pause: all streams", "count", len(paused), "cameras", strings.Join(paused, ","))
+	for _, name := range paused {
+		h.events.publish(event{Camera: name, Action: "pause", At: time.Now()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"status": "paused", "cameras": paused})
+}
+
+// Resume handles POST /api/resume — resumes a paused live stream on a specific
+// camera or all cameras via SIGCONT. Only affects streams started via
+// /api/play-stream that were previously paused with /api/pause.
+func (h *Handlers) Resume(c echo.Context) error {
+	log := h.logger(c)
+
+	var req struct {
+		Camera string `json:"camera"`
+	}
+	_ = c.Bind(&req)
+
+	if req.Camera != "" {
+		url, notPaused, ok := resumeStream(req.Camera)
+		if !ok {
+			log.Warn("resume: no active stream", "camera", req.Camera)
+			return echo.NewHTTPError(
+				http.StatusNotFound,
+				fmt.Sprintf("no active stream for camera %s", req.Camera),
+			)
+		}
+		status := "resumed"
+		if notPaused {
+			status = "not-paused"
+		}
+		setPlaybackPaused(req.Camera, false)
+		log.Info("resume: stream", "camera", req.Camera, "status", status, "url", url)
+		h.events.publish(event{Camera: req.Camera, Action: "resume", Text: url, At: time.Now()})
+		return c.JSON(http.StatusOK, map[string]string{"status": status, "camera": req.Camera})
+	}
+
+	resumed := resumeAllStreams()
+	for _, name := range resumed {
+		setPlaybackPaused(name, false)
+	}
+	log.Info("resume: all streams", "count", len(resumed), "cameras", strings.Join(resumed, ","))
+	for _, name := range resumed {
+		h.events.publish(event{Camera: name, Action: "resume", At: time.Now()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"status": "resumed", "cameras": resumed})
 }
 
 // resetAirPlay restarts the AirPlay receiver for a single camera, if AirPlay is configured.
@@ -399,7 +489,9 @@ func (h *Handlers) Beep(c echo.Context) error {
 	log.Info("beep: sending", "camera", req.Camera, "type", h.cfg.Cameras[req.Camera].Type)
 	start := time.Now()
 
+	setPlayback(req.Camera, "beep", "800Hz test tone")
 	if _, err := cam.SendRaw(raw); err != nil {
+		clearPlayback(req.Camera)
 		log.Error(
 			"beep: send failed",
 			"camera",
@@ -414,6 +506,7 @@ func (h *Handlers) Beep(c echo.Context) error {
 
 	log.Info("beep: sent", "camera", req.Camera, "elapsed", time.Since(start))
 	h.events.publish(event{Camera: req.Camera, Action: "beep", At: time.Now()})
+	clearPlayback(req.Camera)
 
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
@@ -443,6 +536,22 @@ func (h *Handlers) Cameras(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, out)
+}
+
+// Playback handles GET /api/playback — returns the current audio playback
+// state for every enabled camera. Each entry reports state ("playing",
+// "paused", or "idle"), the source action ("stream", "speak", "play",
+// "play-url", "beep"), a human-readable detail string (URL, text, preset
+// name), and timestamps for when playback started and (if paused) when it
+// was paused.
+func (h *Handlers) Playback(c echo.Context) error {
+	names := make([]string, 0, len(h.cfg.Cameras))
+	for name, cfg := range h.cfg.Cameras {
+		if cfg.Enabled {
+			names = append(names, name)
+		}
+	}
+	return c.JSON(http.StatusOK, getAllPlayback(names))
 }
 
 // Voices handles GET /api/voices.

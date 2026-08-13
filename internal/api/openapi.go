@@ -134,7 +134,7 @@ const openAPISpec = `{
       "post": {
         "tags": ["audio"],
         "summary": "Stop audio playback on a specific camera or all cameras",
-        "description": "If the request body contains a camera name, only that camera is stopped. If empty or omitted, all cameras are stopped.",
+        "description": "If the request body contains a camera name, only that camera is stopped. If empty or omitted, all cameras are stopped. Tears down the ffmpeg process, closes the camera speaker connection, and resets AirPlay. For a softer suspend that can be resumed in place, use POST /api/pause instead.",
         "requestBody": {
           "required": false,
           "content": {
@@ -151,6 +151,82 @@ const openAPISpec = `{
         "responses": {
           "200": {"description": "OK", "content": {"application/json": {"schema": {"type": "object", "properties": {"status": {"type": "string"}, "camera": {"type": "string"}}}}}},
           "404": {"description": "Camera not found"}
+        }
+      }
+    },
+    "/pause": {
+      "post": {
+        "tags": ["audio"],
+        "summary": "Pause a live stream on a specific camera or all cameras",
+        "description": "Suspends the ffmpeg transcoder for an active /api/play-stream session via SIGSTOP without tearing down the camera speaker connection. Playback position is preserved and can be resumed in place with POST /api/resume. Only affects streams started via /api/play-stream; finite TTS/play/beep sends are unaffected. If the camera is omitted, all active streams are paused.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "camera": {"type": "string", "description": "Camera name to pause. If omitted, pauses all active streams."}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {"type": "string", "description": "paused, already-paused, or (when omitting camera) paused with a cameras array"},
+                    "camera": {"type": "string"},
+                    "cameras": {"type": "array", "items": {"type": "string"}}
+                  }
+                }
+              }
+            }
+          },
+          "404": {"description": "No active stream for the named camera"}
+        }
+      }
+    },
+    "/resume": {
+      "post": {
+        "tags": ["audio"],
+        "summary": "Resume a paused live stream on a specific camera or all cameras",
+        "description": "Resumes a stream previously paused with POST /api/pause by sending SIGCONT to the ffmpeg transcoder. Only affects streams started via /api/play-stream. If the camera is omitted, all paused streams are resumed.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "camera": {"type": "string", "description": "Camera name to resume. If omitted, resumes all paused streams."}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {"type": "string", "description": "resumed, not-paused, or (when omitting camera) resumed with a cameras array"},
+                    "camera": {"type": "string"},
+                    "cameras": {"type": "array", "items": {"type": "string"}}
+                  }
+                }
+              }
+            }
+          },
+          "404": {"description": "No active stream for the named camera"}
         }
       }
     },
@@ -230,6 +306,26 @@ const openAPISpec = `{
         }
       }
     },
+    "/playback": {
+      "get": {
+        "tags": ["audio"],
+        "summary": "Get current playback state for all cameras",
+        "description": "Returns a map of camera name to its current audio playback state. Each entry has a state field (\"playing\", \"paused\", or \"idle\"), a source field (\"stream\", \"speak\", \"play\", \"play-url\", \"beep\"), a detail string (the stream URL, TTS text, preset name, etc.), and timestamps for when playback started and when it was paused.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {"$ref": "#/components/schemas/PlaybackState"}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/cameras/{name}/info": {
       "get": {
         "tags": ["system"],
@@ -282,6 +378,7 @@ const openAPISpec = `{
       "post": {
         "tags": ["library"],
         "summary": "Upload an audio file (any format, ffmpeg transcodes to G.711)",
+        "description": "Accepts a multipart upload, saves the temp file, and starts ffmpeg transcoding in the background. Returns a job_id immediately — poll GET /api/library/upload/jobs/{job_id} for transcoding progress.",
         "requestBody": {
           "required": true,
           "content": {
@@ -299,7 +396,20 @@ const openAPISpec = `{
           }
         },
         "responses": {
-          "200": {"description": "OK", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Preset"}}}}
+          "202": {"description": "Accepted — transcoding started", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/UploadJobAccepted"}}}}
+        }
+      }
+    },
+    "/library/upload/jobs/{id}": {
+      "get": {
+        "tags": ["library"],
+        "summary": "Poll the status of an async upload/transcode job",
+        "parameters": [
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "200": {"description": "OK", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/UploadJob"}}}},
+          "404": {"description": "Job not found"}
         }
       }
     },
@@ -771,6 +881,32 @@ const openAPISpec = `{
           "text": {"type": "string", "example": "Person detected"}
         }
       },
+      "UploadJobAccepted": {
+        "type": "object",
+        "properties": {
+          "job_id": {"type": "string", "example": "20260813-114407-1"},
+          "status": {"type": "string", "example": "transcoding"},
+          "name": {"type": "string", "example": "my_audio"},
+          "category": {"type": "string", "example": "uploads"},
+          "filename": {"type": "string", "example": "recording.mp3"}
+        }
+      },
+      "UploadJob": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string", "example": "20260813-114407-1"},
+          "status": {"type": "string", "enum": ["transcoding", "saving", "done", "error"], "example": "transcoding"},
+          "percent": {"type": "number", "description": "0–100, or -1 for indeterminate", "example": 45.2},
+          "step": {"type": "string", "example": "Transcoding"},
+          "name": {"type": "string", "example": "my_audio"},
+          "category": {"type": "string", "example": "uploads"},
+          "filename": {"type": "string", "example": "recording.mp3"},
+          "error": {"type": "string", "description": "Present only when status is error"},
+          "preset": {"$ref": "#/components/schemas/Preset"},
+          "started_at": {"type": "string", "format": "date-time"},
+          "done_at": {"type": "string", "format": "date-time"}
+        }
+      },
       "GeneratePresetRequest": {
         "type": "object",
         "required": ["name", "text"],
@@ -815,6 +951,16 @@ const openAPISpec = `{
           "model": {"type": "string"},
           "default_voice": {"type": "string"},
           "description": {"type": "string"}
+        }
+      },
+      "PlaybackState": {
+        "type": "object",
+        "properties": {
+          "state": {"type": "string", "enum": ["playing", "paused", "idle"], "example": "playing"},
+          "source": {"type": "string", "enum": ["stream", "speak", "play", "play-url", "beep"], "example": "stream"},
+          "detail": {"type": "string", "example": "http://liveatc.net/stream.m3u"},
+          "started_at": {"type": "string", "format": "date-time"},
+          "paused_at": {"type": "string", "format": "date-time", "description": "Present only when state is paused"}
         }
       }
     }

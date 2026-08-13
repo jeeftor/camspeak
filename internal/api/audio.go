@@ -146,8 +146,10 @@ func (h *Handlers) speakText(log *clog.Logger, cameraName, text, voice string, g
 	defer os.Remove(rawPath)
 
 	log.Debug("speak: sending to camera", "camera", cameraName)
+	setPlayback(cameraName, "speak", text)
 	sendTiming, err := cam.SendRaw(rawPath)
 	if err != nil {
+		clearPlayback(cameraName)
 		return t, fmt.Errorf("sending to camera: %w", err)
 	}
 	t.steps["send_open_ms"] = time.Duration(sendTiming.OpenMs) * time.Millisecond
@@ -163,6 +165,7 @@ func (h *Handlers) speakText(log *clog.Logger, cameraName, text, voice string, g
 	)
 
 	h.events.publish(event{Camera: cameraName, Action: "speak", Text: text, At: time.Now()})
+	clearPlayback(cameraName)
 
 	return t, nil
 }
@@ -218,8 +221,10 @@ func (h *Handlers) playPreset(
 		"gain",
 		gain,
 	)
+	setPlayback(cameraName, "play", preset.Name)
 	sendTiming, err := cam.SendRaw(sendPath)
 	if err != nil {
+		clearPlayback(cameraName)
 		return t, fmt.Errorf("sending to camera: %w", err)
 	}
 	t.steps["send_open_ms"] = time.Duration(sendTiming.OpenMs) * time.Millisecond
@@ -235,6 +240,7 @@ func (h *Handlers) playPreset(
 	)
 
 	h.events.publish(event{Camera: cameraName, Action: "play", Text: preset.Name, At: time.Now()})
+	clearPlayback(cameraName)
 
 	return t, nil
 }

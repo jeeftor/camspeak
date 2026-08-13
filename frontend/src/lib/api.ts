@@ -14,6 +14,7 @@ import type {
   Health,
   MQTTTopic,
   PingResponse,
+  PlaybackState,
   PlayReq,
   PlayResponse,
   Preset,
@@ -29,6 +30,8 @@ import type {
   StreamInfo,
   SpeakResponse,
   TTSPreset,
+  UploadJob,
+  UploadJobAccepted,
   VisionConfig,
   VisionPrompt,
   VisionTestResponse,
@@ -48,6 +51,41 @@ async function apiRaw(path: string, opts?: RequestInit): Promise<Response> {
   const res = await fetch(path, opts)
   if (!res.ok) throw new Error(await res.text())
   return res
+}
+
+// uploadWithProgress sends a FormData POST via XHR so we get upload progress
+// events (fetch doesn't support upload progress). Returns the parsed JSON
+// response body. onProgress is called with 0–100 during the upload phase.
+function uploadWithProgress<T>(
+  path: string,
+  fd: FormData,
+  onProgress?: (percent: number) => void,
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', path)
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) {
+        onProgress((e.loaded / e.total) * 100)
+      }
+    }
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(xhr.status === 204 ? (undefined as T) : JSON.parse(xhr.responseText))
+        } catch {
+          reject(new Error('Invalid JSON response'))
+        }
+      } else {
+        reject(new Error(xhr.responseText || `HTTP ${xhr.status}`))
+      }
+    }
+
+    xhr.onerror = () => reject(new Error('Network error'))
+    xhr.send(fd)
+  })
 }
 
 export const apiClient = {
@@ -151,6 +189,11 @@ export const apiClient = {
   stop: (camera?: string) =>
     api('/api/stop', { method: 'POST', body: JSON.stringify(camera ? { camera } : {}) }),
   stopAll: () => api('/api/stop', { method: 'POST' }),
+  pause: (camera?: string) =>
+    api('/api/pause', { method: 'POST', body: JSON.stringify(camera ? { camera } : {}) }),
+  resume: (camera?: string) =>
+    api('/api/resume', { method: 'POST', body: JSON.stringify(camera ? { camera } : {}) }),
+  getPlayback: () => api<Record<string, PlaybackState>>('/api/playback'),
   beep: (req: { camera: string }) =>
     api('/api/beep', { method: 'POST', body: JSON.stringify(req) }),
   broadcast: (req: { text: string; voice: string; gain: number }) =>
@@ -161,6 +204,9 @@ export const apiClient = {
   savePreset: (req: { name: string; text: string; category: string; voice: string }) =>
     api<SavePresetResponse>('/api/library', { method: 'POST', body: JSON.stringify(req) }),
   uploadPreset: (fd: FormData) => apiRaw('/api/library/upload', { method: 'POST', body: fd }),
+  uploadPresetWithProgress: (fd: FormData, onProgress?: (percent: number) => void) =>
+    uploadWithProgress('/api/library/upload', fd, onProgress),
+  getUploadJob: (id: string) => api<UploadJob>(`/api/library/upload/jobs/${encodeURIComponent(id)}`),
   deletePreset: (category: string, name: string) =>
     api(`/api/library/${encodeURIComponent(category)}/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   renamePreset: (oldCategory: string, oldName: string, req: { name: string; category: string }) =>

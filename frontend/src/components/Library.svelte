@@ -30,6 +30,7 @@
     clearTimeout(genTimeout)
     clearTimeout(statusTimeout)
     clearTimeout(uploadTimeout)
+    clearTimeout(uploadPollTimer)
   })
 
   let uploadName = $state('')
@@ -42,6 +43,10 @@
   let libError = $state('')
   let statusTimeout
   let uploadTimeout
+
+  // Upload progress dialog state
+  let uploadProgress = $state(null) // null = no dialog, {step, percent, label} = active
+  let uploadPollTimer = null
 
   let sortBy = $state('name')
   let sortOrder = $state('asc')
@@ -136,12 +141,46 @@
   async function upload() {
     if (!uploadName || !uploadFile) return
     uploadBusy = true; uploadStatus = ''
+    uploadProgress = { step: 'uploading', percent: 0, label: 'Uploading' }
     try {
       const fd = new FormData()
       fd.append('name', uploadName)
       fd.append('category', uploadCategory)
       fd.append('file', uploadFile)
-      await apiClient.uploadPreset(fd)
+
+      // Phase 1: upload the file (XHR gives us byte-level progress).
+      const res = await apiClient.uploadPresetWithProgress(fd, (pct) => {
+        uploadProgress = { step: 'uploading', percent: pct, label: 'Uploading' }
+      })
+
+      // Phase 2: poll the transcoding job.
+      const jobId = res.job_id
+      uploadProgress = { step: 'transcoding', percent: 0, label: 'Converting' }
+
+      await new Promise((resolve, reject) => {
+        const poll = async () => {
+          try {
+            const job = await apiClient.getUploadJob(jobId)
+            if (job.status === 'done') {
+              uploadProgress = { step: 'done', percent: 100, label: 'Done' }
+              resolve(job)
+            } else if (job.status === 'error') {
+              reject(new Error(job.error || 'transcoding failed'))
+            } else {
+              uploadProgress = {
+                step: 'transcoding',
+                percent: job.percent < 0 ? 0 : job.percent,
+                label: job.step || 'Converting',
+              }
+              uploadPollTimer = setTimeout(poll, 500)
+            }
+          } catch (e) {
+            reject(e)
+          }
+        }
+        poll()
+      })
+
       uploadStatus = '✓ Uploaded'
       toast.success(`Preset "${uploadName}" uploaded`)
       clearUpload()
@@ -150,6 +189,8 @@
       uploadStatus = '✗ ' + e.message
       toast.error(`Upload failed: ${e.message}`)
     } finally {
+      // Keep the dialog visible briefly so the user sees "Done", then close.
+      setTimeout(() => { uploadProgress = null }, 800)
       uploadBusy = false
       clearTimeout(uploadTimeout); uploadTimeout = setTimeout(() => (uploadStatus = ''), 4000)
     }
@@ -401,6 +442,48 @@
         Save
       </Button>
       {#if uploadStatus}<p class="text-sm text-primary">{uploadStatus}</p>{/if}
+    </div>
+  {/if}
+
+  <!-- Upload progress dialog -->
+  {#if uploadProgress}
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div class="rounded-lg border bg-card p-6 shadow-lg w-96 max-w-[90vw]">
+        <div class="flex items-center gap-3 mb-4">
+          {#if uploadProgress.step === 'done'}
+            <span class="text-primary text-lg font-semibold">✓</span>
+          {:else}
+            <Loader2 class="h-5 w-5 animate-spin text-primary" />
+          {/if}
+          <span class="font-semibold">{uploadProgress.label}</span>
+          {#if uploadProgress.step !== 'done' && uploadProgress.percent > 0}
+            <span class="text-sm text-muted-foreground ml-auto">{uploadProgress.percent.toFixed(0)}%</span>
+          {/if}
+        </div>
+
+        <!-- Progress bar -->
+        <div class="w-full h-3 rounded-full bg-muted overflow-hidden">
+          {#if uploadProgress.percent > 0}
+            <div
+              class="h-full bg-primary transition-all duration-300 ease-out"
+              style="width: {uploadProgress.percent}%"
+            ></div>
+          {:else}
+            <div class="h-full bg-primary/50 animate-pulse" style="width: 100%"></div>
+          {/if}
+        </div>
+
+        <!-- Step detail -->
+        <div class="mt-3 text-xs text-muted-foreground">
+          {#if uploadProgress.step === 'uploading'}
+            Uploading {uploadFile?.name ?? ''} to server…
+          {:else if uploadProgress.step === 'transcoding'}
+            Converting to G.711 µ-law 8 kHz{#if uploadProgress.percent > 0} — {uploadProgress.percent.toFixed(0)}%{/if}
+          {:else if uploadProgress.step === 'done'}
+            Saved as "{uploadName}" in {uploadCategory}
+          {/if}
+        </div>
+      </div>
     </div>
   {/if}
 </div>

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	clog "github.com/charmbracelet/log"
 	"github.com/labstack/echo/v4"
@@ -60,6 +61,7 @@ func setupTestHandlers(t *testing.T) (*Handlers, *echo.Echo, *sql.DB) {
 	// REST routes under test
 	e.GET("/api/health", h.Health)
 	e.GET("/api/cameras", h.Cameras)
+	e.GET("/api/playback", h.Playback)
 	e.GET("/api/voices", h.Voices)
 	e.POST("/api/cameras/:name/ping", h.PingCamera)
 	e.GET("/api/config", h.GetConfig)
@@ -72,6 +74,9 @@ func setupTestHandlers(t *testing.T) (*Handlers, *echo.Echo, *sql.DB) {
 	e.POST("/api/config/tts", h.CreateTTSPreset)
 	e.GET("/api/config/rules", h.ListRules)
 	e.GET("/api/config/airplay", h.GetAirPlayConfig)
+	e.POST("/api/pause", h.Pause)
+	e.POST("/api/resume", h.Resume)
+	e.GET("/api/library/upload/jobs/:id", h.UploadJobStatus)
 
 	return h, e, database
 }
@@ -770,5 +775,463 @@ func TestGetAirPlayConfig(t *testing.T) {
 	}
 	if cam["airplay_model"] != "AppleTV6,2" {
 		t.Errorf("per_camera airplay_model = %v, want %q", cam["airplay_model"], "AppleTV6,2")
+	}
+}
+
+// resetStreams clears the package-level activeStreams map between tests.
+func resetStreams(t *testing.T) {
+	t.Helper()
+	activeStreamsMu.Lock()
+	activeStreams = make(map[string]*streamSession)
+	activeStreamsMu.Unlock()
+}
+
+// resetPlayback clears the package-level playbackStates map between tests.
+func resetPlayback(t *testing.T) {
+	t.Helper()
+	playbackStatesMu.Lock()
+	playbackStates = make(map[string]*PlaybackState)
+	playbackStatesMu.Unlock()
+}
+
+// addFakeStream inserts a streamSession with no live process so the pause/resume
+// state machine can be exercised without spawning ffmpeg. With a nil cmd
+// process the helpers skip signaling and only flip the paused flag.
+func addFakeStream(t *testing.T, camera, streamURL string) {
+	t.Helper()
+	activeStreamsMu.Lock()
+	activeStreams[camera] = &streamSession{url: streamURL, started: now()}
+	activeStreamsMu.Unlock()
+}
+
+func TestPauseNoStream(t *testing.T) {
+	_, e, _ := setupTestHandlers(t)
+	resetStreams(t)
+
+	rec := doJSON(e, http.MethodPost, "/api/pause", `{"camera":"front"}`)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestResumeNoStream(t *testing.T) {
+	_, e, _ := setupTestHandlers(t)
+	resetStreams(t)
+
+	rec := doJSON(e, http.MethodPost, "/api/resume", `{"camera":"front"}`)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestPauseResumeAllEmpty(t *testing.T) {
+	_, e, _ := setupTestHandlers(t)
+	resetStreams(t)
+
+	rec := doJSON(e, http.MethodPost, "/api/pause", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("pause-all status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if body["status"] != "paused" {
+		t.Errorf("status = %v, want %q", body["status"], "paused")
+	}
+	cams, _ := body["cameras"].([]interface{})
+	if len(cams) != 0 {
+		t.Errorf("cameras len = %d, want 0", len(cams))
+	}
+
+	rec = doJSON(e, http.MethodPost, "/api/resume", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("resume-all status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if body["status"] != "resumed" {
+		t.Errorf("status = %v, want %q", body["status"], "resumed")
+	}
+}
+
+func TestPauseResumeSingleStream(t *testing.T) {
+	_, e, _ := setupTestHandlers(t)
+	resetStreams(t)
+	addFakeStream(t, "front", "http://example/live")
+
+	// Pause → paused.
+	rec := doJSON(e, http.MethodPost, "/api/pause", `{"camera":"front"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("pause status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if body["status"] != "paused" {
+		t.Errorf("status = %q, want %q", body["status"], "paused")
+	}
+	if body["camera"] != "front" {
+		t.Errorf("camera = %q, want %q", body["camera"], "front")
+	}
+
+	// Session must be marked paused.
+	activeStreamsMu.Lock()
+	paused := activeStreams["front"].paused
+	activeStreamsMu.Unlock()
+	if !paused {
+		t.Error("session.paused = false, want true")
+	}
+
+	// Pause again → already-paused.
+	rec = doJSON(e, http.MethodPost, "/api/pause", `{"camera":"front"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("re-pause status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if body["status"] != "already-paused" {
+		t.Errorf("status = %q, want %q", body["status"], "already-paused")
+	}
+
+	// Resume → resumed.
+	rec = doJSON(e, http.MethodPost, "/api/resume", `{"camera":"front"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("resume status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if body["status"] != "resumed" {
+		t.Errorf("status = %q, want %q", body["status"], "resumed")
+	}
+
+	activeStreamsMu.Lock()
+	paused = activeStreams["front"].paused
+	activeStreamsMu.Unlock()
+	if paused {
+		t.Error("session.paused = true, want false")
+	}
+
+	// Resume again → not-paused.
+	rec = doJSON(e, http.MethodPost, "/api/resume", `{"camera":"front"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("re-resume status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if body["status"] != "not-paused" {
+		t.Errorf("status = %q, want %q", body["status"], "not-paused")
+	}
+}
+
+func TestPauseAllMultipleStreams(t *testing.T) {
+	_, e, _ := setupTestHandlers(t)
+	resetStreams(t)
+	addFakeStream(t, "front", "http://example/a")
+	addFakeStream(t, "back", "http://example/b")
+
+	rec := doJSON(e, http.MethodPost, "/api/pause", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("pause-all status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if body["status"] != "paused" {
+		t.Errorf("status = %v, want %q", body["status"], "paused")
+	}
+	cams, _ := body["cameras"].([]interface{})
+	if len(cams) != 2 {
+		t.Errorf("cameras len = %d, want 2", len(cams))
+	}
+
+	// Both sessions paused.
+	activeStreamsMu.Lock()
+	front := activeStreams["front"].paused
+	back := activeStreams["back"].paused
+	activeStreamsMu.Unlock()
+	if !front || !back {
+		t.Errorf("paused flags = (%v, %v), want (true, true)", front, back)
+	}
+
+	// Second pause-all is a no-op (already paused).
+	rec = doJSON(e, http.MethodPost, "/api/pause", "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	cams, _ = body["cameras"].([]interface{})
+	if len(cams) != 0 {
+		t.Errorf("second pause-all cameras len = %d, want 0", len(cams))
+	}
+
+	// Resume-all resumes both.
+	rec = doJSON(e, http.MethodPost, "/api/resume", "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	cams, _ = body["cameras"].([]interface{})
+	if len(cams) != 2 {
+		t.Errorf("resume-all cameras len = %d, want 2", len(cams))
+	}
+}
+
+func TestPlaybackIdle(t *testing.T) {
+	h, e, _ := setupTestHandlers(t)
+	resetPlayback(t)
+
+	h.cfg.Cameras["front"] = config.CameraConfig{
+		Type:    "hikvision",
+		IP:      "192.168.1.100",
+		Enabled: true,
+	}
+
+	rec := doJSON(e, http.MethodGet, "/api/playback", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var body map[string]map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	ps, ok := body["front"]
+	if !ok {
+		t.Fatal("missing 'front' in playback response")
+	}
+	if ps["state"] != "idle" {
+		t.Errorf("state = %v, want %q", ps["state"], "idle")
+	}
+}
+
+func TestPlaybackPlayingStream(t *testing.T) {
+	h, e, _ := setupTestHandlers(t)
+	resetPlayback(t)
+	resetStreams(t)
+
+	h.cfg.Cameras["front"] = config.CameraConfig{
+		Type:    "hikvision",
+		IP:      "192.168.1.100",
+		Enabled: true,
+	}
+
+	// Simulate a stream that's playing.
+	setPlayback("front", "stream", "http://example/live.m3u")
+
+	rec := doJSON(e, http.MethodGet, "/api/playback", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var body map[string]map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	ps := body["front"]
+	if ps["state"] != "playing" {
+		t.Errorf("state = %v, want %q", ps["state"], "playing")
+	}
+	if ps["source"] != "stream" {
+		t.Errorf("source = %v, want %q", ps["source"], "stream")
+	}
+	if ps["detail"] != "http://example/live.m3u" {
+		t.Errorf("detail = %v, want %q", ps["detail"], "http://example/live.m3u")
+	}
+}
+
+func TestPlaybackPaused(t *testing.T) {
+	h, e, _ := setupTestHandlers(t)
+	resetPlayback(t)
+	resetStreams(t)
+
+	h.cfg.Cameras["front"] = config.CameraConfig{
+		Type:    "hikvision",
+		IP:      "192.168.1.100",
+		Enabled: true,
+	}
+
+	setPlayback("front", "stream", "http://example/live")
+	setPlaybackPaused("front", true)
+
+	rec := doJSON(e, http.MethodGet, "/api/playback", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var body map[string]map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	ps := body["front"]
+	if ps["state"] != "paused" {
+		t.Errorf("state = %v, want %q", ps["state"], "paused")
+	}
+	if ps["paused_at"] == nil {
+		t.Error("paused_at = nil, want a timestamp")
+	}
+}
+
+func TestPlaybackClearedAfterStop(t *testing.T) {
+	h, e, _ := setupTestHandlers(t)
+	resetPlayback(t)
+	resetStreams(t)
+
+	h.cfg.Cameras["front"] = config.CameraConfig{
+		Type:    "hikvision",
+		IP:      "192.168.1.100",
+		Enabled: true,
+	}
+
+	setPlayback("front", "stream", "http://example/live")
+	clearPlayback("front")
+
+	rec := doJSON(e, http.MethodGet, "/api/playback", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var body map[string]map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	ps := body["front"]
+	if ps["state"] != "idle" {
+		t.Errorf("state = %v, want %q", ps["state"], "idle")
+	}
+}
+
+func TestPlaybackOnlyEnabledCameras(t *testing.T) {
+	h, e, _ := setupTestHandlers(t)
+	resetPlayback(t)
+
+	h.cfg.Cameras["front"] = config.CameraConfig{
+		Type:    "hikvision",
+		IP:      "192.168.1.100",
+		Enabled: true,
+	}
+	h.cfg.Cameras["back"] = config.CameraConfig{
+		Type:    "hikvision",
+		IP:      "192.168.1.101",
+		Enabled: false,
+	}
+
+	rec := doJSON(e, http.MethodGet, "/api/playback", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var body map[string]map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if _, ok := body["front"]; !ok {
+		t.Error("missing 'front' (enabled camera) in playback response")
+	}
+	if _, ok := body["back"]; ok {
+		t.Error("disabled camera 'back' should not appear in playback response")
+	}
+}
+
+// --- Upload job tracker tests ---
+
+func TestUploadJobNotFound(t *testing.T) {
+	_, e, _ := setupTestHandlers(t)
+	resetUploadJobs(t)
+
+	rec := doJSON(e, http.MethodGet, "/api/library/upload/jobs/nonexistent", "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestUploadJobLifecycle(t *testing.T) {
+	_, e, _ := setupTestHandlers(t)
+	resetUploadJobs(t)
+
+	// Create a job manually.
+	job := newUploadJob("test-audio", "uploads", "recording.mp3")
+	id := job.ID
+
+	// Initially: transcoding, 0%.
+	rec := doJSON(e, http.MethodGet, "/api/library/upload/jobs/"+id, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if body["status"] != JobTranscoding {
+		t.Errorf("status = %v, want %q", body["status"], JobTranscoding)
+	}
+	if body["name"] != "test-audio" {
+		t.Errorf("name = %v, want %q", body["name"], "test-audio")
+	}
+	if body["filename"] != "recording.mp3" {
+		t.Errorf("filename = %v, want %q", body["filename"], "recording.mp3")
+	}
+
+	// Update progress.
+	updateUploadJob(id, 42.5, "Transcoding")
+	rec = doJSON(e, http.MethodGet, "/api/library/upload/jobs/"+id, "")
+	json.Unmarshal(rec.Body.Bytes(), &body)
+	if body["percent"] != 42.5 {
+		t.Errorf("percent = %v, want 42.5", body["percent"])
+	}
+	if body["step"] != "Transcoding" {
+		t.Errorf("step = %v, want %q", body["step"], "Transcoding")
+	}
+
+	// Complete the job.
+	completeUploadJob(id, nil)
+	rec = doJSON(e, http.MethodGet, "/api/library/upload/jobs/"+id, "")
+	json.Unmarshal(rec.Body.Bytes(), &body)
+	if body["status"] != JobDone {
+		t.Errorf("status = %v, want %q", body["status"], JobDone)
+	}
+	if body["percent"] != float64(100) {
+		t.Errorf("percent = %v, want 100", body["percent"])
+	}
+}
+
+func TestUploadJobError(t *testing.T) {
+	_, e, _ := setupTestHandlers(t)
+	resetUploadJobs(t)
+
+	job := newUploadJob("bad-audio", "uploads", "corrupt.mp3")
+	id := job.ID
+
+	failUploadJob(id, "ffmpeg: invalid data found")
+
+	rec := doJSON(e, http.MethodGet, "/api/library/upload/jobs/"+id, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var body map[string]any
+	json.Unmarshal(rec.Body.Bytes(), &body)
+	if body["status"] != JobError {
+		t.Errorf("status = %v, want %q", body["status"], JobError)
+	}
+	if body["error"] != "ffmpeg: invalid data found" {
+		t.Errorf("error = %v, want %q", body["error"], "ffmpeg: invalid data found")
+	}
+}
+
+func TestUploadJobCleanup(t *testing.T) {
+	resetUploadJobs(t)
+
+	job := newUploadJob("old-audio", "uploads", "old.mp3")
+	completeUploadJob(job.ID, nil)
+
+	// Manually set done_at to the past to simulate an old job.
+	uploadJobsMu.Lock()
+	old := time.Now().Add(-20 * time.Minute)
+	uploadJobs[job.ID].DoneAt = &old
+	uploadJobsMu.Unlock()
+
+	cleanupOldUploadJobs(10 * time.Minute)
+
+	if getUploadJob(job.ID) != nil {
+		t.Error("old job should have been cleaned up")
 	}
 }

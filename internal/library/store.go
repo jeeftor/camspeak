@@ -3,12 +3,16 @@
 package library
 
 import (
+	"bufio"
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	clog "github.com/charmbracelet/log"
@@ -117,6 +121,16 @@ func (s *Store) Save(category, name, text, voice string, wavData []byte) (*Prese
 
 // SaveFile transcodes any audio file (WAV/MP3/etc) to a preset.
 func (s *Store) SaveFile(category, name string, srcFile string) (*Preset, error) {
+	return s.SaveFileWithProgress(category, name, srcFile, nil)
+}
+
+// SaveFileWithProgress is like SaveFile but calls progress with the
+// transcoding percentage (0–100) as ffmpeg works. A nil progress callback
+// is safe.
+func (s *Store) SaveFileWithProgress(
+	category, name, srcFile string,
+	progress func(percent float64),
+) (*Preset, error) {
 	dir := filepath.Join(s.dir, category)
 	err := os.MkdirAll(dir, 0o755)
 	if err != nil {
@@ -124,7 +138,7 @@ func (s *Store) SaveFile(category, name string, srcFile string) (*Preset, error)
 	}
 
 	rawFile := s.rawPath(category, name)
-	err = transcodeToRaw(srcFile, rawFile, true)
+	err = transcodeToRawWithProgress(srcFile, rawFile, true, progress)
 	if err != nil {
 		return nil, fmt.Errorf("transcoding: %w", err)
 	}
@@ -341,6 +355,110 @@ func transcodeToRaw(src, dst string, normalize bool) error {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("ffmpeg: %w\n%s", err, out)
+	}
+
+	return nil
+}
+
+// probeDuration returns the duration of an audio file in seconds via ffprobe.
+// Returns 0 if ffprobe is unavailable or the duration can't be determined
+// (in which case progress reporting falls back to indeterminate).
+func probeDuration(src string) float64 {
+	cmd := exec.Command("ffprobe",
+		"-v", "error",
+		"-show_entries", "format=duration",
+		"-of", "csv=p=0",
+		src,
+	)
+	out, err := cmd.Output()
+	if err != nil {
+		return 0
+	}
+	d, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
+	if err != nil || d <= 0 {
+		return 0
+	}
+	return d
+}
+
+// transcodeToRawWithProgress is like transcodeToRaw but reports transcoding
+// progress via the callback (percent 0–100). If the input duration can't be
+// probed, the callback is called with -1 (indeterminate) once at the start.
+// A nil callback is safe.
+func transcodeToRawWithProgress(
+	src, dst string, normalize bool,
+	progress func(percent float64),
+) error {
+	af := "volume=3.0"
+	if normalize {
+		af = "loudnorm=I=-16:TP=-1.5:LRA=11"
+	}
+
+	totalDuration := probeDuration(src)
+	if progress != nil {
+		if totalDuration > 0 {
+			progress(0)
+		} else {
+			progress(-1) // indeterminate
+		}
+	}
+
+	cmd := exec.Command("ffmpeg", "-y",
+		"-i", src,
+		"-af", af,
+		"-ar", "8000",
+		"-ac", "1",
+		"-c:a", "pcm_mulaw",
+		"-f", "mulaw",
+		"-progress", "-", // progress key=value lines to stdout
+		dst,
+	)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("ffmpeg stdout pipe: %w", err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("ffmpeg stderr pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("ffmpeg start: %w", err)
+	}
+
+	// Read progress from stdout, collect stderr for error reporting.
+	var stderrBuf strings.Builder
+	go func() {
+		_, _ = io.Copy(&stderrBuf, stderr)
+	}()
+
+	if progress != nil && totalDuration > 0 {
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			line := scanner.Text()
+			// Progress lines look like: out_time_us=16000000
+			if strings.HasPrefix(line, "out_time_us=") {
+				us, err := strconv.ParseInt(strings.TrimPrefix(line, "out_time_us="), 10, 64)
+				if err != nil || us < 0 {
+					continue
+				}
+				pct := float64(us) / 1_000_000 / totalDuration * 100
+				if pct > 100 {
+					pct = 100
+				}
+				progress(pct)
+			} else if line == "progress=end" {
+				progress(100)
+			}
+		}
+	} else {
+		// No progress callback or no duration — drain stdout.
+		_, _ = io.Copy(io.Discard, stdout)
+	}
+
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("ffmpeg: %w\n%s", err, stderrBuf.String())
 	}
 
 	return nil

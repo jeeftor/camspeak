@@ -122,6 +122,36 @@ export interface Health {
   version: string
 }
 
+export interface PlaybackState {
+  state: 'playing' | 'paused' | 'idle'
+  source?: 'stream' | 'speak' | 'play' | 'play-url' | 'beep'
+  detail?: string
+  started_at?: string
+  paused_at?: string
+}
+
+export interface UploadJobAccepted {
+  job_id: string
+  status: string
+  name: string
+  category: string
+  filename: string
+}
+
+export interface UploadJob {
+  id: string
+  status: 'transcoding' | 'saving' | 'done' | 'error'
+  percent: number
+  step: string
+  name: string
+  category: string
+  filename: string
+  error?: string
+  preset?: Preset
+  started_at: string
+  done_at?: string
+}
+
 // Request types
 
 export interface SpeakReq {
