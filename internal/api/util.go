@@ -71,13 +71,9 @@ func GenerateBeep(tmpDir string) (string, error) {
 	return rawName, nil
 }
 
-// wavBytesToRaw writes WAV bytes to a temp file, transcodes to G.711ulaw raw, returns the raw path.
-// gain controls the volume multiplier (1.0 = no boost). Caller must os.Remove the returned path.
-func wavBytesToRaw(wavBytes []byte, tmpDir string, gain float64) (string, error) {
-	return wavBytesToRawWithPrime(wavBytes, tmpDir, gain, 0)
-}
-
-// wavBytesToRawWithPrime is like wavBytesToRaw but prepends primeMs of silence.
+// wavBytesToRawWithPrime writes WAV bytes to a temp file, transcodes to G.711ulaw raw,
+// and prepends primeMs of µ-law silence. gain controls the volume multiplier (1.0 = no boost).
+// Caller must os.Remove the returned path. primeMs <= 0 skips silence padding.
 func wavBytesToRawWithPrime(wavBytes []byte, tmpDir string, gain float64, primeMs int) (string, error) {
 	wav, err := os.CreateTemp(tmpDir, "camspeak_tts_*.wav")
 	if err != nil {
@@ -156,12 +152,7 @@ func boostRawGain(srcRaw, tmpDir string, gain float64) (string, error) {
 	return outName, nil
 }
 
-// transcodeFileToRawGain converts any audio file to G.711ulaw 8kHz raw with a given gain.
-func transcodeFileToRawGain(src, dst string, gain float64) error {
-	return transcodeFileToRawGainWithPrime(src, dst, gain, 0)
-}
-
-// transcodeFileToRawGainWithPrime is like transcodeFileToRawGain but prepends
+// transcodeFileToRawGainWithPrime converts any audio file to G.711ulaw 8kHz raw
 // primeMs milliseconds of G.711 µ-law silence to the output file. This warms
 // the camera's audio engine so the first real audio isn't clipped/garbled.
 // primeMs <= 0 skips the silence padding.
