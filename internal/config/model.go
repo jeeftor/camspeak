@@ -91,6 +91,7 @@ type Rule struct {
 	Preset  string            `json:"preset"`
 	Text    string            `json:"text"`
 	Voice   string            `json:"voice"`
+	Loop    bool              `json:"loop"`
 	Enabled bool              `json:"enabled"`
 }
 

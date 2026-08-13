@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS rules (
     preset  TEXT DEFAULT '',
     text    TEXT DEFAULT '',
     voice   TEXT DEFAULT '',
+    loop    INTEGER DEFAULT 0,
     enabled INTEGER DEFAULT 1
 );
 
@@ -198,5 +199,12 @@ func migrate(db *sql.DB) {
 	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cameras') WHERE name='vision_width'`).Scan(&visWidthCol); err == nil &&
 		visWidthCol == 0 {
 		_, _ = db.Exec(`ALTER TABLE cameras ADD COLUMN vision_width INTEGER DEFAULT 0`)
+	}
+	// Add 'loop' column to rules if missing (added in v2.12.0).
+	// When true, the preset loops infinitely and can be paused/resumed.
+	var loopCol int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('rules') WHERE name='loop'`).Scan(&loopCol); err == nil &&
+		loopCol == 0 {
+		_, _ = db.Exec(`ALTER TABLE rules ADD COLUMN loop INTEGER DEFAULT 0`)
 	}
 }

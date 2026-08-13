@@ -20,6 +20,7 @@
   let text = $state('')
   let voice = $state('')
   let preset = $state('')
+  let loopPreset = $state(false)
   let url = $state('')
   let gain = $state(camera.gain ?? 3.0)
   let busy = $state(false)
@@ -101,9 +102,13 @@
     }
     busy = true; status = ''
     try {
-      const data = await apiClient.play({ camera: camera.name, preset, gain })
-      const timing = formatTimingSummary(data.timings, data.total_ms, data.ttfs_ms)
-      setStatus(timing ? `✓ playing (${timing})` : '✓ playing')
+      const data = await apiClient.play({ camera: camera.name, preset, gain, loop: loopPreset })
+      if (loopPreset) {
+        setStatus('✓ looping')
+      } else {
+        const timing = formatTimingSummary(data.timings, data.total_ms, data.ttfs_ms)
+        setStatus(timing ? `✓ playing (${timing})` : '✓ playing')
+      }
     } catch (e) {
       setStatus('✗ ' + e.message, 'err')
     } finally {
@@ -437,7 +442,7 @@
 
     <!-- Preset row -->
     {#if presets.length > 0}
-      <div class="flex gap-1.5">
+      <div class="flex gap-1.5 items-center">
         <select bind:value={preset} disabled={busy}
           class="flex-1 min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-sm disabled:opacity-50">
           <option value="">— play preset —</option>
@@ -445,11 +450,30 @@
             <option value={p.name}>{p.category}/{p.name} ({formatSeconds(p.duration)})</option>
           {/each}
         </select>
-        <Button size="sm" onclick={play} disabled={busy || !preset} aria-label="Play preset" title="Play preset on camera" class="flex-shrink-0">
-          <Play class="h-4 w-4" />
-        </Button>
+        <label class="flex items-center gap-1 text-xs text-muted-foreground whitespace-nowrap flex-shrink-0" title="Loop the preset infinitely (pausable)">
+          <input type="checkbox" bind:checked={loopPreset} disabled={busy} class="h-3.5 w-3.5" />
+          loop
+        </label>
+        {#if streaming && playbackDetail?.endsWith('(loop)')}
+          {#if paused}
+            <Button size="sm" onclick={resumeStream} disabled={busy} aria-label="Resume" title="Resume looped preset" class="flex-shrink-0">
+              <Play class="h-4 w-4" />
+            </Button>
+          {:else}
+            <Button size="sm" onclick={pauseStream} disabled={busy} aria-label="Pause" title="Pause looped preset" class="flex-shrink-0">
+              <Pause class="h-4 w-4" />
+            </Button>
+          {/if}
+          <Button size="sm" onclick={stopStream} disabled={busy} aria-label="Stop" title="Stop looped preset" class="flex-shrink-0">
+            <Square class="h-4 w-4" />
+          </Button>
+        {:else}
+          <Button size="sm" onclick={play} disabled={busy || !preset} aria-label="Play preset" title="Play preset on camera" class="flex-shrink-0">
+            <Play class="h-4 w-4" />
+          </Button>
+        {/if}
         <CopyButton
-          text={buildCurl('POST', '/api/play', { camera: camera.name, preset, category: presets.find(x => x.name === preset)?.category, gain })}
+          text={buildCurl('POST', '/api/play', { camera: camera.name, preset, category: presets.find(x => x.name === preset)?.category, gain, loop: loopPreset })}
           disabled={!preset} label="Copy curl — play preset endpoint"
           preview={!!preset} previewType="curl"
           class="flex-shrink-0"

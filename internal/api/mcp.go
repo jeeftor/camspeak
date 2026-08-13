@@ -35,7 +35,7 @@ func buildMCPServer(h *Handlers) *mcp.Server {
 		if in.Camera == "" || in.Preset == "" {
 			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "camera and preset required"}}}, PlayPresetOutput{}, nil
 		}
-		if _, err := h.playPreset(h.log, in.Camera, in.Category, in.Preset, 3.0); err != nil {
+		if _, err := h.playPreset(h.log, in.Camera, in.Category, in.Preset, 3.0, in.Loop); err != nil {
 			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, PlayPresetOutput{}, nil
 		}
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Played preset %q on %s", in.Preset, in.Camera)}}}, PlayPresetOutput{}, nil
@@ -49,7 +49,7 @@ func buildMCPServer(h *Handlers) *mcp.Server {
 		if in.Text == "" && in.Preset == "" {
 			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "text or preset required"}}}, BroadcastOutput{}, nil
 		}
-		h.SpeakForMQTT(h.reg.Names(), in.Text, in.Preset, in.Voice)
+		h.SpeakForMQTT(h.reg.Names(), in.Text, in.Preset, in.Voice, false)
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "Broadcast sent to all cameras"}}}, BroadcastOutput{}, nil
 	})
 
@@ -304,6 +304,7 @@ type PlayPresetInput struct {
 	Camera   string `json:"camera" jsonschema:"the camera name,required"`
 	Preset   string `json:"preset" jsonschema:"the preset name,required"`
 	Category string `json:"category,omitempty" jsonschema:"optional preset category"`
+	Loop     bool   `json:"loop,omitempty" jsonschema:"if true, loop the preset infinitely (pausable via pause tool)"`
 }
 
 type PlayPresetOutput struct{}

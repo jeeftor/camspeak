@@ -246,7 +246,7 @@ func loadCameras(db *sql.DB, cfg *Config) {
 // loadRules loads MQTT rules from SQLite.
 func loadRules(db *sql.DB, cfg *Config) {
 	rows, err := db.Query(
-		`SELECT id, topic, filter, cameras, preset, text, voice, enabled FROM rules WHERE enabled = 1`,
+		`SELECT id, topic, filter, cameras, preset, text, voice, loop, enabled FROM rules WHERE enabled = 1`,
 	)
 	if err != nil {
 		return
@@ -256,11 +256,12 @@ func loadRules(db *sql.DB, cfg *Config) {
 	for rows.Next() {
 		var r Rule
 		var filterJSON, camerasCSV string
-		var enabled int
-		if err := rows.Scan(&r.ID, &r.Topic, &filterJSON, &camerasCSV, &r.Preset, &r.Text, &r.Voice, &enabled); err != nil {
+		var enabled, loop int
+		if err := rows.Scan(&r.ID, &r.Topic, &filterJSON, &camerasCSV, &r.Preset, &r.Text, &r.Voice, &loop, &enabled); err != nil {
 			continue
 		}
 		r.Enabled = enabled == 1
+		r.Loop = loop == 1
 		r.Filter = parseFilterJSON(filterJSON)
 		r.Cameras = parseCSV(camerasCSV)
 		cfg.Rules = append(cfg.Rules, r)

@@ -35,10 +35,14 @@ func (h *Handlers) CreateRule(c echo.Context) error {
 	if !r.Enabled {
 		enabled = 0
 	}
+	loop := 0
+	if r.Loop {
+		loop = 1
+	}
 	result, err := h.db.Exec(
-		`INSERT INTO rules (topic, filter, cameras, preset, text, voice, enabled)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		r.Topic, string(filterJSON), camerasCSV, r.Preset, r.Text, r.Voice, enabled,
+		`INSERT INTO rules (topic, filter, cameras, preset, text, voice, loop, enabled)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.Topic, string(filterJSON), camerasCSV, r.Preset, r.Text, r.Voice, loop, enabled,
 	)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())

@@ -650,9 +650,9 @@ func TestListRules(t *testing.T) {
 
 	// Insert a rule directly into the DB.
 	_, err := database.Exec(
-		`INSERT INTO rules (topic, filter, cameras, preset, text, voice, enabled)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		"frigate/events", `{"zone":"front"}`, "front", "", "Hello", "af_sky", 1,
+		`INSERT INTO rules (topic, filter, cameras, preset, text, voice, loop, enabled)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		"frigate/events", `{"zone":"front"}`, "front", "", "Hello", "af_sky", 0, 1,
 	)
 	if err != nil {
 		t.Fatalf("inserting rule: %v", err)
@@ -1129,6 +1129,60 @@ func TestPlaybackOnlyEnabledCameras(t *testing.T) {
 	}
 	if _, ok := body["back"]; ok {
 		t.Error("disabled camera 'back' should not appear in playback response")
+	}
+}
+
+func TestLoopedPresetPauseResume(t *testing.T) {
+	h, e, _ := setupTestHandlers(t)
+	resetPlayback(t)
+	resetStreams(t)
+
+	h.cfg.Cameras["front"] = config.CameraConfig{
+		Type:    "hikvision",
+		IP:      "192.168.1.100",
+		Enabled: true,
+	}
+
+	// Simulate a looped preset that registered as a stream session.
+	addFakeStream(t, "front", "/tmp/test.raw")
+	setPlayback("front", "play", "scary_sounds (loop)")
+
+	// Pause should work on the looped preset.
+	rec := doJSON(e, http.MethodPost, "/api/pause", `{"camera":"front"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("pause status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if body["status"] != "paused" {
+		t.Errorf("status = %v, want %q", body["status"], "paused")
+	}
+
+	// Playback should show paused with the loop detail.
+	rec = doJSON(e, http.MethodGet, "/api/playback", "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	ps := body["front"].(map[string]any)
+	if ps["state"] != "paused" {
+		t.Errorf("state = %v, want %q", ps["state"], "paused")
+	}
+	if ps["detail"] != "scary_sounds (loop)" {
+		t.Errorf("detail = %v, want %q", ps["detail"], "scary_sounds (loop)")
+	}
+
+	// Resume should work.
+	rec = doJSON(e, http.MethodPost, "/api/resume", `{"camera":"front"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("resume status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if body["status"] != "resumed" {
+		t.Errorf("status = %v, want %q", body["status"], "resumed")
 	}
 }
 

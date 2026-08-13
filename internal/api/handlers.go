@@ -72,6 +72,7 @@ type playReq struct {
 	Preset   string  `json:"preset"`
 	Category string  `json:"category"`
 	Gain     float64 `json:"gain"`
+	Loop     bool    `json:"loop"`
 }
 
 // broadcastReq is the body for POST /api/broadcast.
@@ -81,6 +82,7 @@ type broadcastReq struct {
 	Category string  `json:"category"`
 	Voice    string  `json:"voice"`
 	Gain     float64 `json:"gain"`
+	Loop     bool    `json:"loop"`
 }
 
 // genPresetReq is the body for POST /api/library.
@@ -149,10 +151,12 @@ func (h *Handlers) Play(c echo.Context) error {
 		req.Category,
 		"gain",
 		req.Gain,
+		"loop",
+		req.Loop,
 	)
 	start := time.Now()
 
-	timings, err := h.playPreset(log, req.Camera, req.Category, req.Preset, req.Gain)
+	timings, err := h.playPreset(log, req.Camera, req.Category, req.Preset, req.Gain, req.Loop)
 	if err != nil {
 		log.Error(
 			"play: failed",

@@ -1,15 +1,18 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"sync"
 	"time"
 
 	clog "github.com/charmbracelet/log"
 	"github.com/labstack/echo/v4"
 
+	"github.com/jeeftor/camspeak/internal/cameras"
 	"github.com/jeeftor/camspeak/internal/library"
 )
 
@@ -51,7 +54,7 @@ func (h *Handlers) Broadcast(c echo.Context) error {
 			camStart := time.Now()
 			var err error
 			if req.Preset != "" {
-				_, err = h.playPreset(log, cam, req.Category, req.Preset, req.Gain)
+				_, err = h.playPreset(log, cam, req.Category, req.Preset, req.Gain, req.Loop)
 			} else {
 				_, err = h.speakText(log, cam, req.Text, req.Voice, req.Gain)
 			}
@@ -174,6 +177,7 @@ func (h *Handlers) playPreset(
 	log *clog.Logger,
 	cameraName, category, presetName string,
 	gain float64,
+	loop bool,
 ) (*StepTimings, error) {
 	t := NewStepTimings(3)
 	cam, err := h.reg.Get(cameraName)
@@ -237,7 +241,14 @@ func (h *Handlers) playPreset(
 		preset.Size,
 		"gain",
 		gain,
+		"loop",
+		loop,
 	)
+
+	if loop {
+		return h.playPresetLooped(log, cam, cameraName, preset, sendPath, t)
+	}
+
 	setPlayback(cameraName, "play", preset.Name)
 	sendTiming, err := cam.SendRaw(sendPath)
 	if err != nil {
@@ -262,8 +273,82 @@ func (h *Handlers) playPreset(
 	return t, nil
 }
 
+// playPresetLooped plays a preset in an infinite loop using ffmpeg
+// -stream_loop -1, piped to cam.Stream(). This registers a streamSession
+// so the loop can be paused, resumed, and stopped just like a live stream.
+func (h *Handlers) playPresetLooped(
+	log *clog.Logger,
+	cam cameras.Speaker,
+	cameraName string,
+	preset *library.Preset,
+	rawPath string,
+	t *StepTimings,
+) (*StepTimings, error) {
+	// Stop any existing stream for this camera first.
+	stopStream(cameraName)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Build audio filter: gain is already applied to rawPath if needed.
+	// adelay adds prime silence at the start of each loop iteration.
+	af := ""
+	if h.cfg.PrimeSilenceMs > 0 {
+		af = fmt.Sprintf("adelay=%d|%d", h.cfg.PrimeSilenceMs, h.cfg.PrimeSilenceMs)
+	}
+
+	args := []string{
+		"-nostdin", "-loglevel", "error",
+		"-stream_loop", "-1", // loop forever
+		"-f", "mulaw", "-ar", "8000", "-ac", "1",
+		"-i", rawPath,
+	}
+	if af != "" {
+		args = append(args, "-af", af)
+	}
+	args = append(args,
+		"-acodec", "pcm_mulaw",
+		"-ar", "8000",
+		"-ac", "1",
+		"-f", "mulaw",
+		"-",
+	)
+
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		cancel()
+		return t, fmt.Errorf("ffmpeg stdout pipe: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		cancel()
+		return t, fmt.Errorf("starting ffmpeg: %w", err)
+	}
+
+	detail := preset.Name + " (loop)"
+	activeStreamsMu.Lock()
+	activeStreams[cameraName] = &streamSession{cmd: cmd, cancel: cancel, url: rawPath, started: now()}
+	activeStreamsMu.Unlock()
+	setPlayback(cameraName, "play", detail)
+
+	log.Info("play: looped preset started", "camera", cameraName, "preset", preset.Name)
+	h.events.publish(event{Camera: cameraName, Action: "play", Text: detail, At: time.Now()})
+
+	go func() {
+		_ = cam.Stream(stdout)
+		stopStream(cameraName)
+		clearPlayback(cameraName)
+		log.Info("play: looped preset ended", "camera", cameraName, "preset", preset.Name)
+	}()
+	go func() {
+		_ = cmd.Wait()
+		stopStream(cameraName)
+	}()
+
+	return t, nil
+}
+
 // SpeakForMQTT is called by the MQTT subscriber.
-func (h *Handlers) SpeakForMQTT(cams []string, text, preset, voice string) {
+func (h *Handlers) SpeakForMQTT(cams []string, text, preset, voice string, loop bool) {
 	var wg sync.WaitGroup
 	for _, cam := range cams {
 		wg.Add(1)
@@ -271,7 +356,7 @@ func (h *Handlers) SpeakForMQTT(cams []string, text, preset, voice string) {
 			defer wg.Done()
 
 			if preset != "" {
-				_, _ = h.playPreset(h.log, c, "", preset, 3.0)
+				_, _ = h.playPreset(h.log, c, "", preset, 3.0, loop)
 			} else if text != "" {
 				_, _ = h.speakText(h.log, c, text, voice, 3.0)
 			}

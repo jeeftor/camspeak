@@ -14,7 +14,7 @@ import (
 )
 
 // SpeakFunc is called when a rule matches. It handles TTS or preset playback.
-type SpeakFunc func(cameras []string, text, preset, voice string)
+type SpeakFunc func(cameras []string, text, preset, voice string, loop bool)
 
 // MsgHook is called for every received MQTT message before rule matching.
 type MsgHook func(topic string, payload []byte)
@@ -147,8 +147,8 @@ func (s *Subscriber) handleMessage(_ paho.Client, msg paho.Message) {
 			continue
 		}
 
-		s.log.Info("rule matched", "topic", msg.Topic(), "cameras", rule.Cameras)
-		s.speak(rule.Cameras, rule.Text, rule.Preset, rule.Voice)
+		s.log.Info("rule matched", "topic", msg.Topic(), "cameras", rule.Cameras, "loop", rule.Loop)
+		s.speak(rule.Cameras, rule.Text, rule.Preset, rule.Voice, rule.Loop)
 	}
 }
 
