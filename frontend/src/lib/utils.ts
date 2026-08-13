@@ -4,10 +4,24 @@ export function cn(...classes: (string | false | null | undefined)[]) {
 
 // Format a millisecond value compactly: under 1000ms shows "450ms",
 // 1000ms and above shows seconds with one decimal, e.g. "1.4s".
+// Large values are promoted to minutes/hours, e.g. "2h 0m 35.1s".
 export function formatMs(ms: number | undefined | null): string {
   if (ms == null || isNaN(ms)) return ''
   if (ms < 1000) return `${Math.round(ms)}ms`
-  return `${(ms / 1000).toFixed(1)}s`
+  return formatSeconds(ms / 1000)
+}
+
+// Format a duration in seconds compactly. Under 60s shows "1.4s",
+// under 1h shows "12m 34.5s", 1h+ shows "2h 0m 35.1s".
+export function formatSeconds(sec: number | undefined | null): string {
+  if (sec == null || isNaN(sec)) return ''
+  if (sec < 60) return `${sec.toFixed(1)}s`
+  const totalSec = Math.floor(sec)
+  const h = Math.floor(totalSec / 3600)
+  const m = Math.floor((totalSec % 3600) / 60)
+  const s = sec - h * 3600 - m * 60
+  if (h > 0) return `${h}h ${m}m ${s.toFixed(1)}s`
+  return `${m}m ${s.toFixed(1)}s`
 }
 
 // Pretty label for a timing step key. Strips a trailing "_ms" suffix and

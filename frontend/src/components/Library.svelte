@@ -7,7 +7,7 @@
   import { Textarea } from '$lib/components/ui/textarea'
   import { toast } from '$lib/components/ui/toast'
   import { apiClient } from '$lib/api'
-  import { formatMs, formatTimingSummary } from '$lib/utils'
+  import { formatMs, formatTimingSummary, formatSeconds } from '$lib/utils'
 
   let { presets = [], voices = [], onRefresh } = $props()
 
@@ -308,7 +308,7 @@
                       onclick={() => startRename(p)}
                       title="Click to rename"
                     >{p.name}</button>
-                    <span class="text-xs text-muted-foreground whitespace-nowrap">{p.duration?.toFixed(1)}s</span>
+                    <span class="text-xs text-muted-foreground whitespace-nowrap">{formatSeconds(p.duration)}</span>
                     {#if p.text}<span class="truncate text-sm italic text-muted-foreground">"{p.text}"</span>{/if}
                   </div>
                   <div class="flex shrink-0 gap-1">
