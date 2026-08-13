@@ -2,6 +2,8 @@
 
 Camera audio router — stream TTS and audio to IP camera speakers via Hikvision ISAPI, Reolink, go2rtc, or ONVIF RTSP backchannel.
 
+> **Related repo**: [camspeak-hacs](https://github.com/jeeftor/camspeak-hacs) — Home Assistant custom integration that wraps this server's REST API as media player entities and services. When the REST API changes here, update the HA integration's `api.py` to match.
+
 ## Build & Run
 
 ```bash
