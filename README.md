@@ -190,6 +190,7 @@ A `.env` file (gitignored) is loaded by godotenv at startup for local dev. Copy
 | `CAMSPEAK_AIRPLAY_BASE_PORT` | Starting port for per-camera RAOP listeners | `5100` |
 | `CAMSPEAK_AIRPLAY_GAIN` | Default AirPlay digital gain when per-camera gain is unset | `1.0` |
 | `CAMSPEAK_AIRPLAY_MODEL` | Default device model advertised over mDNS (controls the iOS AirPlay icon) | `RealityDevice14,1` |
+| `CAMSPEAK_PRIME_SILENCE_MS` | Ms of silence prepended before audio to warm the camera speaker (prevents garbled start). 0 disables. | `150` |
 | `CAM_<NAME>_IP` | Override IP for a discovered camera | (from DB) |
 | `CAM_<NAME>_USER` | Override username for a discovered camera | (from DB) |
 | `CAM_<NAME>_PASS` | Override password for a discovered camera | (from DB) |

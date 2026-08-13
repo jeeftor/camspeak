@@ -138,7 +138,7 @@ func (h *Handlers) speakText(log *clog.Logger, cameraName, text, voice string, g
 	)
 
 	transcodeStart := time.Now()
-	rawPath, err := wavBytesToRaw(wav, h.tmpDir, gain)
+	rawPath, err := wavBytesToRawWithPrime(wav, h.tmpDir, gain, h.cfg.PrimeSilenceMs)
 	if err != nil {
 		return t, fmt.Errorf("transcoding: %w", err)
 	}
@@ -198,16 +198,33 @@ func (h *Handlers) playPreset(
 	// The stored raw is already G.711ulaw 8kHz, so we read it as mulaw and
 	// apply volume, then output mulaw again.
 	sendPath := preset.RawPath
+	cleanupPath := ""
 	if gain > 0 && gain != 3.0 {
 		boostStart := time.Now()
 		boosted, err := boostRawGain(preset.RawPath, h.tmpDir, gain)
 		if err != nil {
 			log.Warn("play: gain boost failed, sending original", "err", err)
 		} else {
-			defer os.Remove(boosted)
 			sendPath = boosted
+			cleanupPath = boosted
 		}
 		t.Add("transcode_ms", boostStart)
+	}
+
+	// Prepend prime silence to warm the camera's audio engine.
+	if h.cfg.PrimeSilenceMs > 0 {
+		primed, err := prependSilenceToNewFile(sendPath, h.tmpDir, h.cfg.PrimeSilenceMs)
+		if err != nil {
+			log.Warn("play: prime silence failed, sending without", "err", err)
+		} else if primed != sendPath {
+			if cleanupPath != "" {
+				defer os.Remove(cleanupPath)
+			}
+			defer os.Remove(primed)
+			sendPath = primed
+		}
+	} else if cleanupPath != "" {
+		defer os.Remove(cleanupPath)
 	}
 
 	log.Debug(

@@ -64,6 +64,7 @@ Multiple TTS endpoints can be configured (klipbord-style presets). The active pr
 | `CAMSPEAK_AIRPLAY_BASE_PORT` | Starting port for per-camera RAOP listeners | `5100` |
 | `CAMSPEAK_AIRPLAY_GAIN` | Default AirPlay digital gain when per-camera gain is unset | `1.0` |
 | `CAMSPEAK_AIRPLAY_MODEL` | Default device model advertised over mDNS (controls the iOS AirPlay icon) | `RealityDevice14,1` |
+| `CAMSPEAK_PRIME_SILENCE_MS` | Ms of silence prepended before audio to warm camera speaker (all paths: TTS, play, stream, play-url). 0 disables. | `150` |
 | `CAM_<NAME>_IP` / `CAM_<NAME>_USER` / `CAM_<NAME>_PASS` | Per-camera credential overrides | (from DB) |
 
 ### .env file
@@ -132,7 +133,7 @@ Copy `.env.example` to `.env` for local dev. Loaded by godotenv at startup. Giti
 - `GET /api/library/upload/jobs/:id` — poll upload/transcode job progress (percent, step, error)
 - `PATCH /api/library/:category/:name` — rename preset
 - `DELETE /api/library/:category/:name` — delete preset
-- `ANY /mcp` — MCP endpoint
+- `ANY /mcp` — MCP endpoint (tools: speak, play_preset, broadcast, list_cameras, list_presets, generate_preset, beep, play_stream, stop, pause, resume, get_playback)
 
 ## Docker
 

@@ -122,6 +122,11 @@ func loadPreferences(db *sql.DB, cfg *Config) {
 			cfg.AirPlay.Gain = g
 		}
 	}
+	if v, ok := prefs["prime_silence_ms"]; ok {
+		if p, err := strconv.Atoi(v); err == nil {
+			cfg.PrimeSilenceMs = p
+		}
+	}
 	// Default base port
 	if cfg.AirPlay.BasePort == 0 {
 		cfg.AirPlay.BasePort = defaultAirPlayBasePort
@@ -137,6 +142,10 @@ func loadPreferences(db *sql.DB, cfg *Config) {
 	// Default gain
 	if cfg.AirPlay.Gain == 0 {
 		cfg.AirPlay.Gain = 1.0
+	}
+	// Default global prime silence for non-AirPlay paths (TTS, play, stream)
+	if cfg.PrimeSilenceMs == 0 {
+		cfg.PrimeSilenceMs = 150
 	}
 }
 
@@ -330,6 +339,11 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("CAMSPEAK_AIRPLAY_GAIN"); v != "" {
 		if g, err := strconv.ParseFloat(v, 64); err == nil {
 			cfg.AirPlay.Gain = g
+		}
+	}
+	if v := os.Getenv("CAMSPEAK_PRIME_SILENCE_MS"); v != "" {
+		if p, err := strconv.Atoi(v); err == nil {
+			cfg.PrimeSilenceMs = p
 		}
 	}
 

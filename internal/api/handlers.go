@@ -271,7 +271,7 @@ func (h *Handlers) PlayURL(c echo.Context) error {
 	rawName := raw.Name()
 	raw.Close()
 
-	if err := transcodeFileToRawGain(tmpName, rawName, req.Gain); err != nil {
+	if err := transcodeFileToRawGainWithPrime(tmpName, rawName, req.Gain, h.cfg.PrimeSilenceMs); err != nil {
 		os.Remove(rawName)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}

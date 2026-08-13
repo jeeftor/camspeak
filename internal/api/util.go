@@ -74,6 +74,11 @@ func GenerateBeep(tmpDir string) (string, error) {
 // wavBytesToRaw writes WAV bytes to a temp file, transcodes to G.711ulaw raw, returns the raw path.
 // gain controls the volume multiplier (1.0 = no boost). Caller must os.Remove the returned path.
 func wavBytesToRaw(wavBytes []byte, tmpDir string, gain float64) (string, error) {
+	return wavBytesToRawWithPrime(wavBytes, tmpDir, gain, 0)
+}
+
+// wavBytesToRawWithPrime is like wavBytesToRaw but prepends primeMs of silence.
+func wavBytesToRawWithPrime(wavBytes []byte, tmpDir string, gain float64, primeMs int) (string, error) {
 	wav, err := os.CreateTemp(tmpDir, "camspeak_tts_*.wav")
 	if err != nil {
 		return "", err
@@ -94,7 +99,7 @@ func wavBytesToRaw(wavBytes []byte, tmpDir string, gain float64) (string, error)
 	rawName := raw.Name()
 	raw.Close()
 
-	if err := transcodeFileToRawGain(wavName, rawName, gain); err != nil {
+	if err := transcodeFileToRawGainWithPrime(wavName, rawName, gain, primeMs); err != nil {
 		os.Remove(rawName)
 		return "", err
 	}
@@ -153,6 +158,14 @@ func boostRawGain(srcRaw, tmpDir string, gain float64) (string, error) {
 
 // transcodeFileToRawGain converts any audio file to G.711ulaw 8kHz raw with a given gain.
 func transcodeFileToRawGain(src, dst string, gain float64) error {
+	return transcodeFileToRawGainWithPrime(src, dst, gain, 0)
+}
+
+// transcodeFileToRawGainWithPrime is like transcodeFileToRawGain but prepends
+// primeMs milliseconds of G.711 µ-law silence to the output file. This warms
+// the camera's audio engine so the first real audio isn't clipped/garbled.
+// primeMs <= 0 skips the silence padding.
+func transcodeFileToRawGainWithPrime(src, dst string, gain float64, primeMs int) error {
 	af := fmt.Sprintf("volume=%.1f", gain)
 	cmd := exec.Command("ffmpeg", "-y",
 		"-i", src,
@@ -169,5 +182,90 @@ func transcodeFileToRawGain(src, dst string, gain float64) error {
 		return fmt.Errorf("ffmpeg: %w\n%s", err, out)
 	}
 
+	if primeMs > 0 {
+		if err := prependSilence(dst, primeMs); err != nil {
+			return fmt.Errorf("prepending silence: %w", err)
+		}
+	}
+
 	return nil
+}
+
+// prependSilence inserts primeMs milliseconds of G.711 µ-law silence at the
+// beginning of the file at path. In µ-law, the silence code is 0xFF.
+// At 8000 bytes/sec, primeMs maps to (primeMs * 8) bytes.
+// The file is rewritten in place using a temp file + rename.
+func prependSilence(path string, primeMs int) error {
+	silenceBytes := make([]byte, primeMs*8) // 8000 bytes/sec = 8 bytes/ms
+	for i := range silenceBytes {
+		silenceBytes[i] = 0xFF // µ-law silence
+	}
+
+	original, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	tmp, err := os.CreateTemp(filepath.Dir(path), "camspeak_prime_*.raw")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+
+	if _, err := tmp.Write(silenceBytes); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(original); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+
+	return os.Rename(tmpName, path)
+}
+
+// prependSilenceToNewFile reads the raw file at src, prepends primeMs of
+// µ-law silence, and writes the result to a new temp file. Returns the temp
+// file path (caller must os.Remove). If primeMs <= 0, returns src unchanged.
+func prependSilenceToNewFile(src string, tmpDir string, primeMs int) (string, error) {
+	if primeMs <= 0 {
+		return src, nil
+	}
+
+	original, err := os.ReadFile(src)
+	if err != nil {
+		return "", err
+	}
+
+	tmp, err := os.CreateTemp(tmpDir, "camspeak_prime_*.raw")
+	if err != nil {
+		return "", err
+	}
+	tmpName := tmp.Name()
+
+	silenceBytes := make([]byte, primeMs*8)
+	for i := range silenceBytes {
+		silenceBytes[i] = 0xFF
+	}
+
+	if _, err := tmp.Write(silenceBytes); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return "", err
+	}
+	if _, err := tmp.Write(original); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return "", err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return "", err
+	}
+
+	return tmpName, nil
 }

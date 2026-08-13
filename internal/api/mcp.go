@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -137,6 +138,155 @@ func buildMCPServer(h *Handlers) *mcp.Server {
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "Beeped " + in.Camera}}}, BeepOutput{}, nil
 	})
 
+	// play_stream — start a live audio stream to a camera
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "play_stream",
+		Description: "Stream a live audio URL (e.g. internet radio, live ATC, .pls/.m3u playlist) to a camera speaker. The stream runs in the background until stopped or paused.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in PlayStreamInput) (*mcp.CallToolResult, PlayStreamOutput, error) {
+		if in.Camera == "" || in.URL == "" {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "camera and url required"}}}, PlayStreamOutput{}, nil
+		}
+		cam, err := h.reg.Get(in.Camera)
+		if err != nil {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, PlayStreamOutput{}, nil
+		}
+		gain := in.Gain
+		if gain == 0 {
+			gain = 3.0
+		}
+		streamURL, err := resolveStreamURL(in.URL)
+		if err != nil {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, PlayStreamOutput{}, nil
+		}
+		stopStream(in.Camera)
+		ctx2, cancel := context.WithCancel(context.Background())
+		cmd := exec.CommandContext(ctx2, "ffmpeg",
+			"-nostdin", "-loglevel", "error",
+			"-re",
+			"-user_agent", "Mozilla/5.0 (compatible; camspeak)",
+			"-i", streamURL,
+			"-af", fmt.Sprintf("volume=%.2f", gain),
+			"-acodec", "pcm_mulaw",
+			"-ar", "8000",
+			"-ac", "1",
+			"-f", "mulaw",
+			"-",
+		)
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			cancel()
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, PlayStreamOutput{}, nil
+		}
+		if err := cmd.Start(); err != nil {
+			cancel()
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, PlayStreamOutput{}, nil
+		}
+		activeStreamsMu.Lock()
+		activeStreams[in.Camera] = &streamSession{cmd: cmd, cancel: cancel, url: streamURL, started: now()}
+		activeStreamsMu.Unlock()
+		setPlayback(in.Camera, "stream", streamURL)
+		go func() {
+			_ = cam.Stream(stdout)
+			stopStream(in.Camera)
+		}()
+		go func() {
+			_ = cmd.Wait()
+			stopStream(in.Camera)
+		}()
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Streaming %s to %s", in.URL, in.Camera)}}}, PlayStreamOutput{}, nil
+	})
+
+	// stop — stop audio on a camera (or all cameras)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "stop",
+		Description: "Stop all audio (TTS, streams, AirPlay) on a specific camera, or all cameras if camera is omitted. Tears down ffmpeg and closes the camera speaker connection.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in StopInput) (*mcp.CallToolResult, StopOutput, error) {
+		if in.Camera != "" {
+			if err := h.reg.Stop(in.Camera); err != nil {
+				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, StopOutput{}, nil
+			}
+			stopStream(in.Camera)
+			clearPlayback(in.Camera)
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "Stopped " + in.Camera}}}, StopOutput{}, nil
+		}
+		h.reg.StopAll()
+		stopAllStreams()
+		clearAllPlayback()
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "Stopped all cameras"}}}, StopOutput{}, nil
+	})
+
+	// pause — pause a live stream without tearing down the connection
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "pause",
+		Description: "Pause a live stream on a camera (or all cameras) by suspending ffmpeg via SIGSTOP. The camera speaker connection stays open so playback can be resumed in place. Only affects streams started via play_stream.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in PauseInput) (*mcp.CallToolResult, PauseOutput, error) {
+		if in.Camera != "" {
+			url, alreadyPaused, ok := pauseStream(in.Camera)
+			if !ok {
+				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("no active stream for camera %s", in.Camera)}}}, PauseOutput{}, nil
+			}
+			setPlaybackPaused(in.Camera, true)
+			status := "paused"
+			if alreadyPaused {
+				status = "already-paused"
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("%s: %s (%s)", in.Camera, status, url)}}}, PauseOutput{}, nil
+		}
+		paused := pauseAllStreams()
+		for _, name := range paused {
+			setPlaybackPaused(name, true)
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Paused %d streams: %s", len(paused), strings.Join(paused, ", "))}}}, PauseOutput{}, nil
+	})
+
+	// resume — resume a paused live stream
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "resume",
+		Description: "Resume a paused live stream on a camera (or all cameras) by sending SIGCONT to the suspended ffmpeg process. Only affects streams previously paused with the pause tool.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in ResumeInput) (*mcp.CallToolResult, ResumeOutput, error) {
+		if in.Camera != "" {
+			url, notPaused, ok := resumeStream(in.Camera)
+			if !ok {
+				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("no active stream for camera %s", in.Camera)}}}, ResumeOutput{}, nil
+			}
+			setPlaybackPaused(in.Camera, false)
+			status := "resumed"
+			if notPaused {
+				status = "not-paused"
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("%s: %s (%s)", in.Camera, status, url)}}}, ResumeOutput{}, nil
+		}
+		resumed := resumeAllStreams()
+		for _, name := range resumed {
+			setPlaybackPaused(name, false)
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Resumed %d streams: %s", len(resumed), strings.Join(resumed, ", "))}}}, ResumeOutput{}, nil
+	})
+
+	// get_playback — query playback status for all cameras
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "get_playback",
+		Description: "Query the current playback state of all cameras. Returns whether each camera is playing, paused, or idle, and what is playing (stream URL, TTS text, preset name, etc.).",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in GetPlaybackInput) (*mcp.CallToolResult, GetPlaybackOutput, error) {
+		names := make([]string, 0, len(h.cfg.Cameras))
+		for name, cfg := range h.cfg.Cameras {
+			if cfg.Enabled {
+				names = append(names, name)
+			}
+		}
+		states := getAllPlayback(names)
+		lines := make([]string, 0, len(states))
+		for _, name := range names {
+			ps := states[name]
+			detail := ""
+			if ps.Detail != "" {
+				detail = fmt.Sprintf(" — %s", ps.Detail)
+			}
+			lines = append(lines, fmt.Sprintf("- %s: %s%s", name, ps.State, detail))
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: strings.Join(lines, "\n")}}}, GetPlaybackOutput{}, nil
+	})
+
 	return s
 }
 
@@ -188,3 +338,33 @@ type BeepInput struct {
 }
 
 type BeepOutput struct{}
+
+type PlayStreamInput struct {
+	Camera string  `json:"camera" jsonschema:"the camera name,required"`
+	URL    string  `json:"url" jsonschema:"the audio stream URL (http/https, can be .pls or .m3u playlist),required"`
+	Gain   float64 `json:"gain,omitempty" jsonschema:"optional volume gain (default 3.0)"`
+}
+
+type PlayStreamOutput struct{}
+
+type StopInput struct {
+	Camera string `json:"camera,omitempty" jsonschema:"camera name to stop (omit for all cameras)"`
+}
+
+type StopOutput struct{}
+
+type PauseInput struct {
+	Camera string `json:"camera,omitempty" jsonschema:"camera name to pause (omit for all cameras)"`
+}
+
+type PauseOutput struct{}
+
+type ResumeInput struct {
+	Camera string `json:"camera,omitempty" jsonschema:"camera name to resume (omit for all cameras)"`
+}
+
+type ResumeOutput struct{}
+
+type GetPlaybackInput struct{}
+
+type GetPlaybackOutput struct{}

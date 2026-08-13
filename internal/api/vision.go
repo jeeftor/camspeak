@@ -348,7 +348,7 @@ func (h *Handlers) Describe(c echo.Context) error {
 	}
 
 	transcodeStart := time.Now()
-	rawPath, err := wavBytesToRaw(wav, h.tmpDir, gain)
+	rawPath, err := wavBytesToRawWithPrime(wav, h.tmpDir, gain, h.cfg.PrimeSilenceMs)
 	if err != nil {
 		return echo.NewHTTPError(
 			http.StatusInternalServerError,

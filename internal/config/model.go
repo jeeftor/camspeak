@@ -114,17 +114,18 @@ type VisionPrompt struct {
 
 // Config is the root configuration model.
 type Config struct {
-	TTS         TTSConfig               `json:"tts"`
-	Vision      VisionConfig            `json:"vision"`
-	Cameras     map[string]CameraConfig `json:"cameras"`
-	MQTT        MQTTConfig              `json:"mqtt"`
-	Rules       []Rule                  `json:"rules"`
-	Library     string                  `json:"library"`
-	Port        int                     `json:"port"`
-	FrigateURL  string                  `json:"frigate_url,omitempty"`
-	Go2rtcURL   string                  `json:"go2rtc_url,omitempty"`
-	AdvertiseIP string                  `json:"advertise_ip,omitempty"`
-	AirPlay     AirPlayConfig           `json:"airplay"`
+	TTS            TTSConfig               `json:"tts"`
+	Vision         VisionConfig            `json:"vision"`
+	Cameras        map[string]CameraConfig `json:"cameras"`
+	MQTT           MQTTConfig              `json:"mqtt"`
+	Rules          []Rule                  `json:"rules"`
+	Library        string                  `json:"library"`
+	Port           int                     `json:"port"`
+	FrigateURL     string                  `json:"frigate_url,omitempty"`
+	Go2rtcURL      string                  `json:"go2rtc_url,omitempty"`
+	AdvertiseIP    string                  `json:"advertise_ip,omitempty"`
+	AirPlay        AirPlayConfig           `json:"airplay"`
+	PrimeSilenceMs int                     `json:"prime_silence_ms,omitempty"` // ms of silence to prepend before audio to warm camera speaker (default 150, 0=off)
 }
 
 // AirPlayConfig controls the RAOP (AirPlay v1) receiver feature.

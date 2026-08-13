@@ -151,6 +151,15 @@ func (h *Handlers) PlayStream(c echo.Context) error {
 	stopStream(req.Camera)
 
 	ctx, cancel := context.WithCancel(context.Background())
+
+	// Build audio filter chain: gain + optional prime silence (adelay).
+	// adelay prepends N ms of silence before the first audio sample,
+	// warming the camera's audio engine so the start isn't clipped.
+	af := fmt.Sprintf("volume=%.2f", gain)
+	if h.cfg.PrimeSilenceMs > 0 {
+		af = fmt.Sprintf("adelay=%d|%d,volume=%.2f", h.cfg.PrimeSilenceMs, h.cfg.PrimeSilenceMs, gain)
+	}
+
 	cmd := exec.CommandContext(
 		ctx,
 		"ffmpeg",
@@ -165,7 +174,7 @@ func (h *Handlers) PlayStream(c echo.Context) error {
 		"-i",
 		streamURL,
 		"-af",
-		fmt.Sprintf("volume=%.2f", gain),
+		af,
 		"-acodec",
 		"pcm_mulaw",
 		"-ar",
