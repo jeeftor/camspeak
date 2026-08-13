@@ -13,7 +13,7 @@
   import { buildCurl } from '$lib/curl.svelte'
   import { apiClient } from '$lib/api'
   import { Tooltip } from '$lib/components/ui/tooltip'
-  import { formatTimingSummary, timingTooltipContent, isMobile } from '$lib/utils'
+  import { formatTimingSummary, timingTooltipContent, isMobile, formatSeconds } from '$lib/utils'
 
   let { camera, voices = [], presets = [] } = $props()
 
@@ -442,7 +442,7 @@
           class="flex-1 min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-sm disabled:opacity-50">
           <option value="">— play preset —</option>
           {#each presets as p}
-            <option value={p.name}>{p.category}/{p.name}</option>
+            <option value={p.name}>{p.category}/{p.name} ({formatSeconds(p.duration)})</option>
           {/each}
         </select>
         <Button size="sm" onclick={play} disabled={busy || !preset} aria-label="Play preset" title="Play preset on camera" class="flex-shrink-0">
