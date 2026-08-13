@@ -70,18 +70,6 @@ func clearAllPlayback() {
 	playbackStatesMu.Unlock()
 }
 
-// getPlayback returns a copy of the playback state for a camera, or an idle
-// state if nothing is tracked.
-func getPlayback(camera string) PlaybackState {
-	playbackStatesMu.RLock()
-	ps := playbackStates[camera]
-	playbackStatesMu.RUnlock()
-	if ps == nil {
-		return PlaybackState{State: "idle"}
-	}
-	return *ps
-}
-
 // getAllPlayback returns playback states for the given camera names. Cameras
 // with no tracked state get an "idle" entry.
 func getAllPlayback(names []string) map[string]PlaybackState {

@@ -1174,7 +1174,9 @@ func TestUploadJobLifecycle(t *testing.T) {
 	// Update progress.
 	updateUploadJob(id, 42.5, "Transcoding")
 	rec = doJSON(e, http.MethodGet, "/api/library/upload/jobs/"+id, "")
-	json.Unmarshal(rec.Body.Bytes(), &body)
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 	if body["percent"] != 42.5 {
 		t.Errorf("percent = %v, want 42.5", body["percent"])
 	}
@@ -1185,7 +1187,9 @@ func TestUploadJobLifecycle(t *testing.T) {
 	// Complete the job.
 	completeUploadJob(id, nil)
 	rec = doJSON(e, http.MethodGet, "/api/library/upload/jobs/"+id, "")
-	json.Unmarshal(rec.Body.Bytes(), &body)
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 	if body["status"] != JobDone {
 		t.Errorf("status = %v, want %q", body["status"], JobDone)
 	}
@@ -1208,7 +1212,9 @@ func TestUploadJobError(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
 	var body map[string]any
-	json.Unmarshal(rec.Body.Bytes(), &body)
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 	if body["status"] != JobError {
 		t.Errorf("status = %v, want %q", body["status"], JobError)
 	}
