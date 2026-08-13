@@ -97,10 +97,36 @@ tap_action:
   <div>
     <h2 class="text-lg font-semibold text-primary mb-1">Home Assistant</h2>
     <p class="text-sm text-muted-foreground">
-      Trigger camspeak from Home Assistant automations using the REST API.
-      No custom integration needed — works with the built-in
-      <code class="bg-muted px-1 rounded text-xs">rest_command</code> platform.
+      camspeak has a first-class HACS integration with media player entities,
+      binary sensors, real-time SSE playback updates, and smart services with
+      entity selectors, voice dropdowns, and response data. The
+      <code class="bg-muted px-1 rounded text-xs">rest_command</code> snippets
+      below are an alternative for simpler setups.
     </p>
+  </div>
+
+  <!-- HACS integration callout -->
+  <div class="rounded-lg border bg-card px-4 py-3 text-sm flex gap-3">
+    <BookOpen class="h-5 w-5 text-primary flex-shrink-0 mt-0.5" />
+    <div class="text-muted-foreground">
+      <p class="text-foreground font-medium mb-1">HACS integration (recommended)</p>
+      <p class="mb-2">
+        Install the camspeak HACS integration for media player entities,
+        real-time playback sensors, and smart services with entity selectors:
+      </p>
+      <ol class="list-decimal list-inside space-y-0.5 ml-1">
+        <li>In HACS, add <code class="bg-muted px-1 rounded text-xs">https://github.com/jeeftor/camspeak-hacs</code> as a custom repository (type: Integration)</li>
+        <li>Install "Camspeak" and restart Home Assistant</li>
+        <li>Go to <strong>Settings &rarr; Devices &amp; Services &rarr; Add Integration</strong> and search for "Camspeak"</li>
+      </ol>
+      <p class="mt-2">
+        See the
+        <a href="https://github.com/jeeftor/camspeak-hacs" target="_blank" rel="noopener" class="text-primary underline">
+          camspeak-hacs README
+        </a>
+        for full documentation.
+      </p>
+    </div>
   </div>
 
   <!-- Why HA -->
@@ -111,8 +137,11 @@ tap_action:
       <p>
         HA gives you rich conditions (time windows, presence, multi-sensor AND/OR), Jinja
         templates, scene management, and a dashboard — all things that would be complex to
-        build into camspeak's built-in MQTT rule engine. The MQTT rules (Frigate tab) still
-        work alongside this for standalone setups without HA.
+        build into camspeak's built-in MQTT rule engine. The HACS integration above gives
+        you all of this with native entities and services. The
+        <code class="bg-muted px-1 rounded text-xs">rest_command</code> snippets below are
+        for setups where you prefer not to install the integration. The MQTT rules
+        (Frigate tab) still work alongside both for standalone setups without HA.
       </p>
     </div>
   </div>
@@ -121,7 +150,7 @@ tap_action:
   <div class="flex flex-col gap-2">
     <h3 class="text-sm font-semibold text-foreground flex items-center gap-2">
       <span class="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">1</span>
-      Define REST commands
+      REST commands (alternative to HACS integration)
     </h3>
     <p class="text-sm text-muted-foreground">
       Add these to your <code class="bg-muted px-1 rounded text-xs">configuration.yaml</code>.
@@ -225,10 +254,10 @@ tap_action:
     <div>
       <p class="text-foreground font-medium mb-0.5">MQTT rules still work</p>
       <p>
-        The Frigate tab's built-in MQTT rule engine is independent of this HA setup.
+        The Frigate tab's built-in MQTT rule engine is independent of HA.
         If you run camspeak without Home Assistant, use the MQTT rules. If you run HA,
-        the REST approach above gives you more flexibility (conditions, templates, time
-        windows) without any extra camspeak configuration.
+        the HACS integration (above) or REST commands give you more flexibility
+        (conditions, templates, time windows) without any extra camspeak configuration.
       </p>
     </div>
   </div>

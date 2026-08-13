@@ -6,7 +6,7 @@ const openAPISpec = `{
   "openapi": "3.0.3",
   "info": {
     "title": "camspeak API",
-    "description": "Camera audio router — stream TTS and audio to IP camera speakers via Hikvision ISAPI, Reolink, go2rtc, or ONVIF RTSP backchannel.",
+    "description": "Camera audio router — stream TTS and audio to IP camera speakers via Hikvision ISAPI, Reolink, go2rtc, or ONVIF RTSP backchannel. First-class Home Assistant integration available via HACS (https://github.com/jeeftor/camspeak-hacs).",
     "version": "1.0",
     "license": {
       "name": "MIT",

@@ -34,6 +34,12 @@ A built-in AirPlay v1 receiver also lets every camera appear as a separate
 AirPlay target on your iPhone, so you can stream music, calls, or any iOS audio
 directly to a camera speaker.
 
+A first-class [Home Assistant](https://www.home-assistant.io) integration is
+available via [HACS](https://hacs.xyz) — see
+[camspeak-hacs](https://github.com/jeeftor/camspeak-hacs) for media player
+entities, real-time playback sensors, and smart services with entity selectors
+and response data.
+
 ## Features
 
 ### Camera support
@@ -75,7 +81,7 @@ directly to a camera speaker.
   Protocol for LLM-driven automation (Claude, Cursor, OpenAI, Ollama via LiteLLM, etc.).
 - **REST API** — full HTTP API for speaking, playing presets, broadcasting,
   managing cameras, TTS presets, rules, and the audio library.
-- **Home Assistant** — works via the `rest_command` platform; no custom integration needed.
+- **Home Assistant** — first-class HACS integration with media player entities, binary sensors, real-time SSE playback updates, and smart services with entity selectors, voice dropdowns, and response data. See [camspeak-hacs](https://github.com/jeeftor/camspeak-hacs). Also works via `rest_command` for simpler setups.
 - **Svelte UI** — embedded Svelte 5 SPA served from the binary for point-and-click control.
 
 ### AirPlay receiver
@@ -354,9 +360,34 @@ applicable.
 
 ## Home Assistant
 
-camspeak works with Home Assistant via the built-in `rest_command` platform —
-no custom integration or HACS install needed. Define REST commands that call
-camspeak's API, then trigger them from automations, dashboards, or webhooks.
+camspeak has a first-class [Home Assistant](https://www.home-assistant.io)
+integration available via [HACS](https://hacs.xyz). The integration provides:
+
+- **Media Player entities** for each camera — play presets, pause/resume/stop, volume control
+- **Binary sensors** — camera online/offline status
+- **Playback sensors** — real-time state via SSE (no polling lag)
+- **Smart services** with entity selectors, voice dropdowns, gain sliders, and response data:
+  - `camspeak.speak` — TTS with voice selector, returns timing data
+  - `camspeak.play_preset` — play from library, supports loop
+  - `camspeak.play_stream` / `camspeak.play_url` — live streams or audio files
+  - `camspeak.broadcast` — TTS or preset to all cameras
+  - `camspeak.beep` / `camspeak.stop` / `camspeak.pause` / `camspeak.resume`
+- **Zeroconf discovery** — camspeak servers are auto-discovered on your network
+
+### Install the HACS integration
+
+1. In HACS, add `https://github.com/jeeftor/camspeak-hacs` as a custom repository (type: Integration)
+2. Install "Camspeak" and restart Home Assistant
+3. Go to **Settings → Devices & Services → Add Integration** and search for "Camspeak"
+4. Enter your camspeak server URL
+
+See the [camspeak-hacs README](https://github.com/jeeftor/camspeak-hacs) for full documentation.
+
+### REST commands (alternative)
+
+If you prefer not to install the HACS integration, camspeak also works via the
+built-in `rest_command` platform. Define REST commands that call camspeak's
+API, then trigger them from automations, dashboards, or webhooks.
 
 ### Setup
 
@@ -405,9 +436,10 @@ automation:
 ```
 
 This gives you HA's full condition/template engine (time windows, presence
-detection, multi-sensor logic) for triggering announcements. The built-in MQTT
-rule engine (Frigate / MQTT tab) still works alongside this for standalone setups
-without Home Assistant.
+detection, multi-sensor logic) for triggering announcements. For the full
+integration experience (entity selectors, real-time state, response data),
+use the HACS integration above. The built-in MQTT rule engine (Frigate / MQTT
+tab) still works alongside both for standalone setups without Home Assistant.
 
 See the **Home Assistant** section in the UI for copy-paste-ready snippets including
 webhook triggers and dashboard buttons.
