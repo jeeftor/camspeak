@@ -80,6 +80,7 @@ Copy `.env.example` to `.env` for local dev. Loaded by godotenv at startup. Giti
 - `internal/cameras/` — Camera speaker clients (Hikvision ISAPI, Reolink, go2rtc stream-to-camera, ONVIF RTSP backchannel via gortsplib)
 - `internal/config/` — SQLite-based config loading with env var overrides
 - `internal/db/` — SQLite database initialization (modernc.org/sqlite, pure Go)
+- `internal/discovery/` — mDNS (Zeroconf) advertisement of `_camspeak._tcp.local` so Home Assistant can auto-discover the server
 - `internal/frigate/` — Frigate NVR camera discovery (parses /config/raw)
 - `internal/library/` — Preset store (raw audio on disk, metadata in SQLite)
 - `internal/mqtt/` — Frigate MQTT subscriber for auto-speak rules

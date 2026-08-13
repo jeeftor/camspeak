@@ -14,6 +14,7 @@ import (
 	"github.com/jeeftor/camspeak/internal/api"
 	"github.com/jeeftor/camspeak/internal/cameras"
 	"github.com/jeeftor/camspeak/internal/config"
+	"github.com/jeeftor/camspeak/internal/discovery"
 	"github.com/jeeftor/camspeak/internal/frigate"
 	"github.com/jeeftor/camspeak/internal/library"
 	"github.com/jeeftor/camspeak/internal/mqtt"
@@ -39,6 +40,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	level := logLevel()
 	api.SetLogLevel(level)
 	cameras.SetLogLevel(level)
+	discovery.SetLogLevel(level)
 	mqtt.SetLogLevel(level)
 	tts.SetLogLevel(level)
 	vision.SetLogLevel(level)
@@ -132,6 +134,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 	defer mqttSub.Stop()
 
+	// Advertise via mDNS so Home Assistant can auto-discover camspeak.
+	var disc *discovery.Service
+	if d, err := discovery.Register(cfg.Port, version, len(cfg.Cameras), cfg.AdvertiseIP); err != nil {
+		appLog.Warn("mDNS discovery failed (non-fatal)", "err", err)
+	} else {
+		disc = d
+	}
+
 	// Graceful shutdown
 	quit := make(chan os.Signal, 1)
 
@@ -140,6 +150,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	go func() {
 		<-quit
 		appLog.Info("shutting down")
+		if disc != nil {
+			disc.Shutdown()
+		}
 		if airplayMgr != nil {
 			airplayMgr.Stop()
 		}
