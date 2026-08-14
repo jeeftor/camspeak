@@ -167,7 +167,7 @@ func (h *Handlers) speakText(log *clog.Logger, cameraName, text, voice string, g
 		sendTiming.PlaybackMs,
 	)
 
-	h.events.publish(event{Camera: cameraName, Action: "speak", Text: text, At: time.Now()})
+	h.events.publish(event{Camera: cameraName, Action: "speak", Text: text, Voice: voice, At: time.Now()})
 	clearPlayback(cameraName)
 
 	return t, nil

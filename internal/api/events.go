@@ -11,6 +11,7 @@ type event struct {
 	Camera string    `json:"camera"`
 	Action string    `json:"action"` // "speak", "play", "beep"
 	Text   string    `json:"text,omitempty"`
+	Voice  string    `json:"voice,omitempty"`
 	At     time.Time `json:"at"`
 }
 
@@ -49,8 +50,8 @@ func (b *eventBus) publish(ev event) {
 	// Persist to SQLite (best-effort, don't block on DB errors)
 	if b.db != nil {
 		_, _ = b.db.Exec(
-			`INSERT INTO events (camera, action, text, created) VALUES (?, ?, ?, ?)`,
-			ev.Camera, ev.Action, ev.Text, ev.At,
+			`INSERT INTO events (camera, action, text, voice, created) VALUES (?, ?, ?, ?, ?)`,
+			ev.Camera, ev.Action, ev.Text, ev.Voice, ev.At,
 		)
 	}
 
@@ -73,7 +74,7 @@ func (b *eventBus) recentEvents(limit int) ([]event, error) {
 	}
 
 	rows, err := b.db.Query(
-		`SELECT camera, action, text, created FROM events
+		`SELECT camera, action, text, voice, created FROM events
 		 ORDER BY created DESC LIMIT ?`,
 		limit,
 	)
@@ -87,7 +88,7 @@ func (b *eventBus) recentEvents(limit int) ([]event, error) {
 
 	for rows.Next() {
 		var ev event
-		err := rows.Scan(&ev.Camera, &ev.Action, &ev.Text, &ev.At)
+		err := rows.Scan(&ev.Camera, &ev.Action, &ev.Text, &ev.Voice, &ev.At)
 		if err != nil {
 			return nil, err
 		}
@@ -114,13 +115,13 @@ func (b *eventBus) queryEvents(limit int, camera string) ([]event, error) {
 	)
 	if camera != "" {
 		rows, err = b.db.Query(
-			`SELECT camera, action, text, created FROM events
+			`SELECT camera, action, text, voice, created FROM events
 			 WHERE camera = ? ORDER BY created DESC LIMIT ?`,
 			camera, limit,
 		)
 	} else {
 		rows, err = b.db.Query(
-			`SELECT camera, action, text, created FROM events
+			`SELECT camera, action, text, voice, created FROM events
 			 ORDER BY created DESC LIMIT ?`,
 			limit,
 		)
@@ -133,7 +134,7 @@ func (b *eventBus) queryEvents(limit int, camera string) ([]event, error) {
 	var events []event
 	for rows.Next() {
 		var ev event
-		if err := rows.Scan(&ev.Camera, &ev.Action, &ev.Text, &ev.At); err != nil {
+		if err := rows.Scan(&ev.Camera, &ev.Action, &ev.Text, &ev.Voice, &ev.At); err != nil {
 			return nil, err
 		}
 		events = append(events, ev)

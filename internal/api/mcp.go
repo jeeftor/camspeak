@@ -309,6 +309,9 @@ func buildMCPServer(h *Handlers) *mcp.Server {
 			if ev.Text != "" {
 				detail = fmt.Sprintf(" — %q", ev.Text)
 			}
+			if ev.Voice != "" {
+				detail += fmt.Sprintf(" [voice=%s]", ev.Voice)
+			}
 			cam := ev.Camera
 			if cam == "" {
 				cam = "all"

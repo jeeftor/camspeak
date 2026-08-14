@@ -870,6 +870,7 @@ const openAPISpec = `{
           "camera": {"type": "string", "example": "backyard"},
           "action": {"type": "string", "example": "speak"},
           "text": {"type": "string", "example": "Hello world"},
+          "voice": {"type": "string", "example": "af_sky"},
           "at": {"type": "string", "format": "date-time", "example": "2026-08-13T13:40:43Z"}
         }
       },

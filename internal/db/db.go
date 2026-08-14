@@ -207,4 +207,10 @@ func migrate(db *sql.DB) {
 		loopCol == 0 {
 		_, _ = db.Exec(`ALTER TABLE rules ADD COLUMN loop INTEGER DEFAULT 0`)
 	}
+	// Add 'voice' column to events if missing (added in v2.13.0).
+	var voiceCol int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('events') WHERE name='voice'`).Scan(&voiceCol); err == nil &&
+		voiceCol == 0 {
+		_, _ = db.Exec(`ALTER TABLE events ADD COLUMN voice TEXT DEFAULT ''`)
+	}
 }
