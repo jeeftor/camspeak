@@ -126,32 +126,6 @@ func rawToWAV(rawFile, tmpDir string) (string, error) {
 	return wavName, nil
 }
 
-// boostRawGain re-processes an existing G.711ulaw raw file with a volume gain.
-// Returns the path to a new temp raw file. Caller must os.Remove it.
-func boostRawGain(srcRaw, tmpDir string, gain float64) (string, error) {
-	out, err := os.CreateTemp(tmpDir, "camspeak_gain_*.raw")
-	if err != nil {
-		return "", err
-	}
-	outName := out.Name()
-	out.Close()
-
-	af := fmt.Sprintf("volume=%.1f", gain)
-	cmd := exec.Command("ffmpeg", "-y",
-		"-f", "mulaw", "-ar", "8000", "-ac", "1",
-		"-i", srcRaw,
-		"-af", af,
-		"-c:a", "pcm_mulaw", "-f", "mulaw",
-		outName,
-	)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		os.Remove(outName)
-		return "", fmt.Errorf("ffmpeg gain boost: %w\n%s", err, out)
-	}
-
-	return outName, nil
-}
-
 // transcodeFileToRawGainWithPrime converts any audio file to G.711ulaw 8kHz raw
 // primeMs milliseconds of G.711 µ-law silence to the output file. This warms
 // the camera's audio engine so the first real audio isn't clipped/garbled.

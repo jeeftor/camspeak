@@ -342,10 +342,7 @@ func (h *Handlers) Describe(c echo.Context) error {
 	t.Add("tts_ms", ttsStart)
 
 	// 4. Transcode + send to camera
-	gain := req.Gain
-	if gain <= 0 {
-		gain = 3.0
-	}
+	// Gain is applied at send time via GainController (per-chunk).
 
 	transcodeStart := time.Now()
 	rawPath, err := wavBytesToRawWithPrime(wav, h.tmpDir, 1.0, h.cfg.PrimeSilenceMs)
