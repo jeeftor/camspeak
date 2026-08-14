@@ -97,3 +97,46 @@ func (b *eventBus) recentEvents(limit int) ([]event, error) {
 
 	return events, rows.Err()
 }
+
+// queryEvents returns events from the SQLite log with optional filtering.
+// limit caps the result (default 100, max 1000). camera filters by name.
+func (b *eventBus) queryEvents(limit int, camera string) ([]event, error) {
+	if b.db == nil {
+		return nil, nil
+	}
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	if camera != "" {
+		rows, err = b.db.Query(
+			`SELECT camera, action, text, created FROM events
+			 WHERE camera = ? ORDER BY created DESC LIMIT ?`,
+			camera, limit,
+		)
+	} else {
+		rows, err = b.db.Query(
+			`SELECT camera, action, text, created FROM events
+			 ORDER BY created DESC LIMIT ?`,
+			limit,
+		)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var events []event
+	for rows.Next() {
+		var ev event
+		if err := rows.Scan(&ev.Camera, &ev.Action, &ev.Text, &ev.At); err != nil {
+			return nil, err
+		}
+		events = append(events, ev)
+	}
+	return events, rows.Err()
+}

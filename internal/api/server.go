@@ -160,6 +160,7 @@ func New(
 	api.PATCH("/library/:category/:name", h.RenamePreset)
 	api.GET("/library/:category/:name/preview", h.PreviewPreset)
 	api.GET("/events", h.Events)
+	api.GET("/events/log", h.EventLog)
 	api.GET("/health", h.Health)
 
 	// Config routes

@@ -478,6 +478,19 @@ const openAPISpec = `{
         }
       }
     },
+    "/events/log": {
+      "get": {
+        "tags": ["system"],
+        "summary": "Query historical event log as JSON",
+        "parameters": [
+          {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 100, "maximum": 1000}, "description": "Max events to return"},
+          {"name": "camera", "in": "query", "schema": {"type": "string"}, "description": "Filter by camera name"}
+        ],
+        "responses": {
+          "200": {"description": "Event log", "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/EventEntry"}}}}}
+        }
+      }
+    },
     "/health": {
       "get": {
         "tags": ["system"],
@@ -849,6 +862,15 @@ const openAPISpec = `{
         "properties": {
           "status": {"type": "string", "example": "ok"},
           "version": {"type": "string", "example": "v1.10.0"}
+        }
+      },
+      "EventEntry": {
+        "type": "object",
+        "properties": {
+          "camera": {"type": "string", "example": "backyard"},
+          "action": {"type": "string", "example": "speak"},
+          "text": {"type": "string", "example": "Hello world"},
+          "at": {"type": "string", "format": "date-time", "example": "2026-08-13T13:40:43Z"}
         }
       },
       "Camera": {

@@ -9,6 +9,7 @@ import (
 	neturl "net/url"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -633,4 +634,24 @@ func (h *Handlers) PingCamera(c echo.Context) error {
 		http.StatusOK,
 		map[string]interface{}{"ok": false, "camera": name, "error": "unreachable"},
 	)
+}
+
+// EventLog handles GET /api/events/log — returns historical events as JSON.
+func (h *Handlers) EventLog(c echo.Context) error {
+	limit := 100
+	if l := c.QueryParam("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil {
+			limit = n
+		}
+	}
+	camera := c.QueryParam("camera")
+
+	events, err := h.events.queryEvents(limit, camera)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if events == nil {
+		events = []event{}
+	}
+	return c.JSON(http.StatusOK, events)
 }

@@ -287,6 +287,37 @@ func buildMCPServer(h *Handlers) *mcp.Server {
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: strings.Join(lines, "\n")}}}, GetPlaybackOutput{}, nil
 	})
 
+	// get_events — query historical event log
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "get_events",
+		Description: "Query the historical event log (speak, play, beep, stop, stream, describe actions). Returns recent events in reverse chronological order. Optional camera filter and limit (default 50, max 1000).",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in GetEventsInput) (*mcp.CallToolResult, GetEventsOutput, error) {
+		limit := in.Limit
+		if limit == 0 {
+			limit = 50
+		}
+		events, err := h.events.queryEvents(limit, in.Camera)
+		if err != nil {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, GetEventsOutput{}, nil
+		}
+		if len(events) == 0 {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "No events found"}}}, GetEventsOutput{}, nil
+		}
+		lines := make([]string, 0, len(events))
+		for _, ev := range events {
+			detail := ""
+			if ev.Text != "" {
+				detail = fmt.Sprintf(" — %q", ev.Text)
+			}
+			cam := ev.Camera
+			if cam == "" {
+				cam = "all"
+			}
+			lines = append(lines, fmt.Sprintf("- %s  %s/%s%s", ev.At.Format("2006-01-02 15:04:05"), cam, ev.Action, detail))
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: strings.Join(lines, "\n")}}}, GetEventsOutput{}, nil
+	})
+
 	return s
 }
 
@@ -369,3 +400,10 @@ type ResumeOutput struct{}
 type GetPlaybackInput struct{}
 
 type GetPlaybackOutput struct{}
+
+type GetEventsInput struct {
+	Camera string `json:"camera,omitempty" jsonschema:"optional camera name to filter events"`
+	Limit  int    `json:"limit,omitempty" jsonschema:"max events to return (default 50, max 1000)"`
+}
+
+type GetEventsOutput struct{}
