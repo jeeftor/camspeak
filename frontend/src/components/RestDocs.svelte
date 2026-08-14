@@ -86,6 +86,14 @@
       response: [{ name: 'backyard', type: 'hikvision', online: true }],
     },
     {
+      id: 'volume',
+      method: 'PUT',
+      path: '/api/cameras/:name/volume',
+      summary: 'Set runtime gain (0-10) — takes effect on next audio chunk',
+      body: { gain: 5.0 },
+      response: { camera: 'backyard', gain: 5.0 },
+    },
+    {
       id: 'voices',
       method: 'GET',
       path: '/api/voices',

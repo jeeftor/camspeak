@@ -114,6 +114,11 @@ export const apiClient = {
   listCamerasConfig: () => api<Camera[]>('/api/config/cameras'),
   saveCamera: (cam: SaveCameraReq) =>
     api('/api/config/cameras', { method: 'POST', body: JSON.stringify(cam) }),
+  setVolume: (camera: string, gain: number) =>
+    api(`/api/cameras/${encodeURIComponent(camera)}/volume`, {
+      method: 'PUT',
+      body: JSON.stringify({ gain }),
+    }),
   deleteCamera: (name: string) =>
     api(`/api/config/cameras/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   toggleCamera: (name: string, enabled: boolean) =>

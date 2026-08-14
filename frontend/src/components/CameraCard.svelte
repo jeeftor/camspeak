@@ -120,7 +120,7 @@
 
   async function saveGain() {
     try {
-      await apiClient.saveCamera({ name: camera.name, gain })
+      await apiClient.setVolume(camera.name, gain)
     } catch (e) {
       setStatus('✗ gain save failed: ' + e.message, 'err')
     }
