@@ -103,6 +103,11 @@ Copy `.env.example` to `.env` for local dev. Loaded by godotenv at startup. Giti
 | `onvif` | ONVIF RTSP backchannel | Direct RTP/G.711 via gortsplib (no external deps) | Camera must advertise `a=sendonly` audio track in RTSP SDP |
 - `rules` — MQTT-triggered auto-speak rules
 
+### Audio format
+All camera types currently receive **G.711 µ-law** (pcm_mulaw) 8kHz mono audio from the ffmpeg transcoder. The runtime volume gain (`ApplyGainMulaw` in `internal/util/mulaw.go`) decodes each µ-law byte to 16-bit PCM, scales by the gain factor, and re-encodes — this works on all three working camera types (Hikvision, go2rtc, ONVIF) since they all consume µ-law.
+
+If a future camera type requires a different codec (e.g. AAC, G.722, ADPCM for native Reolink Baichuan), the transcoder would need to produce that format and the gain function must NOT be called on non-µ-law data — it would corrupt the audio. A codec-aware gain interface would be needed at that point.
+
 ### REST API
 - `GET /api/config` — current runtime config
 - `GET/PUT /api/config/vision` — vision endpoint config (URL, model, API key, default prompt)
@@ -125,6 +130,7 @@ Copy `.env.example` to `.env` for local dev. Loaded by godotenv at startup. Giti
 - `POST /api/play-url` — download audio URL → transcode → play on camera
 - `POST /api/play-stream` — live stream or playlist (.pls/.m3u) → camera (Hikvision, requires ffmpeg)
 - `POST /api/config/cameras` — create/update camera; includes `gain` per camera (default 3.0)
+- `PUT /api/cameras/:name/volume` — set runtime gain (0-10); takes effect on next audio chunk without restarting playback; also persists to config
 - `POST /api/beep` — test tone
 - `POST /api/stop` — stop audio on a camera (or all cameras if body empty)
 - `POST /api/pause` — pause a live `/api/play-stream` stream on a camera (or all if body empty); suspends ffmpeg via SIGSTOP without tearing down the camera connection

@@ -73,10 +73,17 @@ func MulawEncode(s int16) byte {
 	return linearToMulaw[int(s)+32768]
 }
 
-// ApplyGainMulau applies a volume gain to a buffer of µ-law encoded audio
+// ApplyGainMulaw applies a volume gain to a buffer of G.711 µ-law encoded audio
 // in place. Each byte is decoded to linear PCM, scaled by gain, and re-encoded.
 // gain=1.0 is unity (no change), gain=3.0 is 3x amplification.
+// gain=0.0 produces µ-law silence (byte 128).
 // Samples are clamped to int16 range to prevent wrap-around.
+//
+// NOTE: This assumes the buffer is G.711 µ-law. All camera types currently
+// receive µ-law from the transcoder (pcm_mulaw, 8kHz). If a future camera type
+// uses a different codec (e.g. AAC, G.722, ADPCM), this function must NOT be
+// called on that data — it would corrupt the audio. A codec-aware gain
+// interface would be needed at that point.
 func ApplyGainMulaw(buf []byte, gain float64) {
 	if gain == 1.0 {
 		return
