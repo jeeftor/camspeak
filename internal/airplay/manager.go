@@ -228,7 +228,7 @@ func (m *Manager) stopLocked(name string) {
 type speakerAdapter struct{ cameras.Speaker }
 
 func (a speakerAdapter) SendRaw(rawFile string) (SendTiming, error) {
-	t, err := a.Speaker.SendRaw(rawFile)
+	t, err := a.Speaker.SendRaw(rawFile, nil)
 	return SendTiming{OpenMs: t.OpenMs, PlaybackMs: t.PlaybackMs}, err
 }
 func (a speakerAdapter) Stream(r io.Reader) error { return a.Speaker.Stream(r) }

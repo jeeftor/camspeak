@@ -284,6 +284,41 @@ func (h *Handlers) DeleteCameraConfig(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"deleted": name})
 }
 
+// SetCameraVolume handles PUT /api/cameras/:name/volume — sets the runtime
+// gain for a camera. Takes effect immediately on the next audio chunk
+// without restarting playback. Also persists the gain to the camera config
+// so it survives restarts.
+func (h *Handlers) SetCameraVolume(c echo.Context) error {
+	name := c.Param("name")
+	log := h.logger(c)
+
+	var req struct {
+		Gain float64 `json:"gain"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid JSON body")
+	}
+	if req.Gain < 0 {
+		return echo.NewHTTPError(http.StatusBadRequest, "gain must be >= 0")
+	}
+
+	// Update runtime gain (takes effect on next audio chunk).
+	h.reg.SetGain(name, req.Gain)
+
+	// Persist to config so it survives restarts.
+	cam, ok := h.cfg.Cameras[name]
+	if ok {
+		cam.Gain = req.Gain
+		h.cfg.Cameras[name] = cam
+		if err := config.SaveCamera(h.db, name, cam); err != nil {
+			log.Warn("volume: failed to persist gain", "camera", name, "err", err)
+		}
+	}
+
+	log.Info("volume: set", "camera", name, "gain", req.Gain)
+	return c.JSON(http.StatusOK, map[string]any{"camera": name, "gain": req.Gain})
+}
+
 // ToggleCamera handles PATCH /api/config/cameras/:name/toggle — enables/disables a camera.
 func (h *Handlers) ToggleCamera(c echo.Context) error {
 	name := c.Param("name")

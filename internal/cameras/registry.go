@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"os/exec"
+	"sync"
 	"time"
 
 	clog "github.com/charmbracelet/log"
@@ -35,9 +36,38 @@ type SendTiming struct {
 	PlaybackMs int64 // streaming duration: rest of the audio at real-time speed
 }
 
+// GainController holds a per-camera volume gain that can be updated at
+// runtime (via the volume API) and read by the audio send loop per-chunk.
+// gain=1.0 is unity (no change). The stored raw files are pre-boosted at
+// gain=3.0 during transcoding, so the runtime gain is relative to that.
+type GainController struct {
+	mu   sync.RWMutex
+	gain float64
+}
+
+// NewGainController creates a GainController with the given initial gain.
+func NewGainController(gain float64) *GainController {
+	return &GainController{gain: gain}
+}
+
+// Get returns the current gain value.
+func (g *GainController) Get() float64 {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.gain
+}
+
+// Set updates the gain value. Safe to call while audio is playing —
+// the next chunk will pick up the new value.
+func (g *GainController) Set(gain float64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.gain = gain
+}
+
 // Speaker is the interface all camera types implement.
 type Speaker interface {
-	SendRaw(rawFile string) (SendTiming, error)
+	SendRaw(rawFile string, gc *GainController) (SendTiming, error)
 	Stream(r io.Reader) error
 	Ping() bool
 	Stop() error
@@ -47,6 +77,7 @@ type Speaker interface {
 type Registry struct {
 	cameras     map[string]Speaker
 	configs     map[string]config.CameraConfig
+	gains       map[string]*GainController
 	tts         *tts.Client
 	go2rtcURL   string
 	advertiseIP string
@@ -67,12 +98,18 @@ func NewRegistry(cfg *config.Config, ttsClient *tts.Client) (*Registry, error) {
 	r := &Registry{
 		cameras:     make(map[string]Speaker),
 		configs:     cfg.Cameras,
+		gains:       make(map[string]*GainController),
 		tts:         ttsClient,
 		go2rtcURL:   go2rtcURL,
 		advertiseIP: cfg.AdvertiseIP,
 	}
 
 	for name, cam := range cfg.Cameras {
+		gain := cam.Gain
+		if gain <= 0 {
+			gain = 3.0
+		}
+		r.gains[name] = NewGainController(gain)
 		if !cam.Enabled {
 			continue
 		}
@@ -170,6 +207,29 @@ func (r *Registry) DisableCamera(name string) {
 // UpdateConfig updates the stored config for a camera (used after save/toggle).
 func (r *Registry) UpdateConfig(name string, cam config.CameraConfig) {
 	r.configs[name] = cam
+	// Sync the gain controller if the config gain changed.
+	gain := cam.Gain
+	if gain <= 0 {
+		gain = 3.0
+	}
+	if gc, ok := r.gains[name]; ok {
+		gc.Set(gain)
+	} else {
+		r.gains[name] = NewGainController(gain)
+	}
+}
+
+// GetGain returns the GainController for a camera, or nil if not found.
+func (r *Registry) GetGain(name string) *GainController {
+	return r.gains[name]
+}
+
+// SetGain updates the runtime gain for a camera. Takes effect on the next
+// audio chunk — no need to restart playback.
+func (r *Registry) SetGain(name string, gain float64) {
+	if gc, ok := r.gains[name]; ok {
+		gc.Set(gain)
+	}
 }
 
 // Get returns the Speaker for a camera name.

@@ -55,13 +55,31 @@ func NewGo2rtcClient(go2rtcURL, stream, ip, advertiseIP, name string) *Go2rtcCli
 // SendRaw plays a raw G.711ulaw 8kHz file on the camera via go2rtc.
 // It starts a temporary HTTP server to serve the file, then tells go2rtc
 // to fetch and transcode it.
-func (c *Go2rtcClient) SendRaw(rawFile string) (SendTiming, error) {
+func (c *Go2rtcClient) SendRaw(rawFile string, gc *GainController) (SendTiming, error) {
 	// Reset stopped flag from any previous Stop() call
 	c.activeMu.Lock()
 	c.stopped = false
 	c.activeMu.Unlock()
 
-	// Start a temporary HTTP server to serve the raw file
+	// Read the file and apply gain in memory (go2rtc fetches the file via
+	// HTTP, so we can't apply gain per-chunk like Hikvision — but we can
+	// apply it once before serving).
+	audioData, err := os.ReadFile(rawFile)
+	if err != nil {
+		return SendTiming{}, fmt.Errorf("reading audio file: %w", err)
+	}
+	if gc != nil {
+		gain := gc.Get()
+		if gain == 0 {
+			for i := range audioData {
+				audioData[i] = 128
+			}
+		} else if gain != 1.0 {
+			util.ApplyGainMulaw(audioData, gain)
+		}
+	}
+
+	// Start a temporary HTTP server to serve the gain-adjusted audio
 	listener, err := net.Listen("tcp", ":0")
 	if err != nil {
 		return SendTiming{}, fmt.Errorf("starting temp server: %w", err)
@@ -81,10 +99,9 @@ func (c *Go2rtcClient) SendRaw(rawFile string) (SendTiming, error) {
 	fileName := filepath.Base(rawFile)
 	srv := &http.Server{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Set Content-Type so ffmpeg probes the stream as mulaw audio,
-			// not rawvideo (which is the default for unknown/.raw extensions).
 			w.Header().Set("Content-Type", "audio/mulaw")
-			http.ServeFile(w, r, rawFile)
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(audioData)))
+			_, _ = w.Write(audioData)
 		}),
 	}
 
@@ -188,7 +205,7 @@ func (c *Go2rtcClient) Stream(r io.Reader) error {
 		return err
 	}
 	tmp.Close()
-	_, err = c.SendRaw(tmp.Name())
+	_, err = c.SendRaw(tmp.Name(), nil)
 	return err
 }
 

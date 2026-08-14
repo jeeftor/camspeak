@@ -173,7 +173,7 @@ func runTestGo2rtc(cmd *cobra.Command, args []string) error {
 			// Create a go2rtc client and send
 			advertiseIP := os.Getenv("CAMSPEAK_ADVERTISE_IP")
 			client := cameras.NewGo2rtcClient(go2rtcURL, tgStream, "", advertiseIP, "test-go2rtc")
-			if _, err := client.SendRaw(raw); err != nil {
+			if _, err := client.SendRaw(raw, nil); err != nil {
 				fmt.Println(tgStyleErr.Render("FAILED"))
 				fmt.Printf("  %s %v\n\n", tgStyleErr.Render("ERROR:"), err)
 				return err

@@ -118,9 +118,8 @@ func (h *Handlers) speakText(log *clog.Logger, cameraName, text, voice string, g
 		voice = h.cfg.TTS.DefaultVoice
 	}
 
-	if gain <= 0 {
-		gain = 3.0 // default boost
-	}
+	// Gain is now applied at send time via GainController (per-chunk).
+	// Transcode at unity so the raw file is clean; volume is adjusted live.
 
 	ttsStart := time.Now()
 	wav, err := h.tts.Speak(text, voice)
@@ -141,7 +140,7 @@ func (h *Handlers) speakText(log *clog.Logger, cameraName, text, voice string, g
 	)
 
 	transcodeStart := time.Now()
-	rawPath, err := wavBytesToRawWithPrime(wav, h.tmpDir, gain, h.cfg.PrimeSilenceMs)
+	rawPath, err := wavBytesToRawWithPrime(wav, h.tmpDir, 1.0, h.cfg.PrimeSilenceMs)
 	if err != nil {
 		return t, fmt.Errorf("transcoding: %w", err)
 	}
@@ -150,7 +149,7 @@ func (h *Handlers) speakText(log *clog.Logger, cameraName, text, voice string, g
 
 	log.Debug("speak: sending to camera", "camera", cameraName)
 	setPlayback(cameraName, "speak", text)
-	sendTiming, err := cam.SendRaw(rawPath)
+	sendTiming, err := cam.SendRaw(rawPath, h.reg.GetGain(cameraName))
 	if err != nil {
 		clearPlayback(cameraName)
 		return t, fmt.Errorf("sending to camera: %w", err)
@@ -198,22 +197,10 @@ func (h *Handlers) playPreset(
 	}
 	t.Add("load_ms", loadStart)
 
-	// If gain is specified, re-transcode the raw file with the gain filter.
-	// The stored raw is already G.711ulaw 8kHz, so we read it as mulaw and
-	// apply volume, then output mulaw again.
+	// Gain is now applied at send time (per-chunk in SendRaw via GainController),
+	// so we no longer need to pre-transcode with boostRawGain. The raw preset
+	// file is sent as-is; the GainController scales each 100ms chunk in real-time.
 	sendPath := preset.RawPath
-	cleanupPath := ""
-	if gain > 0 && gain != 3.0 {
-		boostStart := time.Now()
-		boosted, err := boostRawGain(preset.RawPath, h.tmpDir, gain)
-		if err != nil {
-			log.Warn("play: gain boost failed, sending original", "err", err)
-		} else {
-			sendPath = boosted
-			cleanupPath = boosted
-		}
-		t.Add("transcode_ms", boostStart)
-	}
 
 	// Prepend prime silence to warm the camera's audio engine.
 	if h.cfg.PrimeSilenceMs > 0 {
@@ -221,14 +208,9 @@ func (h *Handlers) playPreset(
 		if err != nil {
 			log.Warn("play: prime silence failed, sending without", "err", err)
 		} else if primed != sendPath {
-			if cleanupPath != "" {
-				defer os.Remove(cleanupPath)
-			}
 			defer os.Remove(primed)
 			sendPath = primed
 		}
-	} else if cleanupPath != "" {
-		defer os.Remove(cleanupPath)
 	}
 
 	log.Debug(
@@ -250,7 +232,7 @@ func (h *Handlers) playPreset(
 	}
 
 	setPlayback(cameraName, "play", preset.Name)
-	sendTiming, err := cam.SendRaw(sendPath)
+	sendTiming, err := cam.SendRaw(sendPath, h.reg.GetGain(cameraName))
 	if err != nil {
 		clearPlayback(cameraName)
 		return t, fmt.Errorf("sending to camera: %w", err)

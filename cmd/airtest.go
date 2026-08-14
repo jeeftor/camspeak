@@ -302,7 +302,7 @@ func (b *airtestBufferedSpeaker) SendRaw(rawFile string) (airplay.SendTiming, er
 	if b.noSend {
 		return airplay.SendTiming{}, nil
 	}
-	t, err := b.cam.SendRaw(rawFile)
+	t, err := b.cam.SendRaw(rawFile, nil)
 	return airplay.SendTiming{OpenMs: t.OpenMs, PlaybackMs: t.PlaybackMs}, err
 }
 
@@ -328,7 +328,7 @@ func (b *airtestBufferedSpeaker) Stream(r io.Reader) error {
 	}
 
 	b.log.Info("Sending buffered audio to camera", "file", path)
-	if _, err := b.cam.SendRaw(path); err != nil {
+	if _, err := b.cam.SendRaw(path, nil); err != nil {
 		return fmt.Errorf("sending to camera: %w", err)
 	}
 	b.log.Info("Buffered audio sent to camera")

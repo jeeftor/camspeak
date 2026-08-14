@@ -348,7 +348,7 @@ func (h *Handlers) Describe(c echo.Context) error {
 	}
 
 	transcodeStart := time.Now()
-	rawPath, err := wavBytesToRawWithPrime(wav, h.tmpDir, gain, h.cfg.PrimeSilenceMs)
+	rawPath, err := wavBytesToRawWithPrime(wav, h.tmpDir, 1.0, h.cfg.PrimeSilenceMs)
 	if err != nil {
 		return echo.NewHTTPError(
 			http.StatusInternalServerError,
@@ -363,7 +363,7 @@ func (h *Handlers) Describe(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
 
-	sendTiming, err := cam.SendRaw(rawPath)
+	sendTiming, err := cam.SendRaw(rawPath, h.reg.GetGain(req.Camera))
 	if err != nil {
 		log.Error("describe: send failed", "camera", req.Camera, "err", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())

@@ -126,7 +126,7 @@ func (c *HikvisionClient) closeChannel(sessionID string) {
 // By using a raw TCP connection, we can write all the data at 8000
 // bytes/sec before reading the response — matching curl's behavior
 // with --limit-rate.
-func (c *HikvisionClient) SendRaw(rawFile string) (SendTiming, error) {
+func (c *HikvisionClient) SendRaw(rawFile string, gc *GainController) (SendTiming, error) {
 	// If a long-running Stream session is active (e.g. AirPlay), interrupt it
 	// so this send doesn't block indefinitely. The audioStream reconnect loop
 	// will reopen the session automatically once SendRaw completes.
@@ -182,7 +182,7 @@ func (c *HikvisionClient) SendRaw(rawFile string) (SendTiming, error) {
 
 	c.log.Info("send: streaming audio", "ip", c.ip, "session", sessionID, "bytes", size)
 
-	timing, err := c.sendAudioRaw(sessionID, data)
+	timing, err := c.sendAudioRaw(sessionID, data, gc)
 	if err != nil {
 		c.log.Debug("send: upload failed", "ip", c.ip, "err", err)
 		return SendTiming{}, fmt.Errorf("sending audio to %s: %w", c.ip, err)
@@ -324,7 +324,7 @@ func (c *HikvisionClient) Stop() error {
 
 // sendAudioRaw opens a raw TCP connection and sends the audio data
 // with digest auth, throttled to 8000 bytes/sec.
-func (c *HikvisionClient) sendAudioRaw(sessionID string, data []byte) (SendTiming, error) {
+func (c *HikvisionClient) sendAudioRaw(sessionID string, data []byte, gc *GainController) (SendTiming, error) {
 	path := fmt.Sprintf(
 		"/ISAPI/System/TwoWayAudio/channels/%d/audioData?sessionId=%s",
 		c.channel,
@@ -355,7 +355,7 @@ func (c *HikvisionClient) sendAudioRaw(sessionID string, data []byte) (SendTimin
 	deadline := time.Now().Add(time.Duration(int64(len(data))/8000+5) * time.Second)
 	_ = conn2.SetDeadline(deadline)
 
-	return c.sendAudioWithAuth(conn2, path, host, authHeader, data)
+	return c.sendAudioWithAuth(conn2, path, host, authHeader, data, gc)
 }
 
 // sendAudioWithAuth sends the PUT request with the audio body, throttled to 8000 bytes/sec.
@@ -364,6 +364,7 @@ func (c *HikvisionClient) sendAudioWithAuth(
 	conn net.Conn,
 	path, host, authHeader string,
 	data []byte,
+	gc *GainController,
 ) (SendTiming, error) {
 	size := int64(len(data))
 	start := time.Now()
@@ -384,17 +385,34 @@ func (c *HikvisionClient) sendAudioWithAuth(
 		return SendTiming{}, fmt.Errorf("writing request headers: %w", err)
 	}
 
-	// Write body at 8000 bytes/sec (800 bytes per 100ms chunk)
+	// Write body at 8000 bytes/sec (800 bytes per 100ms chunk).
+	// Gain is applied per-chunk so volume changes take effect on the
+	// next 100ms slice without restarting playback.
 	chunkSize := 800
 	totalWritten := 0
 	firstChunk := true
 	var openMs int64
+	chunkBuf := make([]byte, chunkSize)
 	for totalWritten < len(data) {
 		end := totalWritten + chunkSize
 		if end > len(data) {
 			end = len(data)
 		}
-		n, err := conn.Write(data[totalWritten:end])
+		copy(chunkBuf, data[totalWritten:end])
+		// Apply runtime gain if a GainController is provided.
+		// gain=1.0 is unity (no change), gain=0 is mute, gain=3.0 is 3x.
+		if gc != nil {
+			gain := gc.Get()
+			if gain == 0 {
+				// Mute: fill with µ-law silence (byte 128).
+				for i := range chunkBuf[:end-totalWritten] {
+					chunkBuf[i] = 128
+				}
+			} else if gain != 1.0 {
+				util.ApplyGainMulaw(chunkBuf[:end-totalWritten], gain)
+			}
+		}
+		n, err := conn.Write(chunkBuf[:end-totalWritten])
 		if err != nil {
 			// Check if Stop() was called — if so, this is an intentional
 			// cancellation, not a real error.

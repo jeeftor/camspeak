@@ -14,6 +14,8 @@ import (
 	"github.com/bluenviron/gortsplib/v4/pkg/format"
 	"github.com/bluenviron/mediacommon/v2/pkg/codecs/g711"
 	clog "github.com/charmbracelet/log"
+
+	"github.com/jeeftor/camspeak/internal/util"
 )
 
 // OnvifClient plays audio on a camera via ONVIF RTSP backchannel.
@@ -58,7 +60,7 @@ func findG711BackChannel(desc *description.Session) (*description.Media, *format
 // SendRaw plays a raw G.711ulaw 8kHz file on the camera via RTSP backchannel.
 // It reads the raw file, converts G.711ulaw → LPCM, encodes to RTP, and
 // sends packets at real-time speed (8000 samples/sec).
-func (c *OnvifClient) SendRaw(rawFile string) (SendTiming, error) {
+func (c *OnvifClient) SendRaw(rawFile string, gc *GainController) (SendTiming, error) {
 	// Reset stopped flag from any previous Stop() call
 	c.activeMu.Lock()
 	c.stopped = false
@@ -72,6 +74,20 @@ func (c *OnvifClient) SendRaw(rawFile string) (SendTiming, error) {
 
 	if len(rawData) == 0 {
 		return SendTiming{}, fmt.Errorf("raw file is empty")
+	}
+
+	// Apply runtime gain to the entire buffer (ONVIF sends via RTP packets,
+	// not a throttled TCP stream, so per-chunk gain wouldn't help — but
+	// applying once before sending is equivalent to what the old pre-transcode did).
+	if gc != nil {
+		gain := gc.Get()
+		if gain == 0 {
+			for i := range rawData {
+				rawData[i] = 128
+			}
+		} else if gain != 1.0 {
+			util.ApplyGainMulaw(rawData, gain)
+		}
 	}
 
 	// Parse the RTSP URL
@@ -243,7 +259,7 @@ func (c *OnvifClient) Stream(r io.Reader) error {
 		return err
 	}
 	tmp.Close()
-	_, err = c.SendRaw(tmp.Name())
+	_, err = c.SendRaw(tmp.Name(), nil)
 	return err
 }
 

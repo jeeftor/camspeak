@@ -276,7 +276,7 @@ func (h *Handlers) PlayURL(c echo.Context) error {
 	rawName := raw.Name()
 	raw.Close()
 
-	if err := transcodeFileToRawGainWithPrime(tmpName, rawName, req.Gain, h.cfg.PrimeSilenceMs); err != nil {
+	if err := transcodeFileToRawGainWithPrime(tmpName, rawName, 1.0, h.cfg.PrimeSilenceMs); err != nil {
 		os.Remove(rawName)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
@@ -285,7 +285,7 @@ func (h *Handlers) PlayURL(c echo.Context) error {
 
 	log.Debug("play-url: sending to camera", "camera", req.Camera, "url", redactedURL)
 	setPlayback(req.Camera, "play-url", redactedURL)
-	if _, err := cam.SendRaw(rawName); err != nil {
+	if _, err := cam.SendRaw(rawName, h.reg.GetGain(req.Camera)); err != nil {
 		clearPlayback(req.Camera)
 		log.Error(
 			"play-url: send failed",
@@ -495,7 +495,7 @@ func (h *Handlers) Beep(c echo.Context) error {
 	start := time.Now()
 
 	setPlayback(req.Camera, "beep", "800Hz test tone")
-	if _, err := cam.SendRaw(raw); err != nil {
+	if _, err := cam.SendRaw(raw, h.reg.GetGain(req.Camera)); err != nil {
 		clearPlayback(req.Camera)
 		log.Error(
 			"beep: send failed",
