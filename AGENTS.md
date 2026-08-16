@@ -2,7 +2,35 @@
 
 Camera audio router — stream TTS and audio to IP camera speakers via Hikvision ISAPI, Reolink, go2rtc, or ONVIF RTSP backchannel.
 
-> **Related repo**: [camspeak-hacs](https://github.com/jeeftor/camspeak-hacs) — Home Assistant custom integration that wraps this server's REST API as media player entities and services. When the REST API changes here, update the HA integration's `api.py` to match.
+> **Related repo**: `../camspeak-hacs` (sibling checkout) — [camspeak-hacs](https://github.com/jeeftor/camspeak-hacs) Home Assistant custom integration that wraps this server's REST API as `media_player` entities and services. When the REST API changes here, update `custom_components/camspeak/api.py` in `../camspeak-hacs` to match.
+
+## Home Assistant integration (`camspeak-hacs`)
+
+The HACS integration in the sibling checkout `../camspeak-hacs` exposes each camspeak camera as a `media_player` entity and registers camspeak-specific services.
+
+- Key files in `../camspeak-hacs/custom_components/camspeak/`:
+  - `api.py` — async client wrapping the camspeak REST API; mirror any new endpoints here.
+  - `media_player.py` — `MediaPlayerEntity` per camera. Already supports the standard `media_player.play_media` service and routes by `media_content_type`: `url` → `/api/play-url`, `stream` → `/api/play-stream`, otherwise the value is treated as a preset name and sent to `/api/play`.
+  - `services.yaml` / `__init__.py` — registered services: `speak`, `play_preset`, `play_stream`, `play_url`, `broadcast`, `beep`, `stop`, `pause`, `resume`.
+  - `coordinator.py` — polls `/api/cameras` and `/api/playback` every 10s.
+
+### Media browser and generic `play_media`
+
+The HACS `media_player` now implements `async_browse_media` and a smarter `async_play_media`:
+
+- Camspeak library presets show up as a browseable source in HA's media browser (grouped by category).
+- `media_player.play_media` resolves HA `media-source://` URIs and auto-detects the camspeak endpoint:
+  - `camspeak://preset/<name>` → `/api/play`
+  - URL ending in/looking like a live stream (`.pls`, `.m3u`, `.m3u8`, `shoutcast`, `icecast`, `liveatc.net`, `/play/`, stream MIME types, etc.) → `/api/play-stream`
+  - Other URL (`http(s)://...` audio file, or `media_content_type` of `audio/*`, `music`, `url`) → `/api/play-url`
+  - Otherwise treat `media_content_id` as a preset name → `/api/play`
+- Keep the explicit `camspeak.play_stream` / `camspeak.play_url` / `camspeak.play_preset` services for callers that want explicit control.
+
+### Cross-repo workflow
+
+- Run backend changes from this repo (`make run`, `make test`).
+- Run HACS integration changes from `../camspeak-hacs` (`ruff check ...`). Tests run against the sibling `../ha/core` checkout — see `../camspeak-hacs/AGENTS.md` for the symlink + `PYTHONPATH` command.
+- When either repo's API contract changes, update the other repo's client code and bump the HACS `manifest.json` version.
 
 ## Build & Run
 
