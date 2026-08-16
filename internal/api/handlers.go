@@ -203,10 +203,6 @@ func (h *Handlers) PlayURL(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "camera and url required")
 	}
 
-	if req.Gain <= 0 {
-		req.Gain = 3.0
-	}
-
 	// Validate URL scheme to prevent SSRF (only http/https allowed), and
 	// derive a redacted URL for logging/event storage.
 	parsedURL, err := neturl.Parse(req.URL)
@@ -216,7 +212,7 @@ func (h *Handlers) PlayURL(c echo.Context) error {
 
 	redactedURL := util.RedactURL(parsedURL)
 
-	log.Info("play-url: request", "camera", req.Camera, "url", redactedURL, "gain", req.Gain)
+	log.Info("play-url: request", "camera", req.Camera, "url", redactedURL, "gain", h.effectiveGain(req.Camera, req.Gain))
 	start := time.Now()
 
 	cam, err := h.reg.Get(req.Camera)
@@ -285,7 +281,7 @@ func (h *Handlers) PlayURL(c echo.Context) error {
 
 	log.Debug("play-url: sending to camera", "camera", req.Camera, "url", redactedURL)
 	setPlayback(req.Camera, "play-url", redactedURL)
-	if _, err := cam.SendRaw(rawName, h.reg.GetGain(req.Camera)); err != nil {
+	if _, err := cam.SendRaw(rawName, h.gainForCall(req.Camera, req.Gain)); err != nil {
 		clearPlayback(req.Camera)
 		log.Error(
 			"play-url: send failed",

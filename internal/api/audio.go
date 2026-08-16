@@ -107,6 +107,31 @@ func (h *Handlers) Broadcast(c echo.Context) error {
 
 // --- Internal helpers ---
 
+// gainForCall returns a GainController for a one-off audio send. If reqGain > 0
+// that value is used; otherwise the camera's current runtime gain is used.
+func (h *Handlers) gainForCall(camera string, reqGain float64) *cameras.GainController {
+	if reqGain > 0 {
+		return cameras.NewGainController(reqGain)
+	}
+	if gc := h.reg.GetGain(camera); gc != nil {
+		return gc
+	}
+	return cameras.NewGainController(3.0)
+}
+
+// effectiveGain returns the numeric gain to use for ffmpeg-based paths (streams
+// and looped presets). If reqGain > 0 it wins; otherwise the camera's current
+// runtime gain is used.
+func (h *Handlers) effectiveGain(camera string, reqGain float64) float64 {
+	if reqGain > 0 {
+		return reqGain
+	}
+	if gc := h.reg.GetGain(camera); gc != nil {
+		return gc.Get()
+	}
+	return 3.0
+}
+
 func (h *Handlers) speakText(log *clog.Logger, cameraName, text, voice string, gain float64) (*StepTimings, error) {
 	t := NewStepTimings(3)
 	cam, err := h.reg.Get(cameraName)
@@ -149,7 +174,7 @@ func (h *Handlers) speakText(log *clog.Logger, cameraName, text, voice string, g
 
 	log.Debug("speak: sending to camera", "camera", cameraName)
 	setPlayback(cameraName, "speak", text)
-	sendTiming, err := cam.SendRaw(rawPath, h.reg.GetGain(cameraName))
+	sendTiming, err := cam.SendRaw(rawPath, h.gainForCall(cameraName, gain))
 	if err != nil {
 		clearPlayback(cameraName)
 		return t, fmt.Errorf("sending to camera: %w", err)
@@ -228,11 +253,11 @@ func (h *Handlers) playPreset(
 	)
 
 	if loop {
-		return h.playPresetLooped(log, cam, cameraName, preset, sendPath, t)
+		return h.playPresetLooped(log, cam, cameraName, preset, sendPath, t, gain)
 	}
 
 	setPlayback(cameraName, "play", preset.Name)
-	sendTiming, err := cam.SendRaw(sendPath, h.reg.GetGain(cameraName))
+	sendTiming, err := cam.SendRaw(sendPath, h.gainForCall(cameraName, gain))
 	if err != nil {
 		clearPlayback(cameraName)
 		return t, fmt.Errorf("sending to camera: %w", err)
@@ -265,17 +290,19 @@ func (h *Handlers) playPresetLooped(
 	preset *library.Preset,
 	rawPath string,
 	t *StepTimings,
+	gain float64,
 ) (*StepTimings, error) {
 	// Stop any existing stream for this camera first.
 	stopStream(cameraName)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Build audio filter: gain is already applied to rawPath if needed.
+	// Build audio filter: volume applies the requested/camera gain, and
 	// adelay adds prime silence at the start of each loop iteration.
-	af := ""
+	g := h.effectiveGain(cameraName, gain)
+	af := fmt.Sprintf("volume=%.2f", g)
 	if h.cfg.PrimeSilenceMs > 0 {
-		af = fmt.Sprintf("adelay=%d|%d", h.cfg.PrimeSilenceMs, h.cfg.PrimeSilenceMs)
+		af = fmt.Sprintf("adelay=%d|%d,volume=%.2f", h.cfg.PrimeSilenceMs, h.cfg.PrimeSilenceMs, g)
 	}
 
 	args := []string{
@@ -338,9 +365,9 @@ func (h *Handlers) SpeakForMQTT(cams []string, text, preset, voice string, loop 
 			defer wg.Done()
 
 			if preset != "" {
-				_, _ = h.playPreset(h.log, c, "", preset, 3.0, loop)
+				_, _ = h.playPreset(h.log, c, "", preset, 0, loop)
 			} else if text != "" {
-				_, _ = h.speakText(h.log, c, text, voice, 3.0)
+				_, _ = h.speakText(h.log, c, text, voice, 0)
 			}
 		}(cam)
 	}

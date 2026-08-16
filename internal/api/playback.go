@@ -8,7 +8,7 @@ import (
 // PlaybackState describes what a camera is currently doing audio-wise.
 // State is one of: "playing", "paused", "idle".
 // Source is the action that started playback: "stream", "speak", "play",
-// "play-url", "beep", "broadcast".
+// "play-url", "beep".
 // Detail is a human-readable identifier — the stream URL, TTS text, preset
 // name, etc.
 type PlaybackState struct {

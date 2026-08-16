@@ -20,23 +20,24 @@ func (h *Handlers) ListCamerasConfig(c echo.Context) error {
 	}
 	cameras := make([]map[string]interface{}, 0, len(h.cfg.Cameras))
 	for name, cam := range h.cfg.Cameras {
+		sc := cam.Sanitized()
 		cameras = append(cameras, map[string]interface{}{
 			"name":            name,
-			"type":            cam.Type,
-			"ip":              cam.IP,
-			"user":            cam.User,
-			"channel":         cam.Channel,
-			"stream":          cam.Stream,
-			"enabled":         cam.Enabled,
-			"airplay_enabled": cam.AirPlayEnabled,
-			"airplay_name":    cam.AirPlayName,
-			"airplay_model":   cam.AirPlayModel,
-			"gain":            cam.Gain,
+			"type":            sc.Type,
+			"ip":              sc.IP,
+			"user":            sc.User,
+			"channel":         sc.Channel,
+			"stream":          sc.Stream,
+			"enabled":         sc.Enabled,
+			"airplay_enabled": sc.AirPlayEnabled,
+			"airplay_name":    sc.AirPlayName,
+			"airplay_model":   sc.AirPlayModel,
+			"gain":            sc.Gain,
 			"airplay_running": apStatus[name],
-			"vision_prompt":   cam.VisionPrompt,
-			"vision_stream":   cam.VisionStream,
-			"vision_width":    cam.VisionWidth,
-			"note":            cam.Note,
+			"vision_prompt":   sc.VisionPrompt,
+			"vision_stream":   sc.VisionStream,
+			"vision_width":    sc.VisionWidth,
+			"note":            sc.Note,
 		})
 	}
 	return c.JSON(http.StatusOK, cameras)

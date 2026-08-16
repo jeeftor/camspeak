@@ -775,7 +775,9 @@ const openAPISpec = `{
           "text": {"type": "string", "example": "Announcement text"},
           "voice": {"type": "string", "example": "af_sky"},
           "preset": {"type": "string", "description": "Preset name (alternative to text)"},
-          "gain": {"type": "number", "default": 3.0}
+          "category": {"type": "string", "example": "alerts"},
+          "gain": {"type": "number", "default": 3.0},
+          "loop": {"type": "boolean", "default": false, "description": "If true and a preset is used, loop it infinitely (pausable/resumable)"}
         }
       },
       "PlayRequest": {
