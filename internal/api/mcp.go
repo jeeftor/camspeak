@@ -2,11 +2,16 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/jeeftor/camspeak/internal/config"
 )
 
 // buildMCPServer creates an MCP server exposing camspeak tools.
@@ -305,6 +310,116 @@ func buildMCPServer(h *Handlers) *mcp.Server {
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: strings.Join(lines, "\n")}}}, GetPlaybackOutput{}, nil
 	})
 
+	// list_voices — list available TTS voices
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "list_voices",
+		Description: "List the available TTS voices for speak and generate_preset",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in ListVoicesInput) (*mcp.CallToolResult, ListVoicesOutput, error) {
+		voices := h.tts.Voices()
+		if len(voices) == 0 {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "No voices available"}}}, ListVoicesOutput{}, nil
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: strings.Join(voices, "\n")}}}, ListVoicesOutput{}, nil
+	})
+
+	// tts_preview — generate a TTS sample and return it as base64 WAV
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "tts_preview",
+		Description: "Generate a TTS preview for a voice and return it as a base64 WAV string",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in TTSPreviewInput) (*mcp.CallToolResult, TTSPreviewOutput, error) {
+		if in.Text == "" {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "text required"}}}, TTSPreviewOutput{}, nil
+		}
+		voice := in.Voice
+		if voice == "" {
+			voice = h.cfg.TTS.DefaultVoice
+		}
+		start := time.Now()
+		wav, err := h.tts.Speak(in.Text, voice)
+		if err != nil {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("TTS failed: %s", err)}}}, TTSPreviewOutput{}, nil
+		}
+		b64 := base64.StdEncoding.EncodeToString(wav)
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("TTS preview generated in %dms (voice=%s)\n%s", time.Since(start).Milliseconds(), voice, b64)}}}, TTSPreviewOutput{}, nil
+	})
+
+	// set_volume — set runtime gain for a camera
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "set_volume",
+		Description: "Set the runtime volume gain for a camera (0-10). Takes effect immediately on the next audio chunk and persists across restarts.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in SetVolumeInput) (*mcp.CallToolResult, SetVolumeOutput, error) {
+		if in.Camera == "" {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "camera required"}}}, SetVolumeOutput{}, nil
+		}
+		if in.Gain < 0 {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "gain must be >= 0"}}}, SetVolumeOutput{}, nil
+		}
+		h.reg.SetGain(in.Camera, in.Gain)
+		h.cfgMu.Lock()
+		cam, ok := h.cfg.Cameras[in.Camera]
+		if ok {
+			cam.Gain = in.Gain
+			h.cfg.Cameras[in.Camera] = cam
+			if err := config.SaveCamera(h.db, in.Camera, cam); err != nil {
+				h.log.Warn("volume: failed to persist gain", "camera", in.Camera, "err", err)
+			}
+		}
+		h.cfgMu.Unlock()
+		h.log.Info("volume: set", "camera", in.Camera, "gain", in.Gain)
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Volume set for %s to %.1f", in.Camera, in.Gain)}}}, SetVolumeOutput{}, nil
+	})
+
+	// delete_preset — remove a preset from the library
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "delete_preset",
+		Description: "Delete a saved audio preset from the library",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in DeletePresetInput) (*mcp.CallToolResult, DeletePresetOutput, error) {
+		if in.Category == "" || in.Name == "" {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "category and name required"}}}, DeletePresetOutput{}, nil
+		}
+		if err := h.store.Delete(in.Category, in.Name); err != nil {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, DeletePresetOutput{}, nil
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Deleted %s/%s", in.Category, in.Name)}}}, DeletePresetOutput{}, nil
+	})
+
+	// rename_preset — rename or recategorize a preset
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "rename_preset",
+		Description: "Rename or move a preset to a new category (or both)",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in RenamePresetInput) (*mcp.CallToolResult, RenamePresetOutput, error) {
+		if in.Category == "" || in.Name == "" {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "category and name required"}}}, RenamePresetOutput{}, nil
+		}
+		if in.NewName == "" && in.NewCategory == "" {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "new_name or new_category required"}}}, RenamePresetOutput{}, nil
+		}
+		preset, err := h.store.Rename(in.Category, in.Name, in.NewCategory, in.NewName)
+		if err != nil {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, RenamePresetOutput{}, nil
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Renamed to %s/%s", preset.Category, preset.Name)}}}, RenamePresetOutput{}, nil
+	})
+
+	// upload_job_status — poll an async upload/transcode job
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "upload_job_status",
+		Description: "Poll the status of an asynchronous audio upload/transcode job",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in UploadJobStatusInput) (*mcp.CallToolResult, UploadJobStatusOutput, error) {
+		if in.JobID == "" {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "job_id required"}}}, UploadJobStatusOutput{}, nil
+		}
+		job := getUploadJob(in.JobID)
+		if job == nil {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "job not found"}}}, UploadJobStatusOutput{}, nil
+		}
+		b, err := json.Marshal(job)
+		if err != nil {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, UploadJobStatusOutput{}, nil
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, UploadJobStatusOutput{}, nil
+	})
+
 	// get_events — query historical event log
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "get_events",
@@ -436,3 +551,43 @@ type PlayURLInput struct {
 }
 
 type PlayURLOutput struct{}
+
+type ListVoicesInput struct{}
+
+type ListVoicesOutput struct{}
+
+type TTSPreviewInput struct {
+	Text  string `json:"text" jsonschema:"text to synthesize,required"`
+	Voice string `json:"voice,omitempty" jsonschema:"optional TTS voice (default: configured default)"`
+}
+
+type TTSPreviewOutput struct{}
+
+type SetVolumeInput struct {
+	Camera string  `json:"camera" jsonschema:"camera name,required"`
+	Gain   float64 `json:"gain" jsonschema:"volume gain 0-10,required"`
+}
+
+type SetVolumeOutput struct{}
+
+type DeletePresetInput struct {
+	Category string `json:"category" jsonschema:"preset category,required"`
+	Name     string `json:"name" jsonschema:"preset name,required"`
+}
+
+type DeletePresetOutput struct{}
+
+type RenamePresetInput struct {
+	Category    string `json:"category" jsonschema:"current category,required"`
+	Name        string `json:"name" jsonschema:"current name,required"`
+	NewCategory string `json:"new_category,omitempty" jsonschema:"new category (optional)"`
+	NewName     string `json:"new_name,omitempty" jsonschema:"new name (optional)"`
+}
+
+type RenamePresetOutput struct{}
+
+type UploadJobStatusInput struct {
+	JobID string `json:"job_id" jsonschema:"upload job id,required"`
+}
+
+type UploadJobStatusOutput struct{}
