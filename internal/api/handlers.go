@@ -3,6 +3,7 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -190,10 +191,111 @@ func (h *Handlers) Play(c echo.Context) error {
 	})
 }
 
+// playURLError is a structured error that lets the REST handler map to the
+// right HTTP status code while still exposing a plain message for the MCP tool.
+type playURLError struct {
+	status int
+	msg    string
+}
+
+func (e *playURLError) Error() string { return e.msg }
+
+// doPlayURL downloads an audio URL, transcodes it, and sends it to a camera.
+// It is shared by the REST handler and the MCP tool.
+func (h *Handlers) doPlayURL(log *clog.Logger, camera, rawURL string, gain float64) error {
+	// Validate URL scheme to prevent SSRF (only http/https allowed), and
+	// derive a redacted URL for logging/event storage.
+	parsedURL, err := neturl.Parse(rawURL)
+	if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
+		return &playURLError{http.StatusBadRequest, "url must be http or https"}
+	}
+
+	redactedURL := util.RedactURL(parsedURL)
+
+	log.Info("play-url: request", "camera", camera, "url", redactedURL, "gain", h.effectiveGain(camera, gain))
+	start := time.Now()
+
+	cam, err := h.reg.Get(camera)
+	if err != nil {
+		return &playURLError{http.StatusNotFound, err.Error()}
+	}
+
+	resp, err := http.Get(rawURL)
+	if err != nil {
+		log.Error("play-url: download failed", "camera", camera, "url", redactedURL, "err", err)
+		return &playURLError{http.StatusBadGateway, fmt.Sprintf("download failed: %s", err)}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		log.Error(
+			"play-url: download bad status",
+			"camera", camera,
+			"url", redactedURL,
+			"status", resp.StatusCode,
+		)
+		return &playURLError{http.StatusBadGateway, fmt.Sprintf("download returned HTTP %d", resp.StatusCode)}
+	}
+
+	tmp, err := os.CreateTemp(h.tmpDir, "camspeak_url_*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+
+	if _, err := io.Copy(tmp, resp.Body); err != nil {
+		tmp.Close()
+		return fmt.Errorf("saving download: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("closing temp file: %w", err)
+	}
+
+	// Transcode to raw
+	raw, err := os.CreateTemp(h.tmpDir, "camspeak_url_*.raw")
+	if err != nil {
+		return err
+	}
+	rawName := raw.Name()
+	raw.Close()
+
+	if err := transcodeFileToRawGainWithPrime(tmpName, rawName, 1.0, h.cfg.PrimeSilenceMs); err != nil {
+		os.Remove(rawName)
+		return err
+	}
+
+	defer os.Remove(rawName)
+
+	log.Debug("play-url: sending to camera", "camera", camera, "url", redactedURL)
+	setPlayback(camera, "play-url", redactedURL)
+	if _, err := cam.SendRaw(rawName, h.gainForCall(camera, gain)); err != nil {
+		clearPlayback(camera)
+		log.Error(
+			"play-url: send failed",
+			"camera", camera,
+			"elapsed", time.Since(start),
+			"err", err,
+		)
+		return err
+	}
+
+	log.Info(
+		"play-url: done",
+		"camera", camera,
+		"url", redactedURL,
+		"elapsed", time.Since(start),
+	)
+	h.events.publish(
+		event{Camera: camera, Action: "play-url", Text: redactedURL, At: time.Now()},
+	)
+	clearPlayback(camera)
+
+	return nil
+}
+
 // PlayURL handles POST /api/play-url — download URL → transcode → camera.
 func (h *Handlers) PlayURL(c echo.Context) error {
-	log := h.logger(c)
-
 	var req struct {
 		Camera string  `json:"camera"`
 		URL    string  `json:"url"`
@@ -203,112 +305,13 @@ func (h *Handlers) PlayURL(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "camera and url required")
 	}
 
-	// Validate URL scheme to prevent SSRF (only http/https allowed), and
-	// derive a redacted URL for logging/event storage.
-	parsedURL, err := neturl.Parse(req.URL)
-	if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
-		return echo.NewHTTPError(http.StatusBadRequest, "url must be http or https")
-	}
-
-	redactedURL := util.RedactURL(parsedURL)
-
-	log.Info("play-url: request", "camera", req.Camera, "url", redactedURL, "gain", h.effectiveGain(req.Camera, req.Gain))
-	start := time.Now()
-
-	cam, err := h.reg.Get(req.Camera)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, err.Error())
-	}
-
-	resp, err := http.Get(req.URL)
-	if err != nil {
-		log.Error("play-url: download failed", "camera", req.Camera, "url", redactedURL, "err", err)
-		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("download failed: %s", err))
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		log.Error(
-			"play-url: download bad status",
-			"camera",
-			req.Camera,
-			"url",
-			redactedURL,
-			"status",
-			resp.StatusCode,
-		)
-		return echo.NewHTTPError(
-			http.StatusBadGateway,
-			fmt.Sprintf("download returned HTTP %d", resp.StatusCode),
-		)
-	}
-
-	tmp, err := os.CreateTemp(h.tmpDir, "camspeak_url_*")
-	if err != nil {
+	if err := h.doPlayURL(h.logger(c), req.Camera, req.URL, req.Gain); err != nil {
+		var perr *playURLError
+		if errors.As(err, &perr) {
+			return echo.NewHTTPError(perr.status, perr.msg)
+		}
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-
-	if _, err := io.Copy(tmp, resp.Body); err != nil {
-		tmp.Close()
-		return echo.NewHTTPError(
-			http.StatusInternalServerError,
-			fmt.Sprintf("saving download: %s", err),
-		)
-	}
-	if err := tmp.Close(); err != nil {
-		return echo.NewHTTPError(
-			http.StatusInternalServerError,
-			fmt.Sprintf("closing temp file: %s", err),
-		)
-	}
-
-	// Transcode to raw
-	raw, err := os.CreateTemp(h.tmpDir, "camspeak_url_*.raw")
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	rawName := raw.Name()
-	raw.Close()
-
-	if err := transcodeFileToRawGainWithPrime(tmpName, rawName, 1.0, h.cfg.PrimeSilenceMs); err != nil {
-		os.Remove(rawName)
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-
-	defer os.Remove(rawName)
-
-	log.Debug("play-url: sending to camera", "camera", req.Camera, "url", redactedURL)
-	setPlayback(req.Camera, "play-url", redactedURL)
-	if _, err := cam.SendRaw(rawName, h.gainForCall(req.Camera, req.Gain)); err != nil {
-		clearPlayback(req.Camera)
-		log.Error(
-			"play-url: send failed",
-			"camera",
-			req.Camera,
-			"elapsed",
-			time.Since(start),
-			"err",
-			err,
-		)
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-
-	log.Info(
-		"play-url: done",
-		"camera",
-		req.Camera,
-		"url",
-		redactedURL,
-		"elapsed",
-		time.Since(start),
-	)
-	h.events.publish(
-		event{Camera: req.Camera, Action: "play-url", Text: redactedURL, At: time.Now()},
-	)
-	clearPlayback(req.Camera)
-
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
 

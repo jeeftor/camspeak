@@ -196,6 +196,24 @@ func buildMCPServer(h *Handlers) *mcp.Server {
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Streaming %s to %s", in.URL, in.Camera)}}}, PlayStreamOutput{}, nil
 	})
 
+	// play_url — download an audio URL and play it on a camera
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "play_url",
+		Description: "Download an audio file URL (mp3, wav, aac, etc.), transcode it, and play it on a camera speaker",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in PlayURLInput) (*mcp.CallToolResult, PlayURLOutput, error) {
+		if in.Camera == "" || in.URL == "" {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "camera and url required"}}}, PlayURLOutput{}, nil
+		}
+		gain := in.Gain
+		if gain == 0 {
+			gain = 3.0
+		}
+		if err := h.doPlayURL(h.log, in.Camera, in.URL, gain); err != nil {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, PlayURLOutput{}, nil
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Playing URL %s on %s", in.URL, in.Camera)}}}, PlayURLOutput{}, nil
+	})
+
 	// stop — stop audio on a camera (or all cameras)
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "stop",
@@ -410,3 +428,11 @@ type GetEventsInput struct {
 }
 
 type GetEventsOutput struct{}
+
+type PlayURLInput struct {
+	Camera string  `json:"camera" jsonschema:"the camera name,required"`
+	URL    string  `json:"url" jsonschema:"the audio file URL (http/https),required"`
+	Gain   float64 `json:"gain,omitempty" jsonschema:"optional volume gain (default 3.0)"`
+}
+
+type PlayURLOutput struct{}
