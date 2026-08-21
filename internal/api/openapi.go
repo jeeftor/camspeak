@@ -158,7 +158,7 @@ const openAPISpec = `{
       "post": {
         "tags": ["audio"],
         "summary": "Pause a live stream on a specific camera or all cameras",
-        "description": "Suspends the ffmpeg transcoder for an active /api/play-stream session or a looped preset (/api/play with loop=true) via SIGSTOP without tearing down the camera speaker connection. Playback position is preserved and can be resumed in place with POST /api/resume. Only affects streams and looped presets; finite TTS/play/beep sends are unaffected. If the camera is omitted, all active streams are paused.",
+        "description": "Suspends the ffmpeg transcoder for an active /api/play-stream session or a looped preset (/api/play with loop!=0) via SIGSTOP without tearing down the camera speaker connection. Playback position is preserved and can be resumed in place with POST /api/resume. Only affects streams and looped presets; finite TTS/play/beep sends are unaffected. If the camera is omitted, all active streams are paused.",
         "requestBody": {
           "required": false,
           "content": {
@@ -196,7 +196,7 @@ const openAPISpec = `{
       "post": {
         "tags": ["audio"],
         "summary": "Resume a paused live stream on a specific camera or all cameras",
-        "description": "Resumes a stream or looped preset previously paused with POST /api/pause by sending SIGCONT to the ffmpeg transcoder. Only affects streams started via /api/play-stream and looped presets started via /api/play with loop=true. If the camera is omitted, all paused streams are resumed.",
+        "description": "Resumes a stream or looped preset previously paused with POST /api/pause by sending SIGCONT to the ffmpeg transcoder. Only affects streams started via /api/play-stream and looped presets started via /api/play with loop!=0. If the camera is omitted, all paused streams are resumed.",
         "requestBody": {
           "required": false,
           "content": {
@@ -777,7 +777,7 @@ const openAPISpec = `{
           "preset": {"type": "string", "description": "Preset name (alternative to text)"},
           "category": {"type": "string", "example": "alerts"},
           "gain": {"type": "number", "default": 3.0},
-          "loop": {"type": "boolean", "default": false, "description": "If true and a preset is used, loop it infinitely (pausable/resumable)"}
+          "loop": {"type": "integer", "default": 0, "description": "Loop count: -1 = infinite (pausable/resumable), 0 = no loop (default), N = play N+1 times"}
         }
       },
       "PlayRequest": {
@@ -788,7 +788,7 @@ const openAPISpec = `{
           "preset": {"type": "string", "example": "person_detected"},
           "category": {"type": "string", "example": "alerts"},
           "gain": {"type": "number", "default": 3.0},
-          "loop": {"type": "boolean", "default": false, "description": "If true, loop the preset infinitely. Uses ffmpeg -stream_loop -1, so the loop can be paused/resumed/stopped like a live stream via /api/pause, /api/resume, /api/stop."}
+          "loop": {"type": "integer", "default": 0, "description": "Loop count: -1 = infinite, 0 = no loop (default), N = play N+1 times. Uses ffmpeg -stream_loop, so the loop can be paused/resumed/stopped like a live stream via /api/pause, /api/resume, /api/stop."}
         }
       },
       "PlayURLRequest": {

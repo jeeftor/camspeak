@@ -261,7 +261,7 @@ func loadRules(db *sql.DB, cfg *Config) {
 			continue
 		}
 		r.Enabled = enabled == 1
-		r.Loop = loop == 1
+		r.Loop = loop
 		r.Filter = parseFilterJSON(filterJSON)
 		r.Cameras = parseCSV(camerasCSV)
 		cfg.Rules = append(cfg.Rules, r)

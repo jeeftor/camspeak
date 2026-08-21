@@ -38,7 +38,7 @@
   let ruleText = $state('')
   let ruleVoice = $state('')
   let ruleEnabled = $state(true)
-  let ruleLoop = $state(false)
+  let ruleLoop = $state(0)
   let ruleStatus = $state('')
   let formOpen = $state(false)
 
@@ -323,7 +323,7 @@
       })
       ruleStatus = '✓ Saved'
       ruleTopic = 'frigate/events'; ruleFilter = ''; ruleCameras = ''
-      rulePreset = ''; ruleText = ''; ruleVoice = ''; ruleEnabled = true; ruleLoop = false
+      rulePreset = ''; ruleText = ''; ruleVoice = ''; ruleEnabled = true; ruleLoop = 0
       formOpen = false
       load()
     } catch (e) {
@@ -541,7 +541,7 @@
               <code class="text-sm font-mono text-primary">{r.topic}</code>
               <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
                 {#if r.cameras?.length}<span>→ {r.cameras.join(', ')}</span>{/if}
-                {#if r.preset}<span>preset: <span class="text-foreground/80">{r.preset}</span>{#if r.loop} <span class="text-primary">↻ loop</span>{/if}</span>{/if}
+                {#if r.preset}<span>preset: <span class="text-foreground/80">{r.preset}</span>{#if r.loop !== 0} <span class="text-primary">↻ {r.loop === -1 ? '∞' : `${r.loop + 1}x`}</span>{/if}</span>{/if}
                 {#if r.text}<span>says: <span class="italic text-foreground/80">"{r.text}"</span></span>{/if}
                 {#if r.voice}<span>voice: {r.voice}</span>{/if}
                 {#if Object.keys(r.filter ?? {}).length}
@@ -644,9 +644,9 @@
           <input type="checkbox" bind:checked={ruleEnabled} class="h-4 w-4 rounded border-input accent-primary" />
           Enabled
         </label>
-        <label class="flex items-center gap-2 text-sm text-muted-foreground" title="Loop the preset infinitely when triggered (pausable via /api/pause)">
-          <input type="checkbox" bind:checked={ruleLoop} class="h-4 w-4 rounded border-input accent-primary" />
-          Loop preset
+        <label class="flex items-center gap-2 text-sm text-muted-foreground" title="Loop count: -1 = infinite, 0 = no loop, N = play N+1 times (pausable via /api/pause)">
+          <input type="number" bind:value={ruleLoop} min="-1" step="1" class="w-16 rounded border-input accent-primary" placeholder="0" />
+          Loop count
         </label>
         <div class="flex items-center gap-3">
           <Button onclick={saveRule} disabled={!ruleTopic}>Save Rule</Button>

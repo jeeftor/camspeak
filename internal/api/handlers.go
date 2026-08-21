@@ -74,7 +74,7 @@ type playReq struct {
 	Preset   string  `json:"preset"`
 	Category string  `json:"category"`
 	Gain     float64 `json:"gain"`
-	Loop     bool    `json:"loop"`
+	Loop     int     `json:"loop"`
 }
 
 // broadcastReq is the body for POST /api/broadcast.
@@ -84,7 +84,7 @@ type broadcastReq struct {
 	Category string  `json:"category"`
 	Voice    string  `json:"voice"`
 	Gain     float64 `json:"gain"`
-	Loop     bool    `json:"loop"`
+	Loop     int     `json:"loop"`
 }
 
 // genPresetReq is the body for POST /api/library.

@@ -20,7 +20,7 @@
   let text = $state('')
   let voice = $state('')
   let preset = $state('')
-  let loopPreset = $state(false)
+  let loopPreset = $state(0)
   let url = $state('')
   let gain = $state(camera.gain ?? 3.0)
   let busy = $state(false)
@@ -103,7 +103,7 @@
     busy = true; status = ''
     try {
       const data = await apiClient.play({ camera: camera.name, preset, gain, loop: loopPreset })
-      if (loopPreset) {
+      if (loopPreset !== 0) {
         setStatus('✓ looping')
       } else {
         const timing = formatTimingSummary(data.timings, data.total_ms, data.ttfs_ms)
@@ -450,11 +450,11 @@
             <option value={p.name}>{p.category}/{p.name} ({formatSeconds(p.duration)})</option>
           {/each}
         </select>
-        <label class="flex items-center gap-1 text-xs text-muted-foreground whitespace-nowrap flex-shrink-0" title="Loop the preset infinitely (pausable)">
-          <input type="checkbox" bind:checked={loopPreset} disabled={busy} class="h-3.5 w-3.5" />
+        <label class="flex items-center gap-1 text-xs text-muted-foreground whitespace-nowrap flex-shrink-0" title="Loop count: -1 = infinite, 0 = no loop, N = play N+1 times (pausable)">
+          <input type="number" bind:value={loopPreset} min="-1" step="1" disabled={busy} class="w-14 rounded-md border border-input bg-transparent px-1.5 py-1 text-sm disabled:opacity-50" placeholder="0" />
           loop
         </label>
-        {#if streaming && playbackDetail?.endsWith('(loop)')}
+        {#if streaming && playbackDetail?.includes('(loop')}
           {#if paused}
             <Button size="sm" onclick={resumeStream} disabled={busy} aria-label="Resume" title="Resume looped preset" class="flex-shrink-0">
               <Play class="h-4 w-4" />

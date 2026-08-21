@@ -87,7 +87,7 @@ export interface Rule {
   preset: string
   text: string
   voice: string
-  loop: boolean
+  loop: number
   enabled: boolean
 }
 
@@ -166,7 +166,7 @@ export interface PlayReq {
   camera: string
   preset: string
   gain: number
-  loop?: boolean
+  loop?: number
 }
 
 export interface SaveCameraReq {

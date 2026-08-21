@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"sync"
 	"time"
 
@@ -201,7 +202,7 @@ func (h *Handlers) playPreset(
 	log *clog.Logger,
 	cameraName, category, presetName string,
 	gain float64,
-	loop bool,
+	loop int,
 ) (*StepTimings, error) {
 	t := NewStepTimings(3)
 	cam, err := h.reg.Get(cameraName)
@@ -252,8 +253,8 @@ func (h *Handlers) playPreset(
 		loop,
 	)
 
-	if loop {
-		return h.playPresetLooped(log, cam, cameraName, preset, sendPath, t, gain)
+	if loop != 0 {
+		return h.playPresetLooped(log, cam, cameraName, preset, sendPath, t, gain, loop)
 	}
 
 	setPlayback(cameraName, "play", preset.Name)
@@ -280,8 +281,9 @@ func (h *Handlers) playPreset(
 	return t, nil
 }
 
-// playPresetLooped plays a preset in an infinite loop using ffmpeg
-// -stream_loop -1, piped to cam.Stream(). This registers a streamSession
+// playPresetLooped plays a preset in a loop using ffmpeg -stream_loop,
+// piped to cam.Stream(). loop=-1 means infinite; loop=N (N>0) plays the
+// preset N+1 times (once + N loops). This registers a streamSession
 // so the loop can be paused, resumed, and stopped just like a live stream.
 func (h *Handlers) playPresetLooped(
 	log *clog.Logger,
@@ -291,6 +293,7 @@ func (h *Handlers) playPresetLooped(
 	rawPath string,
 	t *StepTimings,
 	gain float64,
+	loop int,
 ) (*StepTimings, error) {
 	// Stop any existing stream for this camera first.
 	stopStream(cameraName)
@@ -307,7 +310,7 @@ func (h *Handlers) playPresetLooped(
 
 	args := []string{
 		"-nostdin", "-loglevel", "error",
-		"-stream_loop", "-1", // loop forever
+		"-stream_loop", strconv.Itoa(loop), // -1 = infinite, N = N+1 plays
 		"-f", "mulaw", "-ar", "8000", "-ac", "1",
 		"-i", rawPath,
 	}
@@ -334,6 +337,9 @@ func (h *Handlers) playPresetLooped(
 	}
 
 	detail := preset.Name + " (loop)"
+	if loop > 0 {
+		detail = fmt.Sprintf("%s (loop %dx)", preset.Name, loop+1)
+	}
 	activeStreamsMu.Lock()
 	activeStreams[cameraName] = &streamSession{cmd: cmd, cancel: cancel, url: rawPath, started: now()}
 	activeStreamsMu.Unlock()
@@ -357,7 +363,7 @@ func (h *Handlers) playPresetLooped(
 }
 
 // SpeakForMQTT is called by the MQTT subscriber.
-func (h *Handlers) SpeakForMQTT(cams []string, text, preset, voice string, loop bool) {
+func (h *Handlers) SpeakForMQTT(cams []string, text, preset, voice string, loop int) {
 	var wg sync.WaitGroup
 	for _, cam := range cams {
 		wg.Add(1)
