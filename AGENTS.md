@@ -154,7 +154,7 @@ If a future camera type requires a different codec (e.g. AAC, G.722, ADPCM for n
 - `GET /swagger` — Swagger UI (interactive API explorer, CDN-hosted)
 - `GET /api/events` — SSE event stream
 - `POST /api/speak` — TTS to camera
-- `POST /api/play` — preset to camera (supports `loop: true` for infinite looping via ffmpeg -stream_loop; looped presets are pausable/resumable via /api/pause and /api/resume)
+- `POST /api/play` — preset to camera (supports `loop` integer: -1 = infinite, 0 = no loop, N = play N+1 times; looped presets are pausable/resumable via /api/pause and /api/resume)
 - `POST /api/play-url` — download audio URL → transcode → play on camera
 - `POST /api/play-stream` — live stream or playlist (.pls/.m3u) → camera (Hikvision, requires ffmpeg)
 - `POST /api/config/cameras` — create/update camera; includes `gain` per camera (default 3.0)
