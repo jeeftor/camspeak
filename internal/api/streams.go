@@ -48,12 +48,18 @@ func (h *Handlers) Streams(c echo.Context) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("go2rtc returned HTTP %d", resp.StatusCode))
+		return echo.NewHTTPError(
+			http.StatusBadGateway,
+			fmt.Sprintf("go2rtc returned HTTP %d", resp.StatusCode),
+		)
 	}
 
 	var raw go2rtcStreamsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("decoding go2rtc response: %s", err))
+		return echo.NewHTTPError(
+			http.StatusInternalServerError,
+			fmt.Sprintf("decoding go2rtc response: %s", err),
+		)
 	}
 
 	streams := make([]StreamInfo, 0, len(raw))

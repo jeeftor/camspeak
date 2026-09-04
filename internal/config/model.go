@@ -154,7 +154,7 @@ func (cfg Config) Sanitized() Config {
 	return out
 }
 
-var log = logging.New("config", clog.InfoLevel)
+var cfgLog = logging.New("config", clog.InfoLevel)
 
 // Defaults.
 const (

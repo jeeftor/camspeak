@@ -190,9 +190,27 @@ func TestSaveCameraWithNote(t *testing.T) {
 func TestListTTSPresets(t *testing.T) {
 	d := newTestDB(t)
 	presets := []TTSPreset{
-		{Name: "beta", Endpoint: "http://beta:8080", Model: "kokoro", DefaultVoice: "af_sky", IsActive: false},
-		{Name: "alpha", Endpoint: "http://alpha:8080", Model: "tts-1", DefaultVoice: "alloy", IsActive: false},
-		{Name: "gamma", Endpoint: "http://gamma:8080", Model: "kokoro", DefaultVoice: "af_bella", IsActive: true},
+		{
+			Name:         "beta",
+			Endpoint:     "http://beta:8080",
+			Model:        "kokoro",
+			DefaultVoice: "af_sky",
+			IsActive:     false,
+		},
+		{
+			Name:         "alpha",
+			Endpoint:     "http://alpha:8080",
+			Model:        "tts-1",
+			DefaultVoice: "alloy",
+			IsActive:     false,
+		},
+		{
+			Name:         "gamma",
+			Endpoint:     "http://gamma:8080",
+			Model:        "kokoro",
+			DefaultVoice: "af_bella",
+			IsActive:     true,
+		},
 	}
 	for _, p := range presets {
 		if err := SaveTTSPreset(d, p); err != nil {

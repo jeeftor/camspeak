@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -377,7 +378,15 @@ func (h *Handlers) Describe(c echo.Context) error {
 		sendTiming.PlaybackMs,
 	)
 
-	log.Info("describe: done", "camera", req.Camera, "elapsed", time.Since(start), "ttfs_ms", t.TTFS())
+	log.Info(
+		"describe: done",
+		"camera",
+		req.Camera,
+		"elapsed",
+		time.Since(start),
+		"ttfs_ms",
+		t.TTFS(),
+	)
 	h.events.publish(
 		event{Camera: req.Camera, Action: "describe", Text: description, At: time.Now()},
 	)
@@ -390,5 +399,146 @@ func (h *Handlers) Describe(c echo.Context) error {
 		"timings":     t.Ms(),
 		"ttfs_ms":     t.TTFS(),
 		"total_ms":    TotalMs(start),
+	})
+}
+
+// visionModelResult is a single model's result from VisionTestAll.
+type visionModelResult struct {
+	Model       string `json:"model"`
+	Description string `json:"description,omitempty"`
+	Error       string `json:"error,omitempty"`
+	TtfsMs      int64  `json:"ttfs_ms"`  // load + prefill (time to first token)
+	GenMs       int64  `json:"gen_ms"`   // token generation time
+	TotalMs     int64  `json:"total_ms"` // total wall-clock
+}
+
+// VisionTestAll handles POST /api/vision/test-all — runs the same image/prompt
+// against every model returned by /v1/models on the configured vision endpoint,
+// in parallel. Returns the image (base64 data URI) and per-model results.
+func (h *Handlers) VisionTestAll(c echo.Context) error {
+	log := h.logger(c)
+
+	var req struct {
+		Camera string `json:"camera"`
+		Prompt string `json:"prompt"`
+		Image  string `json:"image"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid request body")
+	}
+
+	h.cfgMu.Lock()
+	frigateURL := h.cfg.FrigateURL
+	visionClient := h.vision
+	h.cfgMu.Unlock()
+
+	if visionClient == nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "vision model not configured")
+	}
+
+	// Resolve image bytes.
+	var imageBytes []byte
+	var imageDataURI string
+
+	if req.Image != "" {
+		b64Data := req.Image
+		if idx := strings.IndexByte(b64Data, ','); idx > 0 && len(b64Data) > 5 &&
+			b64Data[:5] == "data:" {
+			b64Data = b64Data[idx+1:]
+		}
+		decoded, err := base64.StdEncoding.DecodeString(b64Data)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, "invalid base64 image")
+		}
+		imageBytes = decoded
+		imageDataURI = req.Image
+	} else {
+		if req.Camera == "" {
+			return echo.NewHTTPError(http.StatusBadRequest, "camera required (or provide image)")
+		}
+		h.cfgMu.Lock()
+		camCfg := h.cfg.Cameras[req.Camera]
+		h.cfgMu.Unlock()
+
+		var snapErr error
+		imageBytes, snapErr = h.fetchSnapshot(c.Request().Context(), req.Camera, camCfg, frigateURL)
+		if snapErr != nil {
+			return echo.NewHTTPError(http.StatusBadGateway, snapErr.Error())
+		}
+		imageDataURI = "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(imageBytes)
+	}
+
+	// Fetch available models from the vision endpoint.
+	modelsURL := visionClient.URL()
+	if idx := strings.Index(modelsURL, "/v1/"); idx >= 0 {
+		modelsURL = modelsURL[:idx+4] + "models"
+	} else {
+		modelsURL = strings.TrimRight(modelsURL, "/") + "/v1/models"
+	}
+
+	httpReq, err := http.NewRequestWithContext(
+		c.Request().Context(),
+		http.MethodGet,
+		modelsURL,
+		nil,
+	)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if key := visionClient.APIKey(); key != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+key)
+	}
+	modelsResp, err := (&http.Client{Timeout: 10 * time.Second}).Do(httpReq)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("fetching models: %s", err))
+	}
+	defer modelsResp.Body.Close()
+
+	var modelsData struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(modelsResp.Body).Decode(&modelsData); err != nil ||
+		len(modelsData.Data) == 0 {
+		return echo.NewHTTPError(http.StatusBadGateway, "no models returned from vision endpoint")
+	}
+
+	models := make([]string, 0, len(modelsData.Data))
+	for _, m := range modelsData.Data {
+		if m.ID != "" {
+			models = append(models, m.ID)
+		}
+	}
+	log.Info("vision-test-all: running", "models", len(models), "prompt_len", len(req.Prompt))
+
+	// Run models sequentially — they share a GPU, parallel would thrash VRAM.
+	results := make([]visionModelResult, 0, len(models))
+	for _, model := range models {
+		log.Info("vision-test-all: testing model", "model", model)
+		desc, timing, err := visionClient.DescribeWithModelTimed(
+			imageBytes,
+			"image/jpeg",
+			req.Prompt,
+			model,
+		)
+		r := visionModelResult{
+			Model:   model,
+			TtfsMs:  timing.TtfsMs,
+			GenMs:   timing.GenMs,
+			TotalMs: timing.TotalMs,
+		}
+		if err != nil {
+			r.Error = err.Error()
+		} else {
+			r.Description = desc
+		}
+		results = append(results, r)
+	}
+
+	log.Info("vision-test-all: done", "models", len(models))
+	return c.JSON(http.StatusOK, map[string]any{
+		"image":   imageDataURI,
+		"results": results,
 	})
 }

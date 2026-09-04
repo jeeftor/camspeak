@@ -124,7 +124,15 @@ func (h *Handlers) Speak(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	log.Info("speak: done", "camera", req.Camera, "elapsed", time.Since(start), "ttfs_ms", timings.TTFS())
+	log.Info(
+		"speak: done",
+		"camera",
+		req.Camera,
+		"elapsed",
+		time.Since(start),
+		"ttfs_ms",
+		timings.TTFS(),
+	)
 	return c.JSON(http.StatusOK, map[string]any{
 		"status":   "ok",
 		"timings":  timings.Ms(),
@@ -212,7 +220,15 @@ func (h *Handlers) doPlayURL(log *clog.Logger, camera, rawURL string, gain float
 
 	redactedURL := util.RedactURL(parsedURL)
 
-	log.Info("play-url: request", "camera", camera, "url", redactedURL, "gain", h.effectiveGain(camera, gain))
+	log.Info(
+		"play-url: request",
+		"camera",
+		camera,
+		"url",
+		redactedURL,
+		"gain",
+		h.effectiveGain(camera, gain),
+	)
 	start := time.Now()
 
 	cam, err := h.reg.Get(camera)
@@ -234,7 +250,10 @@ func (h *Handlers) doPlayURL(log *clog.Logger, camera, rawURL string, gain float
 			"url", redactedURL,
 			"status", resp.StatusCode,
 		)
-		return &playURLError{http.StatusBadGateway, fmt.Sprintf("download returned HTTP %d", resp.StatusCode)}
+		return &playURLError{
+			http.StatusBadGateway,
+			fmt.Sprintf("download returned HTTP %d", resp.StatusCode),
+		}
 	}
 
 	tmp, err := os.CreateTemp(h.tmpDir, "camspeak_url_*")

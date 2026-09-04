@@ -74,7 +74,12 @@ func GenerateBeep(tmpDir string) (string, error) {
 // wavBytesToRawWithPrime writes WAV bytes to a temp file, transcodes to G.711ulaw raw,
 // and prepends primeMs of µ-law silence. gain controls the volume multiplier (1.0 = no boost).
 // Caller must os.Remove the returned path. primeMs <= 0 skips silence padding.
-func wavBytesToRawWithPrime(wavBytes []byte, tmpDir string, gain float64, primeMs int) (string, error) {
+func wavBytesToRawWithPrime(
+	wavBytes []byte,
+	tmpDir string,
+	gain float64,
+	primeMs int,
+) (string, error) {
 	wav, err := os.CreateTemp(tmpDir, "camspeak_tts_*.wav")
 	if err != nil {
 		return "", err

@@ -304,6 +304,20 @@ export interface VisionTestResponse {
   total_ms?: number
 }
 
+export interface VisionModelResult {
+  model: string
+  description?: string
+  error?: string
+  ttfs_ms: number
+  gen_ms: number
+  total_ms: number
+}
+
+export interface VisionTestAllResponse {
+  image: string
+  results: VisionModelResult[]
+}
+
 export interface SavePresetResponse {
   name?: string
   category?: string

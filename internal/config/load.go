@@ -203,7 +203,7 @@ func seedDefaultPresets(db *sql.DB) {
 			p.Description,
 			isActive,
 		); err != nil {
-			log.Error("seeding default TTS preset failed", "name", p.Name, "err", err)
+			cfgLog.Error("seeding default TTS preset failed", "name", p.Name, "err", err)
 		}
 	}
 }

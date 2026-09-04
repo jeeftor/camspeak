@@ -90,7 +90,10 @@ func QueryCameraInfo(cam config.CameraConfig) (CameraInfo, error) {
 		if err == nil && info.Online {
 			return info, nil
 		}
-		return info, fmt.Errorf("reolink settings query not supported (ONVIF fallback failed: %w)", err)
+		return info, fmt.Errorf(
+			"reolink settings query not supported (ONVIF fallback failed: %w)",
+			err,
+		)
 	case "go2rtc":
 		return CameraInfo{Type: "go2rtc", Online: false},
 			fmt.Errorf("go2rtc cameras do not expose device settings")
@@ -409,7 +412,9 @@ func queryOnvifInfo(ip, user, pass string) (CameraInfo, error) {
 	deviceURL := fmt.Sprintf("http://%s/onvif/device_service", ip)
 
 	// 1. GetDeviceInformation
-	soap := onvifSoapEnvelope(`<GetDeviceInformation xmlns="http://www.onvif.org/ver10/device/wsdl"/>`)
+	soap := onvifSoapEnvelope(
+		`<GetDeviceInformation xmlns="http://www.onvif.org/ver10/device/wsdl"/>`,
+	)
 	body, err := onvifSoapRequest(deviceURL, soap, user, pass,
 		"http://www.onvif.org/ver10/device/wsdl/GetDeviceInformation")
 	if err != nil {

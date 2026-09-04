@@ -7,6 +7,7 @@
   import Markdown from '$lib/components/Markdown.svelte'
   import { buildCurl } from '$lib/curl.svelte'
   import { apiClient } from '$lib/api'
+  import type { VisionModelResult } from '$lib/types'
   import { Tooltip } from '$lib/components/ui/tooltip'
   import { formatTimings, timingTooltipContent, isMobile } from '$lib/utils'
 
@@ -184,6 +185,41 @@
     status = ''
   }
 
+  // --- Test All Models ---
+  let allResults = $state<VisionModelResult[]>([])
+  let allImage = $state('')
+  let allBusy = $state(false)
+  let allStatus = $state('')
+
+  async function runTestAll() {
+    if (!selectedCamera && !image) {
+      setStatus('Select a camera or capture an image first', 'err')
+      return
+    }
+    allBusy = true
+    allResults = []
+    allStatus = 'Running…'
+    try {
+      const body: { image?: string; camera?: string; prompt: string } = { prompt }
+      if (image) {
+        body.image = image
+        body.camera = selectedCamera
+      } else {
+        body.camera = selectedCamera
+      }
+      const data = await apiClient.visionTestAll(body)
+      allImage = data.image || image
+      // Also update the main image if we just captured
+      if (!image && data.image) image = data.image
+      allResults = data.results
+      allStatus = `Done — ${data.results.length} model${data.results.length === 1 ? '' : 's'} tested`
+    } catch (e) {
+      allStatus = '✗ ' + e.message
+    } finally {
+      allBusy = false
+    }
+  }
+
   let curlCommand = $derived(
     buildCurl('POST', '/api/vision/test', image
       ? { camera: selectedCamera, prompt, image: '[base64 image data]' }
@@ -242,6 +278,16 @@
         Re-run with new prompt
       </Button>
     {/if}
+
+    <Button variant="outline" onclick={runTestAll} disabled={allBusy || busy || (!selectedCamera && !image)}
+      title="Run the current prompt against every model on the vision endpoint and compare results">
+      {#if allBusy}
+        <Loader2 class="h-4 w-4 animate-spin" />
+      {:else}
+        <Sparkles class="h-4 w-4" />
+      {/if}
+      Test All Models
+    </Button>
 
     {#if image}
       <Button variant="ghost" onclick={clearAll} disabled={busy} title="Clear snapshot and results">
@@ -387,6 +433,45 @@
           </div>
         {/each}
       </div>
+    </div>
+  {/if}
+
+  <!-- Test All Models results -->
+  {#if allBusy || allResults.length > 0}
+    <div class="flex flex-col gap-3">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-semibold text-foreground">Model Comparison</h3>
+        {#if allStatus}
+          <span class="text-xs text-muted-foreground">{allStatus}</span>
+        {/if}
+      </div>
+      {#if allBusy}
+        <div class="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 class="h-4 w-4 animate-spin" />
+          Running models sequentially (shared GPU)…
+        </div>
+      {/if}
+      {#if allResults.length > 0}
+        <div class="grid gap-3 sm:grid-cols-2">
+          {#each allResults as r (r.model)}
+            <div class="rounded-lg border bg-card p-3 flex flex-col gap-1.5">
+              <div class="flex items-center justify-between gap-2 flex-wrap">
+                <span class="text-xs font-mono font-semibold text-primary truncate" title={r.model}>{r.model}</span>
+                <span class="text-xs text-muted-foreground whitespace-nowrap">
+                  {#if r.total_ms}
+                    ⏱ {r.ttfs_ms}ms load · {r.gen_ms}ms gen · {r.total_ms}ms total
+                  {/if}
+                </span>
+              </div>
+              {#if r.error}
+                <p class="text-xs text-destructive">✗ {r.error}</p>
+              {:else}
+                <Markdown content={r.description ?? ''} class="text-sm text-foreground" />
+              {/if}
+            </div>
+          {/each}
+        </div>
+      {/if}
     </div>
   {/if}
 

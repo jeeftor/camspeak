@@ -188,7 +188,17 @@ func (c *HikvisionClient) SendRaw(rawFile string, gc *GainController) (SendTimin
 		return SendTiming{}, fmt.Errorf("sending audio to %s: %w", c.ip, err)
 	}
 
-	c.log.Info("send: complete", "ip", c.ip, "bytes", size, "open_ms", timing.OpenMs, "playback_ms", timing.PlaybackMs)
+	c.log.Info(
+		"send: complete",
+		"ip",
+		c.ip,
+		"bytes",
+		size,
+		"open_ms",
+		timing.OpenMs,
+		"playback_ms",
+		timing.PlaybackMs,
+	)
 	return timing, nil
 }
 
@@ -324,7 +334,11 @@ func (c *HikvisionClient) Stop() error {
 
 // sendAudioRaw opens a raw TCP connection and sends the audio data
 // with digest auth, throttled to 8000 bytes/sec.
-func (c *HikvisionClient) sendAudioRaw(sessionID string, data []byte, gc *GainController) (SendTiming, error) {
+func (c *HikvisionClient) sendAudioRaw(
+	sessionID string,
+	data []byte,
+	gc *GainController,
+) (SendTiming, error) {
 	path := fmt.Sprintf(
 		"/ISAPI/System/TwoWayAudio/channels/%d/audioData?sessionId=%s",
 		c.channel,
@@ -435,7 +449,10 @@ func (c *HikvisionClient) sendAudioWithAuth(
 					"err",
 					err,
 				)
-				return SendTiming{OpenMs: openMs, PlaybackMs: time.Since(start).Milliseconds() - openMs}, nil
+				return SendTiming{
+					OpenMs:     openMs,
+					PlaybackMs: time.Since(start).Milliseconds() - openMs,
+				}, nil
 			}
 			return SendTiming{}, fmt.Errorf("writing audio data: %w", err)
 		}
@@ -458,7 +475,10 @@ func (c *HikvisionClient) sendAudioWithAuth(
 		// Timeout or connection closed after full send — that's fine,
 		// the camera got all the data.
 		c.log.Debug("send: no response (connection closed after send)", "err", err)
-		return SendTiming{OpenMs: openMs, PlaybackMs: time.Since(start).Milliseconds() - openMs}, nil
+		return SendTiming{
+			OpenMs:     openMs,
+			PlaybackMs: time.Since(start).Milliseconds() - openMs,
+		}, nil
 	}
 
 	// Check status code

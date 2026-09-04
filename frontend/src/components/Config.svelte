@@ -414,7 +414,7 @@
     visionTestBusy = true
     visionTestStatus = ''
     try {
-      const data = await apiClient.testVisionConfig()
+      const data = await apiClient.testVisionConfig(visionURL, visionAPIKey)
       if (data.ok) {
         visionTestStatus = `✓ Connected (${data.models} model${data.models === 1 ? '' : 's'})`
       } else {

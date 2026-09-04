@@ -144,6 +144,7 @@ func New(
 	api.GET("/streams", h.Streams)
 	api.POST("/vision", h.Vision)
 	api.POST("/vision/test", h.VisionTest)
+	api.POST("/vision/test-all", h.VisionTestAll)
 	api.POST("/describe", h.Describe)
 	api.POST("/broadcast", h.Broadcast)
 	api.GET("/cameras", h.Cameras)
@@ -203,7 +204,10 @@ func New(
 
 	// MCP endpoint
 	mcpServer := buildMCPServer(h)
-	mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return mcpServer }, nil)
+	mcpHandler := mcp.NewStreamableHTTPHandler(
+		func(*http.Request) *mcp.Server { return mcpServer },
+		nil,
+	)
 	e.Any("/mcp", echo.WrapHandler(mcpHandler))
 
 	// Swagger UI + OpenAPI spec

@@ -19,7 +19,11 @@ import (
 // falls back to ffmpeg if that fails (e.g. H265 streams that go2rtc can't
 // decode internally). If maxWidth > 0, the frame is scaled via ffmpeg -vf
 // (only applies to the ffmpeg path; go2rtc's frame.jpeg returns native res).
-func grabFrameFromStream(go2rtcURL, streamName string, maxWidth int, timeout time.Duration) ([]byte, error) {
+func grabFrameFromStream(
+	go2rtcURL, streamName string,
+	maxWidth int,
+	timeout time.Duration,
+) ([]byte, error) {
 	// Try go2rtc's native frame.jpeg first (much faster — no ffmpeg startup).
 	if data, err := grabFrameViaGo2rtcAPI(go2rtcURL, streamName, timeout); err == nil {
 		return data, nil
@@ -32,7 +36,12 @@ func grabFrameFromStream(go2rtcURL, streamName string, maxWidth int, timeout tim
 // This is fast (~500ms) but only works for codecs go2rtc can decode (H264,
 // some H265). Does not support width scaling.
 func grabFrameViaGo2rtcAPI(go2rtcURL, streamName string, timeout time.Duration) ([]byte, error) {
-	frameURL := strings.TrimSuffix(go2rtcURL, "/") + "/api/frame.jpeg?src=" + url.QueryEscape(streamName)
+	frameURL := strings.TrimSuffix(
+		go2rtcURL,
+		"/",
+	) + "/api/frame.jpeg?src=" + url.QueryEscape(
+		streamName,
+	)
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -61,7 +70,11 @@ func grabFrameViaGo2rtcAPI(go2rtcURL, streamName string, timeout time.Duration) 
 // grabFrameViaFFmpeg uses ffmpeg to capture a single frame from a go2rtc RTSP
 // stream. Works for all codecs (including H265 main streams). If maxWidth > 0,
 // the frame is scaled to fit within that width (preserving aspect ratio).
-func grabFrameViaFFmpeg(go2rtcURL, streamName string, maxWidth int, timeout time.Duration) ([]byte, error) {
+func grabFrameViaFFmpeg(
+	go2rtcURL, streamName string,
+	maxWidth int,
+	timeout time.Duration,
+) ([]byte, error) {
 	// go2rtc exposes RTSP on port 8554, but the API URL might point to port 1984.
 	// We need to derive the RTSP URL from the go2rtc URL's host.
 	rtspHost := strings.Replace(go2rtcURL, "http://", "", 1)
@@ -118,7 +131,12 @@ func grabFrameViaFFmpeg(go2rtcURL, streamName string, maxWidth int, timeout time
 // fetchSnapshot grabs a JPEG frame for a camera, using the camera's configured
 // vision_stream if set (via ffmpeg from go2rtc), otherwise falls back to
 // Frigate's latest.jpg (detect stream).
-func (h *Handlers) fetchSnapshot(ctx context.Context, cameraName string, cam config.CameraConfig, frigateURL string) ([]byte, error) {
+func (h *Handlers) fetchSnapshot(
+	ctx context.Context,
+	cameraName string,
+	cam config.CameraConfig,
+	frigateURL string,
+) ([]byte, error) {
 	// If the camera has a vision_stream configured, use ffmpeg to grab from go2rtc.
 	if cam.VisionStream != "" && h.cfg.Go2rtcURL != "" {
 		width := cam.VisionWidth
@@ -130,7 +148,10 @@ func (h *Handlers) fetchSnapshot(ctx context.Context, cameraName string, cam con
 
 	// Fall back to Frigate detect stream.
 	if frigateURL == "" {
-		return nil, fmt.Errorf("frigate URL not configured and no vision_stream set for camera %s", cameraName)
+		return nil, fmt.Errorf(
+			"frigate URL not configured and no vision_stream set for camera %s",
+			cameraName,
+		)
 	}
 
 	snapURL := fmt.Sprintf("%s/api/%s/latest.jpg?h=720", frigateURL, cameraName)

@@ -242,7 +242,15 @@ func (c *OnvifClient) SendRaw(rawFile string, gc *GainController) (SendTiming, e
 		sentSamples += n
 	}
 
-	c.log.Info("send: complete", "samples", sentSamples, "duration_ms", sentSamples/8, "open_ms", openMs)
+	c.log.Info(
+		"send: complete",
+		"samples",
+		sentSamples,
+		"duration_ms",
+		sentSamples/8,
+		"open_ms",
+		openMs,
+	)
 
 	return SendTiming{OpenMs: openMs, PlaybackMs: time.Since(start).Milliseconds() - openMs}, nil
 }

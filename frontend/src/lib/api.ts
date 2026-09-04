@@ -34,6 +34,7 @@ import type {
   UploadJobAccepted,
   VisionConfig,
   VisionPrompt,
+  VisionTestAllResponse,
   VisionTestResponse,
   VisionTestResult,
 } from './types'
@@ -147,8 +148,8 @@ export const apiClient = {
   getVisionConfig: () => api<VisionConfig>('/api/config/vision'),
   saveVisionConfig: (cfg: SaveVisionReq) =>
     api('/api/config/vision', { method: 'PUT', body: JSON.stringify(cfg) }),
-  testVisionConfig: () =>
-    api<VisionTestResult>('/api/config/vision/test', { method: 'POST' }),
+  testVisionConfig: (url: string, apiKey: string) =>
+    api<VisionTestResult>('/api/config/vision/test', { method: 'POST', body: JSON.stringify({ url, api_key: apiKey }) }),
 
   // --- Config: vision prompts ---
   listVisionPrompts: () => api<VisionPrompt[]>('/api/config/vision-prompts'),
@@ -242,4 +243,6 @@ export const apiClient = {
     apiRaw('/api/vision/test', { method: 'POST', body: fd }),
   visionTestJSON: (req: { image?: string; camera?: string; prompt: string }) =>
     api<VisionTestResponse>('/api/vision/test', { method: 'POST', body: JSON.stringify(req) }),
+  visionTestAll: (req: { image?: string; camera?: string; prompt: string }) =>
+    api<VisionTestAllResponse>('/api/vision/test-all', { method: 'POST', body: JSON.stringify(req) }),
 }

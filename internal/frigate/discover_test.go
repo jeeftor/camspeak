@@ -90,7 +90,10 @@ func TestExtractGo2rtcStreamName(t *testing.T) {
 
 func TestParseRTSP(t *testing.T) {
 	t.Run("hikvision with credentials", func(t *testing.T) {
-		cam, ok := parseRTSP("rtsp://admin:pass@192.168.1.100:554/Streaming/Channels/101", "front_main")
+		cam, ok := parseRTSP(
+			"rtsp://admin:pass@192.168.1.100:554/Streaming/Channels/101",
+			"front_main",
+		)
 		if !ok {
 			t.Fatal("parseRTSP returned ok=false")
 		}
@@ -129,7 +132,10 @@ func TestParseRTSP(t *testing.T) {
 	})
 
 	t.Run("strips fragment", func(t *testing.T) {
-		cam, ok := parseRTSP("rtsp://admin:pass@192.168.1.100:554/Streaming/Channels/101#backchannel=1", "front_main")
+		cam, ok := parseRTSP(
+			"rtsp://admin:pass@192.168.1.100:554/Streaming/Channels/101#backchannel=1",
+			"front_main",
+		)
 		if !ok {
 			t.Fatal("parseRTSP returned ok=false")
 		}

@@ -133,7 +133,11 @@ func (h *Handlers) effectiveGain(camera string, reqGain float64) float64 {
 	return 3.0
 }
 
-func (h *Handlers) speakText(log *clog.Logger, cameraName, text, voice string, gain float64) (*StepTimings, error) {
+func (h *Handlers) speakText(
+	log *clog.Logger,
+	cameraName, text, voice string,
+	gain float64,
+) (*StepTimings, error) {
 	t := NewStepTimings(3)
 	cam, err := h.reg.Get(cameraName)
 	if err != nil {
@@ -192,7 +196,9 @@ func (h *Handlers) speakText(log *clog.Logger, cameraName, text, voice string, g
 		sendTiming.PlaybackMs,
 	)
 
-	h.events.publish(event{Camera: cameraName, Action: "speak", Text: text, Voice: voice, At: time.Now()})
+	h.events.publish(
+		event{Camera: cameraName, Action: "speak", Text: text, Voice: voice, At: time.Now()},
+	)
 	clearPlayback(cameraName)
 
 	return t, nil
@@ -341,7 +347,12 @@ func (h *Handlers) playPresetLooped(
 		detail = fmt.Sprintf("%s (loop %dx)", preset.Name, loop+1)
 	}
 	activeStreamsMu.Lock()
-	activeStreams[cameraName] = &streamSession{cmd: cmd, cancel: cancel, url: rawPath, started: now()}
+	activeStreams[cameraName] = &streamSession{
+		cmd:     cmd,
+		cancel:  cancel,
+		url:     rawPath,
+		started: now(),
+	}
 	activeStreamsMu.Unlock()
 	setPlayback(cameraName, "play", detail)
 
