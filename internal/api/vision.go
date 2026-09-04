@@ -402,6 +402,33 @@ func (h *Handlers) Describe(c echo.Context) error {
 	})
 }
 
+// isVisionCapableModel returns true if the model ID matches known vision/multimodal
+// naming patterns. This is used to skip audio, image-gen, embedding, and plain-LLM
+// models when running "Test All Models".
+func isVisionCapableModel(id string) bool {
+	lower := strings.ToLower(id)
+	// Substring keywords that unambiguously indicate vision capability.
+	for _, kw := range []string{"vision", "llava", "moondream", "cogvlm", "internvl", "pixtral"} {
+		if strings.Contains(lower, kw) {
+			return true
+		}
+	}
+	// Match "-VL-", "-VL_", "-VL." separators or "-VL" / "_VL" at end of name.
+	for _, sep := range []string{"-vl-", "-vl_", "-vl.", "_vl-", "_vl_"} {
+		if strings.Contains(lower, sep) {
+			return true
+		}
+	}
+	if strings.HasSuffix(lower, "-vl") || strings.HasSuffix(lower, "_vl") {
+		return true
+	}
+	// MiniCPM-V series (e.g. "MiniCPM-V-4.6-GGUF").
+	if strings.Contains(lower, "minicpm-v") || strings.Contains(lower, "minicpm_v") {
+		return true
+	}
+	return false
+}
+
 // visionModelResult is a single model's result from VisionTestAll.
 type visionModelResult struct {
 	Model       string `json:"model"`
@@ -504,13 +531,33 @@ func (h *Handlers) VisionTestAll(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadGateway, "no models returned from vision endpoint")
 	}
 
-	models := make([]string, 0, len(modelsData.Data))
+	allModels := make([]string, 0, len(modelsData.Data))
 	for _, m := range modelsData.Data {
 		if m.ID != "" {
-			models = append(models, m.ID)
+			allModels = append(allModels, m.ID)
 		}
 	}
-	log.Info("vision-test-all: running", "models", len(models), "prompt_len", len(req.Prompt))
+	models := make([]string, 0, len(allModels))
+	for _, m := range allModels {
+		if isVisionCapableModel(m) {
+			models = append(models, m)
+		}
+	}
+	log.Info(
+		"vision-test-all: running",
+		"total_models",
+		len(allModels),
+		"vision_models",
+		len(models),
+		"prompt_len",
+		len(req.Prompt),
+	)
+	if len(models) == 0 {
+		return echo.NewHTTPError(
+			http.StatusBadGateway,
+			"no vision-capable models found at endpoint",
+		)
+	}
 
 	// Run models sequentially — they share a GPU, parallel would thrash VRAM.
 	results := make([]visionModelResult, 0, len(models))
@@ -541,4 +588,170 @@ func (h *Handlers) VisionTestAll(c echo.Context) error {
 		"image":   imageDataURI,
 		"results": results,
 	})
+}
+
+// VisionTestAllStream handles POST /api/vision/test-all/stream — same as VisionTestAll
+// but uses SSE to stream results as each model completes, so the UI can update live.
+//
+// SSE events:
+//
+//	{"type":"image","image":"data:image/jpeg;base64,..."}  — captured image (first)
+//	{"type":"models","models":["model1","model2",...]}      — full model list
+//	{"type":"result","model":"m","description":"...","ttfs_ms":N,"gen_ms":N,"total_ms":N,"error":"..."}
+//	{"type":"done","count":N}
+func (h *Handlers) VisionTestAllStream(c echo.Context) error {
+	log := h.logger(c)
+
+	var req struct {
+		Camera string `json:"camera"`
+		Prompt string `json:"prompt"`
+		Image  string `json:"image"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid request body")
+	}
+
+	h.cfgMu.Lock()
+	frigateURL := h.cfg.FrigateURL
+	visionClient := h.vision
+	h.cfgMu.Unlock()
+
+	if visionClient == nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "vision model not configured")
+	}
+
+	// Resolve image bytes.
+	var imageBytes []byte
+	var imageDataURI string
+
+	if req.Image != "" {
+		b64Data := req.Image
+		if idx := strings.IndexByte(b64Data, ','); idx > 0 && len(b64Data) > 5 &&
+			b64Data[:5] == "data:" {
+			b64Data = b64Data[idx+1:]
+		}
+		decoded, err := base64.StdEncoding.DecodeString(b64Data)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, "invalid base64 image")
+		}
+		imageBytes = decoded
+		imageDataURI = req.Image
+	} else {
+		if req.Camera == "" {
+			return echo.NewHTTPError(http.StatusBadRequest, "camera required (or provide image)")
+		}
+		h.cfgMu.Lock()
+		camCfg := h.cfg.Cameras[req.Camera]
+		h.cfgMu.Unlock()
+
+		var snapErr error
+		imageBytes, snapErr = h.fetchSnapshot(c.Request().Context(), req.Camera, camCfg, frigateURL)
+		if snapErr != nil {
+			return echo.NewHTTPError(http.StatusBadGateway, snapErr.Error())
+		}
+		imageDataURI = "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(imageBytes)
+	}
+
+	// Fetch available models.
+	modelsURL := visionClient.URL()
+	if idx := strings.Index(modelsURL, "/v1/"); idx >= 0 {
+		modelsURL = modelsURL[:idx+4] + "models"
+	} else {
+		modelsURL = strings.TrimRight(modelsURL, "/") + "/v1/models"
+	}
+	httpReq, err := http.NewRequestWithContext(c.Request().Context(), http.MethodGet, modelsURL, nil)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if key := visionClient.APIKey(); key != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+key)
+	}
+	modelsResp, err := (&http.Client{Timeout: 10 * time.Second}).Do(httpReq)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("fetching models: %s", err))
+	}
+	defer modelsResp.Body.Close()
+
+	var modelsData struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(modelsResp.Body).Decode(&modelsData); err != nil ||
+		len(modelsData.Data) == 0 {
+		return echo.NewHTTPError(http.StatusBadGateway, "no models returned from vision endpoint")
+	}
+	allModels := make([]string, 0, len(modelsData.Data))
+	for _, m := range modelsData.Data {
+		if m.ID != "" {
+			allModels = append(allModels, m.ID)
+		}
+	}
+	models := make([]string, 0, len(allModels))
+	for _, m := range allModels {
+		if isVisionCapableModel(m) {
+			models = append(models, m)
+		}
+	}
+	log.Info(
+		"vision-test-all-stream: filtered models",
+		"total",
+		len(allModels),
+		"vision",
+		len(models),
+	)
+	if len(models) == 0 {
+		return echo.NewHTTPError(
+			http.StatusBadGateway,
+			"no vision-capable models found at endpoint",
+		)
+	}
+
+	// Switch to SSE.
+	c.Response().Header().Set("Content-Type", "text/event-stream")
+	c.Response().Header().Set("Cache-Control", "no-cache")
+	c.Response().Header().Set("X-Accel-Buffering", "no")
+	c.Response().WriteHeader(http.StatusOK)
+
+	sseWrite := func(v any) {
+		data, _ := json.Marshal(v)
+		fmt.Fprintf(c.Response(), "data: %s\n\n", data)
+		c.Response().Flush()
+	}
+
+	// Send the captured image so the frontend can display it immediately.
+	sseWrite(map[string]any{"type": "image", "image": imageDataURI})
+
+	// Send model list so UI can pre-populate cards.
+	sseWrite(map[string]any{"type": "models", "models": models})
+
+	log.Info("vision-test-all-stream: running", "models", len(models))
+
+	// Run models sequentially — they share a GPU.
+	for _, model := range models {
+		log.Info("vision-test-all-stream: testing model", "model", model)
+		desc, timing, err := visionClient.DescribeWithModelTimed(
+			imageBytes,
+			"image/jpeg",
+			req.Prompt,
+			model,
+		)
+		r := map[string]any{
+			"type":     "result",
+			"model":    model,
+			"ttfs_ms":  timing.TtfsMs,
+			"gen_ms":   timing.GenMs,
+			"total_ms": timing.TotalMs,
+		}
+		if err != nil {
+			r["error"] = err.Error()
+		} else {
+			r["description"] = desc
+		}
+		sseWrite(r)
+	}
+
+	sseWrite(map[string]any{"type": "done", "count": len(models)})
+	log.Info("vision-test-all-stream: done", "models", len(models))
+	return nil
 }

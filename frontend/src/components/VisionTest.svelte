@@ -185,10 +185,11 @@
   }
 
   // --- Test All Models ---
-  let allResults = $state([])
-  let allImage = $state('')
+  let allResults = $state([])   // [{model, pending, description, error, ttfs_ms, gen_ms, total_ms}]
   let allBusy = $state(false)
   let allStatus = $state('')
+  let allDoneCount = $state(0)
+  let allModelCount = $state(0)
 
   async function runTestAll() {
     if (!selectedCamera && !image) {
@@ -197,21 +198,52 @@
     }
     allBusy = true
     allResults = []
-    allStatus = 'Running…'
+    allStatus = ''
+    allDoneCount = 0
+    allModelCount = 0
+
+    const body = { prompt, image: undefined, camera: undefined }
+    if (image) { body.image = image; body.camera = selectedCamera }
+    else { body.camera = selectedCamera }
+
     try {
-      const body = { prompt, image: undefined, camera: undefined }
-      if (image) {
-        body.image = image
-        body.camera = selectedCamera
-      } else {
-        body.camera = selectedCamera
+      const resp = await fetch('/api/vision/test-all/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+
+      const reader = resp.body.getReader()
+      const dec = new TextDecoder()
+      let buf = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += dec.decode(value, { stream: true })
+        const lines = buf.split('\n')
+        buf = lines.pop()
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue
+          let ev
+          try { ev = JSON.parse(line.slice(5).trim()) } catch { continue }
+
+          if (ev.type === 'image') {
+            if (!image && ev.image) image = ev.image
+          } else if (ev.type === 'models') {
+            allModelCount = ev.models.length
+            allResults = ev.models.map(m => ({ model: m, pending: true }))
+          } else if (ev.type === 'result') {
+            allDoneCount++
+            allResults = allResults.map(r =>
+              r.model === ev.model ? { ...ev, pending: false } : r
+            )
+          } else if (ev.type === 'done') {
+            allStatus = `Done — ${ev.count} model${ev.count === 1 ? '' : 's'} tested`
+          }
+        }
       }
-      const data = await apiClient.visionTestAll(body)
-      allImage = data.image || image
-      // Also update the main image if we just captured
-      if (!image && data.image) image = data.image
-      allResults = data.results
-      allStatus = `Done — ${data.results.length} model${data.results.length === 1 ? '' : 's'} tested`
     } catch (e) {
       allStatus = '✗ ' + e.message
     } finally {
@@ -438,37 +470,69 @@
   <!-- Test All Models results -->
   {#if allBusy || allResults.length > 0}
     <div class="flex flex-col gap-3">
-      <div class="flex items-center justify-between">
-        <h3 class="text-sm font-semibold text-foreground">Model Comparison</h3>
+      <div class="flex items-center justify-between gap-4">
+        <h3 class="text-sm font-semibold text-foreground">
+          Model Comparison
+          {#if allBusy && allModelCount > 0}
+            <span class="ml-2 text-xs font-normal text-muted-foreground">
+              {allDoneCount}/{allModelCount}
+            </span>
+          {/if}
+        </h3>
         {#if allStatus}
           <span class="text-xs text-muted-foreground">{allStatus}</span>
         {/if}
       </div>
-      {#if allBusy}
-        <div class="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 class="h-4 w-4 animate-spin" />
-          Running models sequentially (shared GPU)…
-        </div>
-      {/if}
+
       {#if allResults.length > 0}
         <div class="grid gap-3 sm:grid-cols-2">
           {#each allResults as r (r.model)}
-            <div class="rounded-lg border bg-card p-3 flex flex-col gap-1.5">
-              <div class="flex items-center justify-between gap-2 flex-wrap">
-                <span class="text-xs font-mono font-semibold text-primary truncate" title={r.model}>{r.model}</span>
-                <span class="text-xs text-muted-foreground whitespace-nowrap">
-                  {#if r.total_ms}
-                    ⏱ {r.ttfs_ms}ms load · {r.gen_ms}ms gen · {r.total_ms}ms total
-                  {/if}
-                </span>
+            <div class="rounded-lg border bg-card p-3 flex flex-col gap-2
+              {r.pending ? 'opacity-60' : ''}">
+
+              <!-- Model name + status -->
+              <div class="flex items-center gap-2">
+                {#if r.pending}
+                  <Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+                {:else if r.error}
+                  <span class="text-destructive text-xs shrink-0">✗</span>
+                {:else}
+                  <span class="text-primary text-xs shrink-0">✓</span>
+                {/if}
+                <span class="text-xs font-mono font-semibold text-foreground truncate" title={r.model}>{r.model}</span>
               </div>
-              {#if r.error}
-                <p class="text-xs text-destructive">✗ {r.error}</p>
+
+              {#if r.pending}
+                <p class="text-xs text-muted-foreground italic">Waiting…</p>
+              {:else if r.error}
+                <p class="text-xs text-destructive">{r.error}</p>
               {:else}
+                <!-- Timing bar -->
+                {#if r.total_ms > 0}
+                  {@const prefillPct = Math.round((r.ttfs_ms / r.total_ms) * 100)}
+                  {@const genPct = 100 - prefillPct}
+                  <div class="flex flex-col gap-0.5">
+                    <div class="flex h-2 w-full overflow-hidden rounded-full bg-muted">
+                      <div class="bg-primary/70 h-full" style="width:{prefillPct}%"></div>
+                      <div class="bg-primary/30 h-full" style="width:{genPct}%"></div>
+                    </div>
+                    <div class="flex justify-between text-[10px] text-muted-foreground">
+                      <span title="Load + image encode + prefill">⚙ {r.ttfs_ms}ms setup</span>
+                      <span title="Token generation">✍ {r.gen_ms}ms write</span>
+                      <span title="Total wall-clock">⏱ {(r.total_ms/1000).toFixed(1)}s</span>
+                    </div>
+                  </div>
+                {/if}
+                <!-- Description -->
                 <Markdown content={r.description ?? ''} class="text-sm text-foreground" />
               {/if}
             </div>
           {/each}
+        </div>
+      {:else if allBusy}
+        <div class="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 class="h-4 w-4 animate-spin" />
+          Fetching model list…
         </div>
       {/if}
     </div>
