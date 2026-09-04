@@ -210,7 +210,7 @@ export const apiClient = {
 
   // --- Library ---
   getPresets: () => api<Preset[]>('/api/library'),
-  savePreset: (req: { name: string; text: string; category: string; voice: string }) =>
+  savePreset: (req: { name: string; text?: string; url?: string; category: string; voice?: string }) =>
     api<SavePresetResponse>('/api/library', { method: 'POST', body: JSON.stringify(req) }),
   uploadPreset: (fd: FormData) => apiRaw('/api/library/upload', { method: 'POST', body: fd }),
   uploadPresetWithProgress: (fd: FormData, onProgress?: (percent: number) => void) =>

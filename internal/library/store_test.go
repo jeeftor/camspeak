@@ -36,12 +36,13 @@ func saveTestPreset(t *testing.T, store *Store, category, name, text, voice stri
 	}
 
 	_, err := store.db.Exec(
-		`INSERT INTO presets (name, category, text, voice, duration, size, raw_path, created)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO presets (name, category, text, voice, url, duration, size, raw_path, created)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(category, name) DO UPDATE SET
-		   text=excluded.text, voice=excluded.voice, duration=excluded.duration,
-		   size=excluded.size, raw_path=excluded.raw_path, created=excluded.created`,
-		meta.Name, meta.Category, meta.Text, meta.Voice,
+		   text=excluded.text, voice=excluded.voice, url=excluded.url,
+		   duration=excluded.duration, size=excluded.size,
+		   raw_path=excluded.raw_path, created=excluded.created`,
+		meta.Name, meta.Category, meta.Text, meta.Voice, "",
 		meta.Duration, meta.Size, rawPath, meta.Created,
 	)
 	if err != nil {
@@ -183,5 +184,109 @@ func TestRenamePresetNoOp(t *testing.T) {
 	_, err = store.Get("alerts", "test1")
 	if err != nil {
 		t.Errorf("preset should still exist after no-op rename: %v", err)
+	}
+}
+
+func TestSaveStreamPreset(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewStore(dir, dir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+	defer store.Close()
+
+	streamURL := "http://stream.example.com:8000/live"
+	preset, err := store.SaveStream("streams", "radio1", streamURL)
+	if err != nil {
+		t.Fatalf("SaveStream failed: %v", err)
+	}
+	if preset.URL != streamURL {
+		t.Errorf("preset URL = %q, want %q", preset.URL, streamURL)
+	}
+	if preset.RawPath != "" {
+		t.Errorf("stream preset should have empty raw_path, got %q", preset.RawPath)
+	}
+	if !preset.IsStream() {
+		t.Error("IsStream() should be true for stream preset")
+	}
+
+	// Verify it can be retrieved
+	got, err := store.Get("streams", "radio1")
+	if err != nil {
+		t.Fatalf("Get stream preset failed: %v", err)
+	}
+	if got.URL != streamURL {
+		t.Errorf("retrieved URL = %q, want %q", got.URL, streamURL)
+	}
+	if !got.IsStream() {
+		t.Error("retrieved preset IsStream() should be true")
+	}
+}
+
+func TestSaveStreamPresetDefaultCategory(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewStore(dir, dir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+	defer store.Close()
+
+	preset, err := store.SaveStream("", "radio2", "http://example.com/stream")
+	if err != nil {
+		t.Fatalf("SaveStream with empty category failed: %v", err)
+	}
+	if preset.Category != "streams" {
+		t.Errorf("default category = %q, want streams", preset.Category)
+	}
+}
+
+func TestDeleteStreamPreset(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewStore(dir, dir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+	defer store.Close()
+
+	_, err = store.SaveStream("streams", "radio3", "http://example.com/stream")
+	if err != nil {
+		t.Fatalf("SaveStream failed: %v", err)
+	}
+
+	err = store.Delete("streams", "radio3")
+	if err != nil {
+		t.Fatalf("Delete stream preset failed: %v", err)
+	}
+
+	_, err = store.Get("streams", "radio3")
+	if err == nil {
+		t.Error("stream preset should not exist after delete")
+	}
+}
+
+func TestRenameStreamPreset(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewStore(dir, dir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+	defer store.Close()
+
+	_, err = store.SaveStream("streams", "radio4", "http://example.com/stream")
+	if err != nil {
+		t.Fatalf("SaveStream failed: %v", err)
+	}
+
+	renamed, err := store.Rename("streams", "radio4", "streams", "radio5")
+	if err != nil {
+		t.Fatalf("Rename stream preset failed: %v", err)
+	}
+	if renamed.Name != "radio5" {
+		t.Errorf("renamed name = %q, want radio5", renamed.Name)
+	}
+
+	_, err = store.Get("streams", "radio5")
+	if err != nil {
+		t.Errorf("Get renamed stream preset failed: %v", err)
 	}
 }

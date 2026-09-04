@@ -27,8 +27,9 @@ type Meta struct {
 	Category string    `json:"category"`
 	Text     string    `json:"text,omitempty"`
 	Voice    string    `json:"voice,omitempty"`
-	Duration float64   `json:"duration"` // seconds
-	Size     int64     `json:"size"`     // bytes
+	URL      string    `json:"url,omitempty"` // live stream URL (stream presets only)
+	Duration float64   `json:"duration"`     // seconds
+	Size     int64     `json:"size"`         // bytes
 	Created  time.Time `json:"created"`
 }
 
@@ -124,6 +125,42 @@ func (s *Store) SaveFile(category, name string, srcFile string) (*Preset, error)
 	return s.SaveFileWithProgress(category, name, srcFile, nil)
 }
 
+// SaveStream creates a stream preset — a named live stream/playlist URL with
+// no raw audio file on disk. When played, the URL is resolved (if a playlist)
+// and streamed to the camera via ffmpeg in real time.
+func (s *Store) SaveStream(category, name, url string) (*Preset, error) {
+	if category == "" {
+		category = "streams"
+	}
+	return s.saveMetaStream(category, name, url)
+}
+
+// saveMetaStream writes a stream preset's metadata to SQLite (no raw file).
+func (s *Store) saveMetaStream(category, name, url string) (*Preset, error) {
+	meta := Meta{
+		Name:     name,
+		Category: category,
+		URL:      url,
+		Created:  time.Now(),
+	}
+
+	_, err := s.db.Exec(
+		`INSERT INTO presets (name, category, text, voice, url, duration, size, raw_path, created)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(category, name) DO UPDATE SET
+		   text=excluded.text, voice=excluded.voice, url=excluded.url,
+		   duration=excluded.duration, size=excluded.size,
+		   raw_path=excluded.raw_path, created=excluded.created`,
+		meta.Name, meta.Category, meta.Text, meta.Voice, meta.URL,
+		meta.Duration, meta.Size, "", meta.Created,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("saving stream metadata: %w", err)
+	}
+
+	return &Preset{Meta: meta}, nil
+}
+
 // SaveFileWithProgress is like SaveFile but calls progress with the
 // transcoding percentage (0–100) as ffmpeg works. A nil progress callback
 // is safe.
@@ -167,12 +204,13 @@ func (s *Store) saveMeta(category, name, text, voice, rawFile string) (*Preset, 
 	}
 
 	_, err = s.db.Exec(
-		`INSERT INTO presets (name, category, text, voice, duration, size, raw_path, created)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO presets (name, category, text, voice, url, duration, size, raw_path, created)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(category, name) DO UPDATE SET
-		   text=excluded.text, voice=excluded.voice, duration=excluded.duration,
-		   size=excluded.size, raw_path=excluded.raw_path, created=excluded.created`,
-		meta.Name, meta.Category, meta.Text, meta.Voice,
+		   text=excluded.text, voice=excluded.voice, url=excluded.url,
+		   duration=excluded.duration, size=excluded.size,
+		   raw_path=excluded.raw_path, created=excluded.created`,
+		meta.Name, meta.Category, meta.Text, meta.Voice, "",
 		meta.Duration, meta.Size, rawFile, meta.Created,
 	)
 	if err != nil {
@@ -187,11 +225,11 @@ func (s *Store) Get(category, name string) (*Preset, error) {
 	var p Preset
 
 	err := s.db.QueryRow(
-		`SELECT name, category, text, voice, duration, size, raw_path, created
+		`SELECT name, category, text, voice, url, duration, size, raw_path, created
 		 FROM presets WHERE category = ? AND name = ?`,
 		category, name,
-	).Scan(&p.Name, &p.Category, &p.Text, &p.Voice, &p.Duration,
-		&p.Size, &p.RawPath, &p.Created)
+	).Scan(&p.Name, &p.Category, &p.Text, &p.Voice, &p.URL,
+		&p.Duration, &p.Size, &p.RawPath, &p.Created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("preset %s/%s not found", category, name)
 	}
@@ -208,11 +246,11 @@ func (s *Store) GetByName(name string) (*Preset, error) {
 	var p Preset
 
 	err := s.db.QueryRow(
-		`SELECT name, category, text, voice, duration, size, raw_path, created
+		`SELECT name, category, text, voice, url, duration, size, raw_path, created
 		 FROM presets WHERE name = ? LIMIT 1`,
 		name,
-	).Scan(&p.Name, &p.Category, &p.Text, &p.Voice, &p.Duration,
-		&p.Size, &p.RawPath, &p.Created)
+	).Scan(&p.Name, &p.Category, &p.Text, &p.Voice, &p.URL,
+		&p.Duration, &p.Size, &p.RawPath, &p.Created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("preset %q not found", name)
 	}
@@ -227,7 +265,7 @@ func (s *Store) GetByName(name string) (*Preset, error) {
 // List returns all presets in the library.
 func (s *Store) List() ([]Preset, error) {
 	rows, err := s.db.Query(
-		`SELECT name, category, text, voice, duration, size, raw_path, created
+		`SELECT name, category, text, voice, url, duration, size, raw_path, created
 		 FROM presets ORDER BY category, name`,
 	)
 	if err != nil {
@@ -239,7 +277,7 @@ func (s *Store) List() ([]Preset, error) {
 
 	for rows.Next() {
 		var p Preset
-		err := rows.Scan(&p.Name, &p.Category, &p.Text, &p.Voice,
+		err := rows.Scan(&p.Name, &p.Category, &p.Text, &p.Voice, &p.URL,
 			&p.Duration, &p.Size, &p.RawPath, &p.Created)
 		if err != nil {
 			return nil, fmt.Errorf("scanning preset row: %w", err)
@@ -251,7 +289,7 @@ func (s *Store) List() ([]Preset, error) {
 	return presets, rows.Err()
 }
 
-// Delete removes a preset and its raw audio file.
+// Delete removes a preset and its raw audio file (if it has one).
 func (s *Store) Delete(category, name string) error {
 	preset, err := s.Get(category, name)
 	if err != nil {
@@ -266,16 +304,20 @@ func (s *Store) Delete(category, name string) error {
 		return fmt.Errorf("deleting preset metadata: %w", err)
 	}
 
-	if err := os.Remove(preset.RawPath); err != nil {
-		log.Warn("failed to remove raw file", "path", preset.RawPath, "err", err)
+	// Stream presets have no raw file on disk.
+	if preset.RawPath != "" {
+		if err := os.Remove(preset.RawPath); err != nil {
+			log.Warn("failed to remove raw file", "path", preset.RawPath, "err", err)
+		}
 	}
 
 	return nil
 }
 
 // Rename moves a preset to a new name and/or category.
-// The raw audio file is moved on disk and the SQLite row is updated.
-// Returns an error if the source doesn't exist or the target already exists.
+// The raw audio file is moved on disk (if it has one) and the SQLite row is
+// updated. Returns an error if the source doesn't exist or the target already
+// exists.
 func (s *Store) Rename(oldCategory, oldName, newCategory, newName string) (*Preset, error) {
 	preset, err := s.Get(oldCategory, oldName)
 	if err != nil {
@@ -300,15 +342,18 @@ func (s *Store) Rename(oldCategory, oldName, newCategory, newName string) (*Pres
 		return nil, fmt.Errorf("preset %s/%s already exists", newCategory, newName)
 	}
 
-	// Move the raw file
-	newDir := filepath.Join(s.dir, newCategory)
-	if err := os.MkdirAll(newDir, 0o755); err != nil {
-		return nil, fmt.Errorf("creating target category dir: %w", err)
-	}
+	// Move the raw file (stream presets have no raw file)
+	newRawPath := preset.RawPath
+	if preset.RawPath != "" {
+		newDir := filepath.Join(s.dir, newCategory)
+		if err := os.MkdirAll(newDir, 0o755); err != nil {
+			return nil, fmt.Errorf("creating target category dir: %w", err)
+		}
 
-	newRawPath := s.rawPath(newCategory, newName)
-	if err := os.Rename(preset.RawPath, newRawPath); err != nil {
-		return nil, fmt.Errorf("moving raw file: %w", err)
+		newRawPath = s.rawPath(newCategory, newName)
+		if err := os.Rename(preset.RawPath, newRawPath); err != nil {
+			return nil, fmt.Errorf("moving raw file: %w", err)
+		}
 	}
 
 	// Update the database row
@@ -318,7 +363,9 @@ func (s *Store) Rename(oldCategory, oldName, newCategory, newName string) (*Pres
 	)
 	if err != nil {
 		// Try to move the file back on DB failure
-		_ = os.Rename(newRawPath, preset.RawPath)
+		if preset.RawPath != "" && newRawPath != preset.RawPath {
+			_ = os.Rename(newRawPath, preset.RawPath)
+		}
 		return nil, fmt.Errorf("updating preset metadata: %w", err)
 	}
 
@@ -331,6 +378,12 @@ func (s *Store) Rename(oldCategory, oldName, newCategory, newName string) (*Pres
 // GetRawPath returns the path to the raw file for streaming.
 func (p *Preset) GetRawPath() string {
 	return p.RawPath
+}
+
+// IsStream returns true if this preset is a live stream URL rather than a
+// raw audio file on disk.
+func (p *Preset) IsStream() bool {
+	return p.URL != ""
 }
 
 // transcodeToRaw converts any audio file to G.711ulaw 8kHz raw via ffmpeg.

@@ -105,7 +105,7 @@ func buildMCPServer(h *Handlers) *mcp.Server {
 	// list_presets
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_presets",
-		Description: "List all saved audio presets in the library",
+		Description: "List all saved presets in the library (audio clips and stream URLs)",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in ListPresetsInput) (*mcp.CallToolResult, ListPresetsOutput, error) {
 		presets, err := h.store.List()
 		if err != nil {
@@ -116,10 +116,17 @@ func buildMCPServer(h *Handlers) *mcp.Server {
 		}
 		lines := make([]string, 0, len(presets))
 		for _, p := range presets {
-			lines = append(
-				lines,
-				fmt.Sprintf("- %s/%s (%.1fs) %q", p.Category, p.Name, p.Duration, p.Text),
-			)
+			if p.IsStream() {
+				lines = append(
+					lines,
+					fmt.Sprintf("- %s/%s [stream] %s", p.Category, p.Name, p.URL),
+				)
+			} else {
+				lines = append(
+					lines,
+					fmt.Sprintf("- %s/%s (%.1fs) %q", p.Category, p.Name, p.Duration, p.Text),
+				)
+			}
 		}
 		if len(lines) == 0 {
 			return &mcp.CallToolResult{
@@ -134,12 +141,47 @@ func buildMCPServer(h *Handlers) *mcp.Server {
 	// generate_preset
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "generate_preset",
-		Description: "Generate a TTS audio clip and save it as a reusable preset",
+		Description: "Generate a TTS audio clip and save it as a reusable preset, or save a live stream URL as a stream preset",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in GeneratePresetInput) (*mcp.CallToolResult, GeneratePresetOutput, error) {
-		if in.Name == "" || in.Text == "" {
+		if in.Name == "" {
 			return &mcp.CallToolResult{
 				IsError: true,
-				Content: []mcp.Content{&mcp.TextContent{Text: "name and text required"}},
+				Content: []mcp.Content{&mcp.TextContent{Text: "name required"}},
+			}, GeneratePresetOutput{}, nil
+		}
+
+		// Stream preset: URL provided instead of text.
+		if in.URL != "" {
+			category := in.Category
+			if category == "" {
+				category = "streams"
+			}
+			preset, err := h.store.SaveStream(category, in.Name, in.URL)
+			if err != nil {
+				return &mcp.CallToolResult{
+					IsError: true,
+					Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},
+				}, GeneratePresetOutput{}, nil
+			}
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{
+					&mcp.TextContent{
+						Text: fmt.Sprintf(
+							"Stream preset saved: %s/%s → %s",
+							preset.Category,
+							preset.Name,
+							preset.URL,
+						),
+					},
+				},
+			}, GeneratePresetOutput{}, nil
+		}
+
+		// Audio preset: TTS text required.
+		if in.Text == "" {
+			return &mcp.CallToolResult{
+				IsError: true,
+				Content: []mcp.Content{&mcp.TextContent{Text: "text or url required"}},
 			}, GeneratePresetOutput{}, nil
 		}
 		category := in.Category
@@ -735,8 +777,9 @@ type ListPresetsOutput struct{}
 
 type GeneratePresetInput struct {
 	Name     string `json:"name"               jsonschema:"the preset name,required"`
-	Text     string `json:"text"               jsonschema:"the text to synthesize,required"`
-	Category string `json:"category,omitempty" jsonschema:"optional category (default: alerts)"`
+	Text     string `json:"text,omitempty"     jsonschema:"the text to synthesize (for TTS presets)"`
+	URL      string `json:"url,omitempty"      jsonschema:"live stream URL (for stream presets)"`
+	Category string `json:"category,omitempty" jsonschema:"optional category (default: alerts for TTS, streams for stream presets)"`
 	Voice    string `json:"voice,omitempty"    jsonschema:"optional TTS voice"`
 }
 

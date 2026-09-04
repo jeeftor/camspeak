@@ -213,4 +213,12 @@ func migrate(db *sql.DB) {
 		voiceCol == 0 {
 		_, _ = db.Exec(`ALTER TABLE events ADD COLUMN voice TEXT DEFAULT ''`)
 	}
+	// Add 'url' column to presets if missing (added in v2.14.0).
+	// Stream presets store a live stream/playlist URL here; audio presets
+	// leave it empty and use raw_path instead.
+	var urlCol int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('presets') WHERE name='url'`).Scan(&urlCol); err == nil &&
+		urlCol == 0 {
+		_, _ = db.Exec(`ALTER TABLE presets ADD COLUMN url TEXT DEFAULT ''`)
+	}
 }

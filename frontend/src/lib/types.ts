@@ -96,6 +96,7 @@ export interface Preset {
   category: string
   text: string
   voice: string
+  url?: string
   duration: number
   size: number
   created: string

@@ -63,7 +63,8 @@ const openAPISpec = `{
     "/play": {
       "post": {
         "tags": ["audio"],
-        "summary": "Play a saved library preset on a camera",
+        "summary": "Play a saved library preset (audio clip or stream) on a camera",
+        "description": "If the preset is a stream preset (has a URL), it starts an ffmpeg live stream to the camera (pausable/resumable via /api/pause and /api/resume). If the preset is an audio clip, it sends the raw G.711 file to the camera speaker.",
         "requestBody": {
           "required": true,
           "content": {
@@ -360,7 +361,8 @@ const openAPISpec = `{
       },
       "post": {
         "tags": ["library"],
-        "summary": "Generate a TTS clip and save as a preset",
+        "summary": "Generate a TTS clip and save as a preset, or save a stream URL as a stream preset",
+        "description": "When 'url' is provided in the request body, a stream preset is created (no TTS, no raw file). When 'text' is provided, a TTS clip is generated and saved as a raw audio file. Either 'text' or 'url' must be provided.",
         "requestBody": {
           "required": true,
           "content": {
@@ -904,7 +906,8 @@ const openAPISpec = `{
           "name": {"type": "string", "example": "person_detected"},
           "category": {"type": "string", "example": "alerts"},
           "duration": {"type": "number", "example": 1.4},
-          "text": {"type": "string", "example": "Person detected"}
+          "text": {"type": "string", "example": "Person detected"},
+          "url": {"type": "string", "description": "Live stream URL (stream presets only; empty for audio presets)", "example": "http://stream.example.com:8000/live"}
         }
       },
       "UploadJobAccepted": {
@@ -935,11 +938,12 @@ const openAPISpec = `{
       },
       "GeneratePresetRequest": {
         "type": "object",
-        "required": ["name", "text"],
+        "required": ["name"],
         "properties": {
           "name": {"type": "string", "example": "person_detected"},
-          "text": {"type": "string", "example": "Person detected"},
-          "category": {"type": "string", "default": "alerts"},
+          "text": {"type": "string", "description": "Text to synthesize (for TTS presets). Either text or url must be provided.", "example": "Person detected"},
+          "url": {"type": "string", "description": "Live stream URL (for stream presets). Either text or url must be provided.", "example": "http://stream.example.com:8000/live"},
+          "category": {"type": "string", "default": "alerts", "description": "Default: alerts for TTS, streams for stream presets"},
           "voice": {"type": "string", "example": "af_sky"}
         }
       },

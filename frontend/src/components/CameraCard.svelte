@@ -1,6 +1,6 @@
 <script>
   import { onDestroy } from 'svelte'
-  import { Eye, Bell, Play, Pause, Loader2, FileAudio, X, MessageSquare, Square, Info, Airplay } from 'lucide-svelte'
+  import { Eye, Bell, Play, Pause, Loader2, FileAudio, X, MessageSquare, Square, Info, Airplay, Radio } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Textarea } from '$lib/components/ui/textarea'
@@ -447,7 +447,7 @@
           class="flex-1 min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-sm disabled:opacity-50">
           <option value="">— play preset —</option>
           {#each presets as p}
-            <option value={p.name}>{p.category}/{p.name} ({formatSeconds(p.duration)})</option>
+            <option value={p.name}>{p.url ? '📡 ' : ''}{p.category}/{p.name}{p.url ? '' : ` (${formatSeconds(p.duration)})`}</option>
           {/each}
         </select>
         <label class="flex items-center gap-1 text-xs text-muted-foreground whitespace-nowrap flex-shrink-0" title="Loop count: -1 = infinite, 0 = no loop, N = play N+1 times (pausable)">

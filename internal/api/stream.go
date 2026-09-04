@@ -15,6 +15,8 @@ import (
 
 	clog "github.com/charmbracelet/log"
 	"github.com/labstack/echo/v4"
+
+	"github.com/jeeftor/camspeak/internal/cameras"
 )
 
 // streamSession tracks a live ffmpeg → camera stream so it can be stopped or
@@ -137,16 +139,35 @@ func (h *Handlers) PlayStream(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
 
-	gain := h.effectiveGain(req.Camera, req.Gain)
-
 	streamURL, err := resolveStreamURL(req.URL)
 	if err != nil {
 		log.Warn("stream: failed to resolve playlist", "url", req.URL, "err", err)
 		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
 	}
 
+	if err := h.startStreamToCamera(log, cam, req.Camera, streamURL, req.URL, req.Gain); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{"status": "streaming"})
+}
+
+// startStreamToCamera starts an ffmpeg process reading a live stream URL and
+// piping transcoded G.711 µ-law to the camera speaker. It registers a
+// streamSession so the stream can be paused, resumed, and stopped. The
+// originalURL is used for logging and playback state (before playlist
+// resolution). This is shared by the /api/play-stream handler and the
+// stream-preset playback path in playPreset().
+func (h *Handlers) startStreamToCamera(
+	log *clog.Logger,
+	cam cameras.Speaker,
+	cameraName, streamURL, originalURL string,
+	reqGain float64,
+) error {
+	gain := h.effectiveGain(cameraName, reqGain)
+
 	// Stop any existing stream for this camera first.
-	stopStream(req.Camera)
+	stopStream(cameraName)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -155,7 +176,12 @@ func (h *Handlers) PlayStream(c echo.Context) error {
 	// warming the camera's audio engine so the start isn't clipped.
 	af := fmt.Sprintf("volume=%.2f", gain)
 	if h.cfg.PrimeSilenceMs > 0 {
-		af = fmt.Sprintf("adelay=%d|%d,volume=%.2f", h.cfg.PrimeSilenceMs, h.cfg.PrimeSilenceMs, gain)
+		af = fmt.Sprintf(
+			"adelay=%d|%d,volume=%.2f",
+			h.cfg.PrimeSilenceMs,
+			h.cfg.PrimeSilenceMs,
+			gain,
+		)
 	}
 
 	cmd := exec.CommandContext(
@@ -187,39 +213,46 @@ func (h *Handlers) PlayStream(c echo.Context) error {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		cancel()
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		return fmt.Errorf("ffmpeg stdout pipe: %w", err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		cancel()
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		return fmt.Errorf("ffmpeg stderr pipe: %w", err)
 	}
 	if err := cmd.Start(); err != nil {
 		cancel()
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		return fmt.Errorf("starting ffmpeg: %w", err)
 	}
 
 	activeStreamsMu.Lock()
-	activeStreams[req.Camera] = &streamSession{cmd: cmd, cancel: cancel, url: req.URL, started: now()}
+	activeStreams[cameraName] = &streamSession{
+		cmd:     cmd,
+		cancel:  cancel,
+		url:     originalURL,
+		started: now(),
+	}
 	activeStreamsMu.Unlock()
 
-	go logStderr(stderr, log, req.Camera)
+	go logStderr(stderr, log, cameraName)
 	go func() {
 		_ = cam.Stream(stdout)
 		// Camera side finished; clean up ffmpeg.
-		stopStream(req.Camera)
+		stopStream(cameraName)
 	}()
 
 	// Don't block waiting for the stream; return immediately.
 	go func() {
 		_ = cmd.Wait()
-		stopStream(req.Camera)
+		stopStream(cameraName)
 	}()
 
-	log.Info("stream: started", "camera", req.Camera, "url", req.URL)
-	setPlayback(req.Camera, "stream", req.URL)
-	h.events.publish(event{Camera: req.Camera, Action: "play-stream", Text: req.URL, At: now()})
-	return c.JSON(http.StatusOK, map[string]string{"status": "streaming"})
+	log.Info("stream: started", "camera", cameraName, "url", originalURL)
+	setPlayback(cameraName, "stream", originalURL)
+	h.events.publish(
+		event{Camera: cameraName, Action: "play-stream", Text: originalURL, At: now()},
+	)
+	return nil
 }
 
 func logStderr(stderr io.ReadCloser, log *clog.Logger, camera string) {

@@ -1,6 +1,6 @@
 <script>
   import { onDestroy } from 'svelte'
-  import { Sparkles, Save, Upload, Play, Pause, X, Loader2, Pencil, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-svelte'
+  import { Sparkles, Save, Upload, Play, Pause, X, Loader2, Pencil, ArrowUpDown, ArrowUp, ArrowDown, Radio } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Select } from '$lib/components/ui/select'
@@ -50,6 +50,13 @@
 
   let sortBy = $state('name')
   let sortOrder = $state('asc')
+
+  // Stream preset state
+  let streamName = $state('')
+  let streamCategory = $state('streams')
+  let streamURL = $state('')
+  let streamBusy = $state(false)
+  let streamStatus = $state('')
 
   let grouped = $derived((() => {
     const groups = presets.reduce((acc, p) => {
@@ -115,6 +122,23 @@
     } finally {
       genBusy = false
       clearTimeout(statusTimeout); statusTimeout = setTimeout(() => (genStatus = ''), 4000)
+    }
+  }
+
+  async function saveStream() {
+    if (!streamName || !streamURL) return
+    streamBusy = true; streamStatus = ''
+    try {
+      await apiClient.savePreset({ name: streamName, url: streamURL, category: streamCategory })
+      streamStatus = '✓ Saved'
+      toast.success(`Stream preset "${streamName}" saved`)
+      streamName = ''; streamURL = ''
+      onRefresh()
+    } catch (e) {
+      streamStatus = '✗ ' + e.message
+    } finally {
+      streamBusy = false
+      clearTimeout(statusTimeout); statusTimeout = setTimeout(() => (streamStatus = ''), 4000)
     }
   }
 
@@ -262,6 +286,7 @@
     { id: 'browse', label: 'Browse' },
     { id: 'generate', label: 'Generate TTS' },
     { id: 'upload', label: 'Upload' },
+    { id: 'stream', label: 'Add Stream' },
   ]
 </script>
 
@@ -300,16 +325,24 @@
           <div class="flex flex-col gap-1.5">
             {#each items as p}
               {@const key = `${p.category}/${p.name}`}
+              {@const isStream = !!p.url}
               <div class="rounded-lg border bg-card px-3 py-2">
                 <div class="flex items-center justify-between">
                   <div class="flex min-w-0 flex-1 items-center gap-2.5">
+                    {#if isStream}
+                      <Radio class="h-4 w-4 flex-shrink-0 text-violet-500" />
+                    {/if}
                     <button
                       class="font-semibold whitespace-nowrap hover:text-primary hover:underline"
                       onclick={() => startRename(p)}
                       title="Click to rename"
                     >{p.name}</button>
-                    <span class="text-xs text-muted-foreground whitespace-nowrap">{formatSeconds(p.duration)}</span>
-                    {#if p.text}<span class="truncate text-sm italic text-muted-foreground">"{p.text}"</span>{/if}
+                    {#if isStream}
+                      <span class="truncate text-xs text-muted-foreground font-mono">{p.url}</span>
+                    {:else}
+                      <span class="text-xs text-muted-foreground whitespace-nowrap">{formatSeconds(p.duration)}</span>
+                      {#if p.text}<span class="truncate text-sm italic text-muted-foreground">"{p.text}"</span>{/if}
+                    {/if}
                   </div>
                   <div class="flex shrink-0 gap-1">
                     <Button variant="outline" size="icon" class="h-8 w-8" onclick={() => preview(p.category, p.name)} title="Preview" aria-label="Preview preset">
@@ -442,6 +475,29 @@
         Save
       </Button>
       {#if uploadStatus}<p class="text-sm text-primary">{uploadStatus}</p>{/if}
+    </div>
+
+  {:else if tab === 'stream'}
+    <div class="flex max-w-2xl flex-col gap-3">
+      <h3 class="text-base font-semibold text-primary">Add Stream Preset</h3>
+      <p class="text-sm text-muted-foreground">Save a live stream URL (icecast, shoutcast, .pls, .m3u) as a named preset. When played, the stream is sent live to the camera speaker via ffmpeg.</p>
+      <label class="flex flex-col gap-1 text-sm text-muted-foreground">
+        Stream URL
+        <Input bind:value={streamURL} placeholder="http://stream.example.com:8000/live" />
+      </label>
+      <label class="flex flex-col gap-1 text-sm text-muted-foreground">
+        Name
+        <Input bind:value={streamName} placeholder="e.g. liveatc_bos" />
+      </label>
+      <label class="flex flex-col gap-1 text-sm text-muted-foreground">
+        Category
+        <Input bind:value={streamCategory} placeholder="streams" />
+      </label>
+      <Button onclick={saveStream} disabled={streamBusy || !streamName || !streamURL} class="w-fit">
+        {#if streamBusy}<Loader2 class="h-4 w-4 animate-spin" />{:else}<Radio class="h-4 w-4" />{/if}
+        Save Stream Preset
+      </Button>
+      {#if streamStatus}<p class="text-sm text-primary">{streamStatus}</p>{/if}
     </div>
   {/if}
 

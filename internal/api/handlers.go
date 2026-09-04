@@ -88,11 +88,13 @@ type broadcastReq struct {
 }
 
 // genPresetReq is the body for POST /api/library.
+// A preset is either a TTS clip (Text + Voice) or a live stream (URL).
 type genPresetReq struct {
 	Name     string `json:"name"`
 	Category string `json:"category"`
 	Text     string `json:"text"`
 	Voice    string `json:"voice"`
+	URL      string `json:"url"`
 }
 
 // Speak handles POST /api/speak — TTS → camera.

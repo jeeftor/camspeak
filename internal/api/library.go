@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"time"
 
@@ -54,11 +55,24 @@ func (h *Handlers) TTSPreview(c echo.Context) error {
 	return c.Blob(http.StatusOK, "audio/wav", wav)
 }
 
-// GeneratePreset handles POST /api/library — TTS → save preset.
+// GeneratePreset handles POST /api/library — TTS → save preset, or save a
+// stream URL as a preset. When the request includes a "url" field, a stream
+// preset is created (no TTS, no raw file). Otherwise a TTS clip is generated
+// and saved as a raw audio file.
 func (h *Handlers) GeneratePreset(c echo.Context) error {
 	var req genPresetReq
-	if err := c.Bind(&req); err != nil || req.Name == "" || req.Text == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "name and text required")
+	if err := c.Bind(&req); err != nil || req.Name == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "name required")
+	}
+
+	// Stream preset: URL provided, no TTS needed.
+	if req.URL != "" {
+		return h.createStreamPreset(c, req)
+	}
+
+	// Audio preset: TTS text required.
+	if req.Text == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "text or url required")
 	}
 
 	if req.Category == "" {
@@ -98,6 +112,34 @@ func (h *Handlers) GeneratePreset(c echo.Context) error {
 		"created":  preset.Created,
 		"timings":  t.Ms(),
 		"total_ms": TotalMs(start),
+	})
+}
+
+// createStreamPreset saves a live stream URL as a named preset.
+func (h *Handlers) createStreamPreset(c echo.Context, req genPresetReq) error {
+	log := h.logger(c)
+
+	// Validate URL scheme (http/https only).
+	parsed, err := neturl.Parse(req.URL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return echo.NewHTTPError(http.StatusBadRequest, "url must be http or https")
+	}
+
+	if req.Category == "" {
+		req.Category = "streams"
+	}
+
+	preset, err := h.store.SaveStream(req.Category, req.Name, req.URL)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	log.Info("library: stream preset saved", "name", preset.Name, "category", preset.Category)
+	return c.JSON(http.StatusCreated, map[string]any{
+		"name":     preset.Name,
+		"category": preset.Category,
+		"url":      preset.URL,
+		"created":  preset.Created,
 	})
 }
 
@@ -230,13 +272,21 @@ func (h *Handlers) RenamePreset(c echo.Context) error {
 	return c.JSON(http.StatusOK, preset)
 }
 
-// PreviewPreset handles GET /api/library/:category/:name/preview — streams WAV.
+// PreviewPreset handles GET /api/library/:category/:name/preview — streams WAV
+// for audio presets, or redirects to the stream URL for stream presets.
 func (h *Handlers) PreviewPreset(c echo.Context) error {
 	preset, err := h.store.Get(c.Param("category"), c.Param("name"))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
-	// Convert raw → WAV on the fly for browser preview
+
+	// Stream presets: redirect to the live stream URL so the browser can
+	// play it directly (many icecast/shoutcast streams work in <audio>).
+	if preset.IsStream() {
+		return c.Redirect(http.StatusFound, preset.URL)
+	}
+
+	// Audio presets: convert raw → WAV on the fly for browser preview.
 	wav, err := rawToWAV(preset.RawPath, h.tmpDir)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())

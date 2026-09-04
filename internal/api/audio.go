@@ -229,6 +229,33 @@ func (h *Handlers) playPreset(
 	}
 	t.Add("load_ms", loadStart)
 
+	// Stream preset: resolve playlist URL and start ffmpeg → camera stream.
+	if preset.IsStream() {
+		if loop != 0 {
+			log.Debug(
+				"play: loop ignored for stream preset",
+				"camera",
+				cameraName,
+				"preset",
+				preset.Name,
+				"loop",
+				loop,
+			)
+		}
+		streamURL, err := resolveStreamURL(preset.URL)
+		if err != nil {
+			log.Warn("play: failed to resolve stream preset playlist", "url", preset.URL, "err", err)
+			return t, err
+		}
+		err = h.startStreamToCamera(log, cam, cameraName, streamURL, preset.Name, gain)
+		if err != nil {
+			return t, err
+		}
+		log.Info("play: stream preset started", "camera", cameraName, "preset", preset.Name)
+		return t, nil
+	}
+
+	// Audio preset: send raw file to camera (existing path).
 	// Gain is now applied at send time (per-chunk in SendRaw via GainController),
 	// so we no longer need to pre-transcode with boostRawGain. The raw preset
 	// file is sent as-is; the GainController scales each 100ms chunk in real-time.
