@@ -164,6 +164,7 @@ func New(
 	api.GET("/library/:category/:name/preview", h.PreviewPreset)
 	api.GET("/events", h.Events)
 	api.GET("/events/log", h.EventLog)
+	api.GET("/stream-levels", h.StreamLevels)
 	api.GET("/health", h.Health)
 
 	// Config routes

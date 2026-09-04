@@ -11,12 +11,15 @@ import (
 // "play-url", "beep".
 // Detail is a human-readable identifier — the stream URL, TTS text, preset
 // name, etc.
+// Level is the current audio level (0.0–1.0) for VU meter display, only
+// meaningful for streams and looped presets (when a streamSession is active).
 type PlaybackState struct {
 	State     string     `json:"state"`
 	Source    string     `json:"source,omitempty"`
 	Detail    string     `json:"detail,omitempty"`
 	StartedAt time.Time  `json:"started_at,omitempty"`
 	PausedAt  *time.Time `json:"paused_at,omitempty"`
+	Level     float64    `json:"level,omitempty"`
 }
 
 var (
@@ -71,10 +74,14 @@ func clearAllPlayback() {
 }
 
 // getAllPlayback returns playback states for the given camera names. Cameras
-// with no tracked state get an "idle" entry.
+// with no tracked state get an "idle" entry. If a streamSession is active,
+// the current audio level is merged into the playback state for VU meter
+// display.
 func getAllPlayback(names []string) map[string]PlaybackState {
 	playbackStatesMu.RLock()
 	defer playbackStatesMu.RUnlock()
+
+	levels := getStreamLevels()
 
 	out := make(map[string]PlaybackState, len(names))
 	for _, name := range names {
@@ -82,7 +89,11 @@ func getAllPlayback(names []string) map[string]PlaybackState {
 		if ps == nil {
 			out[name] = PlaybackState{State: "idle"}
 		} else {
-			out[name] = *ps
+			state := *ps
+			if level, ok := levels[name]; ok {
+				state.Level = level
+			}
+			out[name] = state
 		}
 	}
 	return out

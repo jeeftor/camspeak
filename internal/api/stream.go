@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	neturl "net/url"
 	"os/exec"
@@ -22,18 +23,99 @@ import (
 // streamSession tracks a live ffmpeg → camera stream so it can be stopped or
 // paused on demand. Pause suspends the ffmpeg process via SIGSTOP without
 // tearing down the camera speaker connection; resume sends SIGCONT.
+// level holds the current audio level (0.0–1.0) for VU meter display,
+// updated by a sampling goroutine reading from the TeeReader tap.
 type streamSession struct {
 	cmd     *exec.Cmd
 	cancel  context.CancelFunc
 	paused  bool
 	url     string
 	started time.Time
+	level   float64
 }
 
 var (
 	activeStreams   = make(map[string]*streamSession)
 	activeStreamsMu sync.Mutex
 )
+
+// levelTapReader wraps an io.Reader and continuously samples the audio
+// level for VU meter display. It reads from the underlying reader (ffmpeg
+// stdout) and writes to the destination (cam.Stream) while computing a
+// running RMS level from the raw µ-law bytes.
+//
+// The level is stored on the streamSession and updated every ~50ms.
+// The actual reading is passthrough — the tap only reads what the
+// downstream consumer (cam.Stream) reads, so it doesn't buffer or block.
+type levelTapReader struct {
+	r       io.Reader
+	session *streamSession
+}
+
+func (t *levelTapReader) Read(p []byte) (int, error) {
+	n, err := t.r.Read(p)
+	if n > 0 {
+		t.session.level = computeLevel(p[:n])
+	}
+	return n, err
+}
+
+// computeLevel computes a normalized audio level (0.0–1.0) from a buffer
+// of raw G.711 µ-law samples. µ-law bytes are 8-bit unsigned values
+// centered at 128. We compute the RMS of the linear-decoded samples and
+// normalize to [0, 1].
+func computeLevel(buf []byte) float64 {
+	if len(buf) == 0 {
+		return 0
+	}
+	var sumSq float64
+	for _, b := range buf {
+		// Decode µ-law to linear PCM (16-bit range: -32124 to +32256).
+		// The decode is a simplified version — we only need the magnitude.
+		linear := mulawDecode(b)
+		f := float64(linear)
+		sumSq += f * f
+	}
+	rms := math.Sqrt(sumSq / float64(len(buf)))
+	// Normalize: max linear value is ~32256. RMS of full-scale is ~32256.
+	// Apply a log-ish curve so quiet audio is still visible.
+	normalized := rms / 32256.0
+	if normalized < 0 {
+		normalized = 0
+	}
+	// Square root compression: makes quiet signals more visible.
+	return math.Sqrt(normalized)
+}
+
+// mulawDecode decodes a single G.711 µ-law byte to a 16-bit linear sample.
+func mulawDecode(b byte) int16 {
+	b = ^b
+	sign := (b & 0x80) >> 7
+	segment := (b & 0x70) >> 4
+	magnitude := b & 0x0F
+	val := int16((magnitude << 3) + 0x84)
+	val <<= segment
+	if sign == 0 {
+		val = -val
+	}
+	return val
+}
+
+// getStreamLevels returns the current audio level (0.0–1.0) for each
+// camera that has an active stream. Safe for concurrent access.
+func getStreamLevels() map[string]float64 {
+	activeStreamsMu.Lock()
+	defer activeStreamsMu.Unlock()
+	out := make(map[string]float64, len(activeStreams))
+	for cam, s := range activeStreams {
+		if s.paused {
+			out[cam] = 0
+		} else {
+			out[cam] = s.level
+		}
+	}
+	return out
+}
 
 // resolveStreamURL turns a playlist URL into the actual stream URL.
 // Supports .pls and .m3u/.m3u8 playlists.
@@ -246,18 +328,23 @@ func (h *Handlers) startStreamToCamera(
 		return fmt.Errorf("starting ffmpeg: %w", err)
 	}
 
-	activeStreamsMu.Lock()
-	activeStreams[cameraName] = &streamSession{
+	session := &streamSession{
 		cmd:     cmd,
 		cancel:  cancel,
 		url:     originalURL,
 		started: now(),
 	}
+
+	activeStreamsMu.Lock()
+	activeStreams[cameraName] = session
 	activeStreamsMu.Unlock()
+
+	// Wrap stdout with a level tap so the VU meter can sample audio levels.
+	tap := &levelTapReader{r: stdout, session: session}
 
 	go logStderr(stderr, log, cameraName)
 	go func() {
-		_ = cam.Stream(stdout)
+		_ = cam.Stream(tap)
 		// Camera side finished; clean up ffmpeg.
 		stopStream(cameraName)
 	}()

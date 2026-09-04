@@ -130,6 +130,7 @@ export interface PlaybackState {
   detail?: string
   started_at?: string
   paused_at?: string
+  level?: number
 }
 
 export interface UploadJobAccepted {

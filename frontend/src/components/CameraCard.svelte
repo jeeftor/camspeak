@@ -45,9 +45,39 @@
   let isDragOver = $state(false)
   let statusTimeout
 
+  // VU meter: audio level (0.0–1.0) from SSE stream-levels endpoint
+  let audioLevel = $state(0)
+  let levelSSE = $state(null)
+
+  // Connect to stream-levels SSE when streaming, disconnect when not.
+  $effect(() => {
+    if (!streaming) {
+      audioLevel = 0
+      if (levelSSE) {
+        levelSSE.close()
+        levelSSE = null
+      }
+      return
+    }
+    if (levelSSE) return // already connected
+    const es = new EventSource('/api/stream-levels')
+    levelSSE = es
+    es.onmessage = (e) => {
+      try {
+        const levels = JSON.parse(e.data)
+        audioLevel = levels[camera.name] ?? 0
+      } catch { /* ignore parse errors */ }
+    }
+    es.onerror = () => {
+      // Will reconnect automatically; reset level to avoid stuck bar.
+      audioLevel = 0
+    }
+  })
+
   onDestroy(() => {
     if (snapshot) URL.revokeObjectURL(snapshot)
     clearTimeout(statusTimeout)
+    if (levelSSE) levelSSE.close()
   })
 
   // Poll the server for playback state so the UI stays in sync even when
@@ -550,6 +580,19 @@
         {/if}
         <span class="truncate">{playbackDetail}</span>
       </div>
+      <!-- VU meter: shows live audio level for streams and looped presets -->
+      {#if !paused}
+        <div class="flex items-center gap-1.5">
+          <div class="flex h-2 w-32 overflow-hidden rounded-full bg-muted gap-px" title="Audio level">
+            {#each Array(20) as _, i}
+              {@const lit = (i + 1) / 20 <= audioLevel}
+              {@const segClass = lit ? (i < 12 ? 'bg-green-500' : i < 17 ? 'bg-yellow-500' : 'bg-red-500') : 'bg-muted-foreground/20'}
+              <div class="flex-1 transition-colors duration-75 {segClass}"></div>
+            {/each}
+          </div>
+          <span class="text-[10px] tabular-nums text-muted-foreground">{Math.round(audioLevel * 100)}%</span>
+        </div>
+      {/if}
     {/if}
 
     <!-- Snapshot + description -->

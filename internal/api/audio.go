@@ -373,21 +373,25 @@ func (h *Handlers) playPresetLooped(
 	if loop > 0 {
 		detail = fmt.Sprintf("%s (loop %dx)", preset.Name, loop+1)
 	}
-	activeStreamsMu.Lock()
-	activeStreams[cameraName] = &streamSession{
+	session := &streamSession{
 		cmd:     cmd,
 		cancel:  cancel,
 		url:     rawPath,
 		started: now(),
 	}
+	activeStreamsMu.Lock()
+	activeStreams[cameraName] = session
 	activeStreamsMu.Unlock()
 	setPlayback(cameraName, "play", detail)
 
 	log.Info("play: looped preset started", "camera", cameraName, "preset", preset.Name)
 	h.events.publish(event{Camera: cameraName, Action: "play", Text: detail, At: time.Now()})
 
+	// Wrap stdout with a level tap so the VU meter can sample audio levels.
+	tap := &levelTapReader{r: stdout, session: session}
+
 	go func() {
-		_ = cam.Stream(stdout)
+		_ = cam.Stream(tap)
 		stopStream(cameraName)
 		clearPlayback(cameraName)
 		log.Info("play: looped preset ended", "camera", cameraName, "preset", preset.Name)

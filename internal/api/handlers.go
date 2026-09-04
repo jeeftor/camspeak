@@ -633,6 +633,39 @@ func (h *Handlers) Events(c echo.Context) error {
 	}
 }
 
+// StreamLevels handles GET /api/stream-levels — SSE stream of audio levels
+// for active streams, pushed at ~10fps. Each event is a JSON object mapping
+// camera names to level values (0.0–1.0). Only cameras with active streams
+// are included. When no streams are active, periodic empty events are sent
+// so the client knows the connection is alive.
+func (h *Handlers) StreamLevels(c echo.Context) error {
+	c.Response().Header().Set("Content-Type", "text/event-stream")
+	c.Response().Header().Set("Cache-Control", "no-cache")
+	c.Response().WriteHeader(http.StatusOK)
+
+	ticker := time.NewTicker(100 * time.Millisecond) // 10fps
+	defer ticker.Stop()
+
+	// Send an initial empty event so the client gets a response immediately.
+	fmt.Fprintf(c.Response(), "data: {}\n\n")
+	c.Response().Flush()
+
+	for {
+		select {
+		case <-ticker.C:
+			levels := getStreamLevels()
+			data, err := json.Marshal(levels)
+			if err != nil {
+				continue
+			}
+			fmt.Fprintf(c.Response(), "data: %s\n\n", data)
+			c.Response().Flush()
+		case <-c.Request().Context().Done():
+			return nil
+		}
+	}
+}
+
 // PingCamera handles POST /api/cameras/:name/ping — checks if the camera is reachable.
 func (h *Handlers) PingCamera(c echo.Context) error {
 	name := c.Param("name")

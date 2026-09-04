@@ -493,6 +493,16 @@ const openAPISpec = `{
         }
       }
     },
+    "/stream-levels": {
+      "get": {
+        "tags": ["system"],
+        "summary": "SSE stream of audio levels for active streams (~10fps)",
+        "description": "Server-Sent Events stream. Each event is a JSON object mapping camera names to audio level values (0.0–1.0). Only cameras with active streams are included. When no streams are active, empty events ({}) are sent as keepalives.",
+        "responses": {
+          "200": {"description": "SSE stream", "content": {"text/event-stream": {"schema": {"type": "object", "additionalProperties": {"type": "number"}}}}}
+        }
+      }
+    },
     "/health": {
       "get": {
         "tags": ["system"],
@@ -990,7 +1000,8 @@ const openAPISpec = `{
           "source": {"type": "string", "enum": ["stream", "speak", "play", "play-url", "beep"], "example": "stream"},
           "detail": {"type": "string", "example": "http://liveatc.net/stream.m3u"},
           "started_at": {"type": "string", "format": "date-time"},
-          "paused_at": {"type": "string", "format": "date-time", "description": "Present only when state is paused"}
+          "paused_at": {"type": "string", "format": "date-time", "description": "Present only when state is paused"},
+          "level": {"type": "number", "minimum": 0, "maximum": 1, "description": "Current audio level for VU meter (streams/loops only)", "example": 0.42}
         }
       }
     }
