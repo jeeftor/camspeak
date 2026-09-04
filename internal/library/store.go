@@ -28,8 +28,8 @@ type Meta struct {
 	Text     string    `json:"text,omitempty"`
 	Voice    string    `json:"voice,omitempty"`
 	URL      string    `json:"url,omitempty"` // live stream URL (stream presets only)
-	Duration float64   `json:"duration"`     // seconds
-	Size     int64     `json:"size"`         // bytes
+	Duration float64   `json:"duration"`      // seconds
+	Size     int64     `json:"size"`          // bytes
 	Created  time.Time `json:"created"`
 }
 
