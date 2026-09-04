@@ -199,7 +199,7 @@
     allResults = []
     allStatus = 'Running…'
     try {
-      const body: { image?: string; camera?: string; prompt: string } = { prompt }
+      const body = { prompt, image: undefined, camera: undefined }
       if (image) {
         body.image = image
         body.camera = selectedCamera

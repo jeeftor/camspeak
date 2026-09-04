@@ -244,8 +244,14 @@ export interface DiscoverResponse {
   discovered: number
 }
 
+export interface Go2rtcStream {
+  name: string
+  source: string
+  has_backchannel: boolean
+}
+
 export interface Go2rtcStreamsResponse {
-  streams: string[]
+  streams: Go2rtcStream[]
   error: string
 }
 

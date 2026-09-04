@@ -1034,8 +1034,8 @@
         </p>
         <div class="grid grid-cols-2 gap-2.5 max-sm:grid-cols-1">
           <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-            Endpoint URL
-            <Input bind:value={visionURL} placeholder="http://10.0.0.x:8080/v1/chat/completions" />
+            Endpoint URL <span class="text-muted-foreground/60 font-normal">(base URL or full /v1/chat/completions path)</span>
+            <Input bind:value={visionURL} placeholder="http://10.0.0.x:8080" />
           </label>
           <label class="flex flex-col gap-1 text-xs text-muted-foreground">
             Model

@@ -37,10 +37,25 @@ func (c *Client) URL() string { return c.url }
 // APIKey returns the API key of the client.
 func (c *Client) APIKey() string { return c.apiKey }
 
+// normalizeURL ensures the URL ends with /v1/chat/completions so callers
+// can provide either a bare base URL ("http://host:port") or the full path.
+func normalizeURL(u string) string {
+	u = strings.TrimRight(u, "/")
+	if strings.HasSuffix(u, "/v1/chat/completions") {
+		return u
+	}
+	if strings.HasSuffix(u, "/v1") {
+		return u + "/chat/completions"
+	}
+	return u + "/v1/chat/completions"
+}
+
 // NewClient creates a vision client.
+// url may be a bare base URL ("http://host:port"), end in "/v1", or be the
+// full "/v1/chat/completions" path — all are accepted and normalized.
 func NewClient(url, model, apiKey string) *Client {
 	return &Client{
-		url:    url,
+		url:    normalizeURL(url),
 		model:  model,
 		apiKey: apiKey,
 		client: &http.Client{Timeout: 60 * time.Second},
