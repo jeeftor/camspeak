@@ -116,6 +116,47 @@ func (h *Handlers) TestVisionConfig(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]interface{}{"ok": true, "models": count, "data": data})
 }
 
+// TestTTSConfig handles POST /api/config/tts/test — probes a TTS endpoint from the server.
+// Accepts {url, api_key} and tries GET {base}/v1/models to verify reachability.
+func (h *Handlers) TestTTSConfig(c echo.Context) error {
+	var req struct {
+		URL    string `json:"url"`
+		APIKey string `json:"api_key"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid JSON body")
+	}
+	// Derive base URL — strip any path after the host:port so we can probe /v1/models.
+	base := req.URL
+	if idx := strings.Index(base, "/v1/"); idx >= 0 {
+		base = base[:idx+4] + "models"
+	} else {
+		base = strings.TrimRight(base, "/") + "/v1/models"
+	}
+	h.logger(c).Info("testing TTS endpoint", "url", base)
+
+	httpReq, err := http.NewRequest(http.MethodGet, base, nil)
+	if err != nil {
+		return c.JSON(http.StatusOK, map[string]interface{}{"ok": false, "message": err.Error()})
+	}
+	if req.APIKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+req.APIKey)
+	}
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(httpReq)
+	if err != nil {
+		return c.JSON(http.StatusOK, map[string]interface{}{"ok": false, "message": err.Error()})
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return c.JSON(
+			http.StatusOK,
+			map[string]interface{}{"ok": false, "message": fmt.Sprintf("HTTP %d", resp.StatusCode)},
+		)
+	}
+	return c.JSON(http.StatusOK, map[string]interface{}{"ok": true, "message": "Connected"})
+}
+
 // GetSettings handles GET /api/config/settings — returns general settings.
 func (h *Handlers) GetSettings(c echo.Context) error {
 	h.cfgMu.Lock()

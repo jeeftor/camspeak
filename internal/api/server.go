@@ -176,6 +176,7 @@ func New(
 	api.GET("/config/vision-prompts", h.ListVisionPrompts)
 	api.POST("/config/vision-prompts", h.CreateVisionPrompt)
 	api.DELETE("/config/vision-prompts/:name", h.DeleteVisionPrompt)
+	api.POST("/config/tts/test", h.TestTTSConfig)
 	api.GET("/config/tts", h.ListTTSPresets)
 	api.POST("/config/tts", h.CreateTTSPreset)
 	api.PUT("/config/tts/:name", h.UpdateTTSPreset)

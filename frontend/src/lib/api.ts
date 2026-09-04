@@ -32,6 +32,7 @@ import type {
   TTSPreset,
   UploadJob,
   UploadJobAccepted,
+  TTSTestResult,
   VisionConfig,
   VisionPrompt,
   VisionTestAllResponse,
@@ -143,6 +144,8 @@ export const apiClient = {
     api(`/api/config/tts/${encodeURIComponent(name)}/activate`, { method: 'POST' }),
   deleteTTSPreset: (name: string) =>
     api(`/api/config/tts/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  testTTSConfig: (url: string, apiKey: string) =>
+    api<TTSTestResult>('/api/config/tts/test', { method: 'POST', body: JSON.stringify({ url, api_key: apiKey }) }),
 
   // --- Config: vision ---
   getVisionConfig: () => api<VisionConfig>('/api/config/vision'),

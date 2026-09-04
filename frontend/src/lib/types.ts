@@ -258,6 +258,13 @@ export interface Go2rtcStreamsResponse {
 export interface VisionTestResult {
   ok: boolean
   models: number
+  message?: string
+  data?: { data?: Array<{ id: string }> }
+}
+
+export interface TTSTestResult {
+  ok: boolean
+  message: string
 }
 
 export interface FrigateTestResult {

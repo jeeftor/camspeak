@@ -30,6 +30,8 @@
   let ttsKey = $state('')
   let ttsDesc = $state('')
   let ttsStatus = $state('')
+  let ttsTestBusy = $state(false)
+  let ttsTestStatus = $state('')
 
   // Camera modal
   let camFormOpen = $state(false)
@@ -70,6 +72,8 @@
   let visionStatus = $state('')
   let visionTestStatus = $state('')
   let visionTestBusy = $state(false)
+  let visionModelList = $state([]) // models fetched from endpoint
+  let visionModelPickerOpen = $state(false)
 
   // Camera pending-enabled batch state (checkbox → local, Save commits)
   let pendingEnabled = $state({}) // name → bool
@@ -413,10 +417,17 @@
   async function testVision() {
     visionTestBusy = true
     visionTestStatus = ''
+    visionModelList = []
+    visionModelPickerOpen = false
     try {
       const data = await apiClient.testVisionConfig(visionURL, visionAPIKey)
       if (data.ok) {
         visionTestStatus = `✓ Connected (${data.models} model${data.models === 1 ? '' : 's'})`
+        const ids = data.data?.data?.map(m => m.id).filter(Boolean) ?? []
+        if (ids.length > 0) {
+          visionModelList = ids
+          visionModelPickerOpen = true
+        }
       } else {
         visionTestStatus = '✗ ' + data.message
       }
@@ -425,6 +436,20 @@
     } finally {
       visionTestBusy = false
       setTimeout(() => visionTestStatus = '', 8000)
+    }
+  }
+
+  async function testTTSModal() {
+    ttsTestBusy = true
+    ttsTestStatus = ''
+    try {
+      const data = await apiClient.testTTSConfig(ttsEndpoint, ttsKey)
+      ttsTestStatus = data.ok ? '✓ Connected' : '✗ ' + data.message
+    } catch (e) {
+      ttsTestStatus = '✗ ' + e.message
+    } finally {
+      ttsTestBusy = false
+      setTimeout(() => ttsTestStatus = '', 6000)
     }
   }
 
@@ -755,10 +780,12 @@
         </div>
         <div class="mt-4 flex flex-wrap items-center gap-2 border-t pt-4">
           <Button onclick={saveTTS} disabled={!ttsName || !ttsEndpoint}>Save Preset</Button>
-          <Button variant="outline" onclick={testTTS}>Test Connection</Button>
+          <Button variant="outline" onclick={testTTSModal} disabled={ttsTestBusy || !ttsEndpoint}>
+            {ttsTestBusy ? 'Testing…' : 'Test Connection'}
+          </Button>
           <Button variant="ghost" onclick={() => ttsFormOpen = false}>Cancel</Button>
+          {#if ttsTestStatus}<span class="text-sm {ttsTestStatus.startsWith('✓') ? 'text-primary' : 'text-destructive'}">{ttsTestStatus}</span>{/if}
           {#if ttsStatus}<span class="text-sm text-primary">{ttsStatus}</span>{/if}
-          {#if testStatus.tts}<span class="text-sm text-primary">{testStatus.tts}</span>{/if}
         </div>
       </Modal>
 
@@ -1039,7 +1066,28 @@
           </label>
           <label class="flex flex-col gap-1 text-xs text-muted-foreground">
             Model
-            <Input bind:value={visionModel} placeholder="llama3.2-vision" />
+            {#if visionModelPickerOpen && visionModelList.length > 0}
+              <select
+                class="rounded-md border border-input bg-transparent px-3 py-2 text-sm"
+                onchange={(e) => { visionModel = e.target.value; visionModelPickerOpen = false }}
+              >
+                <option value="">— pick a model —</option>
+                {#each visionModelList as m}
+                  <option value={m} selected={m === visionModel}>{m}</option>
+                {/each}
+              </select>
+            {:else}
+              <div class="flex gap-1.5">
+                <Input bind:value={visionModel} placeholder="llama3.2-vision" class="flex-1" />
+                {#if visionModelList.length > 0}
+                  <button
+                    onclick={() => visionModelPickerOpen = true}
+                    class="rounded-md border border-input px-2 text-xs text-muted-foreground hover:bg-accent"
+                    title="Pick from scanned models"
+                  >↓</button>
+                {/if}
+              </div>
+            {/if}
           </label>
           <label class="flex flex-col gap-1 text-xs text-muted-foreground sm:col-span-2">
             API Key (optional)
