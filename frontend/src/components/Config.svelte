@@ -423,7 +423,7 @@
       const data = await apiClient.testVisionConfig(visionURL, visionAPIKey)
       if (data.ok) {
         visionTestStatus = `✓ Connected (${data.models} model${data.models === 1 ? '' : 's'})`
-        const ids = data.data?.data?.map(m => m.id).filter(Boolean) ?? []
+        const ids = (data.data?.data?.map(m => m.id).filter(Boolean) ?? []).filter(isVisionCapableModel)
         if (ids.length > 0) {
           visionModelList = ids
           visionModelPickerOpen = true
@@ -483,6 +483,16 @@
       discoverBusy = false
       setTimeout(() => discoverStatus = '', 8000)
     }
+  }
+
+  // Mirror of Go's isVisionCapableModel — filter /v1/models to vision-only.
+  function isVisionCapableModel(id) {
+    const lower = id.toLowerCase()
+    if (['vision', 'llava', 'moondream', 'cogvlm', 'internvl', 'pixtral'].some(kw => lower.includes(kw))) return true
+    if (['-vl-', '-vl_', '-vl.', '_vl-', '_vl_'].some(sep => lower.includes(sep))) return true
+    if (lower.endsWith('-vl') || lower.endsWith('_vl')) return true
+    if (lower.includes('minicpm-v') || lower.includes('minicpm_v')) return true
+    return false
   }
 
   // Normalize a bare host/IP to a full URL (add http:// if no scheme)
