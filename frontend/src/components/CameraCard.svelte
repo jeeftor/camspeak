@@ -571,7 +571,7 @@
     {/if}
 
     <!-- Playback indicator (from server state, survives page refresh) -->
-    {#if streaming && playbackDetail && !status}
+    {#if streaming && playbackDetail}
       <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
         {#if paused}
           <Pause class="h-3 w-3" />

@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -23,15 +24,16 @@ import (
 // streamSession tracks a live ffmpeg → camera stream so it can be stopped or
 // paused on demand. Pause suspends the ffmpeg process via SIGSTOP without
 // tearing down the camera speaker connection; resume sends SIGCONT.
-// level holds the current audio level (0.0–1.0) for VU meter display,
-// updated by a sampling goroutine reading from the TeeReader tap.
+// levelBits holds the current audio level (0.0–1.0) for VU meter display
+// as a uint64 (via math.Float64bits), updated atomically by the
+// levelTapReader on each Read from ffmpeg stdout.
 type streamSession struct {
-	cmd     *exec.Cmd
-	cancel  context.CancelFunc
-	paused  bool
-	url     string
-	started time.Time
-	level   float64
+	cmd       *exec.Cmd
+	cancel    context.CancelFunc
+	paused    bool
+	url       string
+	started   time.Time
+	levelBits uint64
 }
 
 var (
@@ -44,9 +46,13 @@ var (
 // stdout) and writes to the destination (cam.Stream) while computing a
 // running RMS level from the raw µ-law bytes.
 //
-// The level is stored on the streamSession and updated every ~50ms.
-// The actual reading is passthrough — the tap only reads what the
+// The level is stored on the streamSession and updated atomically on each
+// Read. The actual reading is passthrough — the tap only reads what the
 // downstream consumer (cam.Stream) reads, so it doesn't buffer or block.
+//
+// levelTapReader forwards the Deadliner interface (SetReadDeadline) if the
+// underlying reader implements it (e.g. *os.File from cmd.StdoutPipe),
+// so CopyAt8kBps can still use read deadlines for responsive stopping.
 type levelTapReader struct {
 	r       io.Reader
 	session *streamSession
@@ -55,9 +61,20 @@ type levelTapReader struct {
 func (t *levelTapReader) Read(p []byte) (int, error) {
 	n, err := t.r.Read(p)
 	if n > 0 {
-		t.session.level = computeLevel(p[:n])
+		level := computeLevel(p[:n])
+		atomic.StoreUint64(&t.session.levelBits, math.Float64bits(level))
 	}
 	return n, err
+}
+
+// SetReadDeadline forwards to the underlying reader if it implements
+// Deadliner (e.g. *os.File). This allows CopyAt8kBps to set read
+// deadlines through the tap wrapper.
+func (t *levelTapReader) SetReadDeadline(d time.Time) error {
+	if dl, ok := t.r.(interface{ SetReadDeadline(time.Time) error }); ok {
+		return dl.SetReadDeadline(d)
+	}
+	return nil
 }
 
 // computeLevel computes a normalized audio level (0.0–1.0) from a buffer
@@ -111,7 +128,7 @@ func getStreamLevels() map[string]float64 {
 		if s.paused {
 			out[cam] = 0
 		} else {
-			out[cam] = s.level
+			out[cam] = math.Float64frombits(atomic.LoadUint64(&s.levelBits))
 		}
 	}
 	return out
