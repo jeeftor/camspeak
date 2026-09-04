@@ -1,6 +1,6 @@
 <script>
   import { onDestroy } from 'svelte'
-  import { Eye, Bell, Play, Pause, Loader2, FileAudio, X, MessageSquare, Square, Info, Airplay, Radio } from 'lucide-svelte'
+  import { Eye, Bell, Play, Pause, Loader2, FileAudio, X, MessageSquare, Square, Info, Airplay } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Textarea } from '$lib/components/ui/textarea'
@@ -21,6 +21,7 @@
   let voice = $state('')
   let preset = $state('')
   let loopPreset = $state(0)
+  let selectedPresetIsStream = $derived(!!presets.find(x => x.name === preset)?.url)
   let url = $state('')
   let gain = $state(camera.gain ?? 3.0)
   let busy = $state(false)
@@ -100,16 +101,24 @@
       setStatus('select a preset first', 'warn')
       return
     }
+    const selected = presets.find(x => x.name === preset)
+    const isStream = !!selected?.url
     busy = true; status = ''
+    if (isStream) {
+      streaming = true; paused = false
+    }
     try {
-      const data = await apiClient.play({ camera: camera.name, preset, gain, loop: loopPreset })
-      if (loopPreset !== 0) {
+      const data = await apiClient.play({ camera: camera.name, preset, gain, loop: isStream ? 0 : loopPreset })
+      if (isStream) {
+        setStatus('✓ streaming')
+      } else if (loopPreset !== 0) {
         setStatus('✓ looping')
       } else {
         const timing = formatTimingSummary(data.timings, data.total_ms, data.ttfs_ms)
         setStatus(timing ? `✓ playing (${timing})` : '✓ playing')
       }
     } catch (e) {
+      if (isStream) streaming = false
       setStatus('✗ ' + e.message, 'err')
     } finally {
       busy = false
@@ -450,8 +459,8 @@
             <option value={p.name}>{p.url ? '📡 ' : ''}{p.category}/{p.name}{p.url ? '' : ` (${formatSeconds(p.duration)})`}</option>
           {/each}
         </select>
-        <label class="flex items-center gap-1 text-xs text-muted-foreground whitespace-nowrap flex-shrink-0" title="Loop count: -1 = infinite, 0 = no loop, N = play N+1 times (pausable)">
-          <input type="number" bind:value={loopPreset} min="-1" step="1" disabled={busy} class="w-14 rounded-md border border-input bg-transparent px-1.5 py-1 text-sm disabled:opacity-50" placeholder="0" />
+        <label class="flex items-center gap-1 text-xs text-muted-foreground whitespace-nowrap flex-shrink-0" title={selectedPresetIsStream ? 'Loop is not applicable to stream presets' : 'Loop count: -1 = infinite, 0 = no loop, N = play N+1 times (pausable)'}>
+          <input type="number" bind:value={loopPreset} min="-1" step="1" disabled={busy || selectedPresetIsStream} class="w-14 rounded-md border border-input bg-transparent px-1.5 py-1 text-sm disabled:opacity-50" placeholder="0" />
           loop
         </label>
         {#if streaming && playbackDetail?.includes('(loop')}

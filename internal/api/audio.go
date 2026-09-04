@@ -247,11 +247,11 @@ func (h *Handlers) playPreset(
 			log.Warn("play: failed to resolve stream preset playlist", "url", preset.URL, "err", err)
 			return t, err
 		}
-		err = h.startStreamToCamera(log, cam, cameraName, streamURL, preset.Name, gain)
+		err = h.startStreamToCamera(log, cam, cameraName, streamURL, preset.URL, gain)
 		if err != nil {
 			return t, err
 		}
-		log.Info("play: stream preset started", "camera", cameraName, "preset", preset.Name)
+		log.Info("play: stream preset started", "camera", cameraName, "preset", preset.Name, "url", preset.URL)
 		return t, nil
 	}
 

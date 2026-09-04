@@ -54,8 +54,18 @@ func resolveStreamURL(rawURL string) (string, error) {
 	}
 }
 
+// playlistClient is the HTTP client used for fetching .pls/.m3u playlists.
+// It has a bounded timeout so a slow playlist host doesn't block the
+// /api/play-stream or /api/play request indefinitely.
+var playlistClient = &http.Client{Timeout: 10 * time.Second}
+
 func resolvePLS(rawURL string) (string, error) {
-	resp, err := http.Get(rawURL)
+	base, err := neturl.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("invalid url: %w", err)
+	}
+
+	resp, err := playlistClient.Get(rawURL)
 	if err != nil {
 		return "", fmt.Errorf("fetching pls: %w", err)
 	}
@@ -67,13 +77,24 @@ func resolvePLS(rawURL string) (string, error) {
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if strings.HasPrefix(strings.ToLower(line), "file1=") {
-			return strings.TrimPrefix(line, "File1="), nil
+			val := strings.TrimSpace(line[len("File1="):])
+			// Resolve relative URLs against the playlist base URL.
+			u, err := base.Parse(val)
+			if err != nil {
+				return val, nil
+			}
+			return u.String(), nil
 		}
 		// Case-insensitive fallback.
 		if strings.Contains(strings.ToLower(line), "file1=") {
 			parts := strings.SplitN(line, "=", 2)
 			if len(parts) == 2 {
-				return strings.TrimSpace(parts[1]), nil
+				val := strings.TrimSpace(parts[1])
+				u, err := base.Parse(val)
+				if err != nil {
+					return val, nil
+				}
+				return u.String(), nil
 			}
 		}
 	}
@@ -89,7 +110,7 @@ func resolveM3U(rawURL string) (string, error) {
 		return "", fmt.Errorf("invalid url: %w", err)
 	}
 
-	resp, err := http.Get(rawURL)
+	resp, err := playlistClient.Get(rawURL)
 	if err != nil {
 		return "", fmt.Errorf("fetching m3u: %w", err)
 	}

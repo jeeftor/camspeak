@@ -1,6 +1,6 @@
 <script>
   import { onDestroy } from 'svelte'
-  import { Sparkles, Save, Upload, Play, Pause, X, Loader2, Pencil, ArrowUpDown, ArrowUp, ArrowDown, Radio } from 'lucide-svelte'
+  import { Sparkles, Save, Upload, Play, Pause, X, Loader2, Pencil, ArrowUp, ArrowDown, Radio } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Select } from '$lib/components/ui/select'
@@ -427,7 +427,7 @@
       {#if genStatus}<p class="text-sm text-primary">{genStatus}</p>{/if}
     </div>
 
-  {:else}
+  {:else if tab === 'upload'}
     <div class="flex max-w-2xl flex-col gap-3">
       <h3 class="text-base font-semibold text-primary">Upload Audio File</h3>
       <p class="text-sm text-muted-foreground">Drag and drop an audio file, or click to browse. Any format — ffmpeg will convert to G.711ulaw 8kHz.</p>

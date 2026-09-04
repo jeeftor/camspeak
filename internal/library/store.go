@@ -136,7 +136,15 @@ func (s *Store) SaveStream(category, name, url string) (*Preset, error) {
 }
 
 // saveMetaStream writes a stream preset's metadata to SQLite (no raw file).
+// If overwriting an existing audio preset, the old .raw file is removed.
 func (s *Store) saveMetaStream(category, name, url string) (*Preset, error) {
+	// Check if we're overwriting an audio preset and clean up its raw file.
+	if existing, err := s.Get(category, name); err == nil && existing.RawPath != "" {
+		if err := os.Remove(existing.RawPath); err != nil {
+			log.Warn("saveMetaStream: failed to remove orphaned raw file", "path", existing.RawPath, "err", err)
+		}
+	}
+
 	meta := Meta{
 		Name:     name,
 		Category: category,
