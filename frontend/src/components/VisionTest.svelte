@@ -484,6 +484,35 @@
         {/if}
       </div>
 
+      <!-- Prompt editor inline so user can tweak and re-run without scrolling -->
+      <div class="flex gap-2 items-end">
+        <div class="flex-1 min-w-0">
+          <label class="text-xs font-medium text-muted-foreground block mb-1">Prompt</label>
+          <Textarea
+            bind:value={prompt}
+            rows="2"
+            placeholder="Leave empty to use the default prompt"
+            disabled={allBusy}
+            class="text-sm"
+          />
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onclick={runTestAll}
+          disabled={allBusy || busy || (!selectedCamera && !image)}
+          class="shrink-0"
+          title="Re-run same image against all vision models with this prompt"
+        >
+          {#if allBusy}
+            <Loader2 class="h-3.5 w-3.5 animate-spin" />
+          {:else}
+            <Sparkles class="h-3.5 w-3.5" />
+          {/if}
+          Re-run All
+        </Button>
+      </div>
+
       {#if allResults.length > 0}
         <div class="grid gap-3 sm:grid-cols-2">
           {#each allResults as r (r.model)}
@@ -512,14 +541,14 @@
                   {@const prefillPct = Math.round((r.ttfs_ms / r.total_ms) * 100)}
                   {@const genPct = 100 - prefillPct}
                   <div class="flex flex-col gap-0.5">
-                    <div class="flex h-2 w-full overflow-hidden rounded-full bg-muted">
-                      <div class="bg-primary/70 h-full" style="width:{prefillPct}%"></div>
-                      <div class="bg-primary/30 h-full" style="width:{genPct}%"></div>
+                    <div class="flex h-2.5 w-full overflow-hidden rounded-full bg-muted">
+                      <div class="bg-amber-400 h-full transition-all" style="width:{prefillPct}%"></div>
+                      <div class="bg-sky-500 h-full transition-all" style="width:{genPct}%"></div>
                     </div>
-                    <div class="flex justify-between text-[10px] text-muted-foreground">
-                      <span title="Load + image encode + prefill">⚙ {r.ttfs_ms}ms setup</span>
-                      <span title="Token generation">✍ {r.gen_ms}ms write</span>
-                      <span title="Total wall-clock">⏱ {(r.total_ms/1000).toFixed(1)}s</span>
+                    <div class="flex justify-between text-[10px]">
+                      <span class="text-amber-500" title="Load + image encode + prefill (time to first token)">⚙ {r.ttfs_ms}ms setup</span>
+                      <span class="text-sky-500" title="Token generation time">✍ {r.gen_ms}ms write</span>
+                      <span class="text-muted-foreground" title="Total wall-clock">⏱ {(r.total_ms/1000).toFixed(1)}s</span>
                     </div>
                   </div>
                 {/if}
