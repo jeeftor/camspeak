@@ -581,7 +581,7 @@
     { id: 'cameras', label: 'Cameras' },
     { id: 'frigate', label: 'Frigate / MQTT' },
     { id: 'vision', label: 'Vision' },
-    { id: 'vision-test', label: 'Vision Test' },
+    { id: 'vision-test', label: 'Vision Playground' },
     { id: 'overview', label: 'Overview' },
   ]
 </script>

@@ -209,6 +209,7 @@ export interface SaveRuleReq {
   preset: string
   text: string
   voice: string
+  loop: number
   enabled: boolean
 }
 
@@ -369,7 +370,7 @@ export interface AudioInfo {
   channels: number
 }
 
-export interface StreamInfo {
+export interface CameraStreamInfo {
   channel: number
   name: string
   video?: VideoInfo
@@ -381,6 +382,6 @@ export interface CameraInfo {
   online: boolean
   device: DeviceInfo
   network?: NetworkInfo
-  streams: StreamInfo[]
+  streams: CameraStreamInfo[]
   errors?: string[]
 }

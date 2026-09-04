@@ -229,9 +229,9 @@
 <div class="flex flex-col gap-5 max-w-4xl">
   <!-- Header -->
   <div>
-    <h2 class="text-lg font-semibold text-primary mb-1">Vision Prompt Test</h2>
+    <h2 class="text-lg font-semibold text-primary mb-1">Vision Playground</h2>
     <p class="text-sm text-muted-foreground">
-      Capture a snapshot from a camera or upload an image, then test different vision prompts.
+      Capture a snapshot from a camera or upload an image, then test vision prompts against one model or all available models.
       Save your favorite prompts as presets for later reuse.
     </p>
   </div>
