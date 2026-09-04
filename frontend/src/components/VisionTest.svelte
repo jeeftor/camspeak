@@ -7,7 +7,6 @@
   import Markdown from '$lib/components/Markdown.svelte'
   import { buildCurl } from '$lib/curl.svelte'
   import { apiClient } from '$lib/api'
-  import type { VisionModelResult } from '$lib/types'
   import { Tooltip } from '$lib/components/ui/tooltip'
   import { formatTimings, timingTooltipContent, isMobile } from '$lib/utils'
 
@@ -186,7 +185,7 @@
   }
 
   // --- Test All Models ---
-  let allResults = $state<VisionModelResult[]>([])
+  let allResults = $state([])
   let allImage = $state('')
   let allBusy = $state(false)
   let allStatus = $state('')
