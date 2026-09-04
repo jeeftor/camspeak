@@ -241,5 +241,5 @@ jobs:
           subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ needs.manifest.outputs.digest }}
           predicate-type: https://spdx.dev/Document
-          predicate: sbom.spdx.json
+          predicate-path: sbom.spdx.json
           push-to-registry: true
