@@ -286,8 +286,13 @@ func (h *Handlers) startStreamToCamera(
 ) error {
 	gain := h.effectiveGain(cameraName, reqGain)
 
-	// Stop any existing stream for this camera first.
+	// Stop any existing ffmpeg stream for this camera first.
 	stopStream(cameraName)
+
+	// Also interrupt any active AirPlay/session on the camera itself.
+	// The Hikvision Stream() holds a mutex for the duration of the session;
+	// without Stop() the new cam.Stream(tap) call would block forever.
+	_ = cam.Stop()
 
 	ctx, cancel := context.WithCancel(context.Background())
 
