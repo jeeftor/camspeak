@@ -236,9 +236,10 @@ jobs:
         run: trivy fs --format spdx-json --output sbom.spdx.json .
 
       - name: Attest SBOM
-        uses: actions/attest-sbom@v4
+        uses: actions/attest@v2
         with:
           subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ needs.manifest.outputs.digest }}
-          sbom-path: sbom.spdx.json
+          predicate-type: https://spdx.dev/Document
+          predicate: sbom.spdx.json
           push-to-registry: true
