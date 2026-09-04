@@ -251,6 +251,15 @@
     }
   }
 
+  // Format a millisecond duration into a human-readable string.
+  // < 1000ms → "432ms"   ≥ 1000ms → "1.33s" / "32.0s"
+  function fmtMs(ms) {
+    if (!ms || ms <= 0) return '0ms'
+    if (ms < 1000) return `${ms}ms`
+    const s = ms / 1000
+    return `${s < 10 ? s.toFixed(2) : s.toFixed(1)}s`
+  }
+
   let curlCommand = $derived(
     buildCurl('POST', '/api/vision/test', image
       ? { camera: selectedCamera, prompt, image: '[base64 image data]' }
@@ -546,9 +555,9 @@
                       <div class="bg-sky-500 h-full transition-all" style="width:{genPct}%"></div>
                     </div>
                     <div class="flex justify-between text-[10px]">
-                      <span class="text-amber-500" title="Load + image encode + prefill (time to first token)">⚙ {r.ttfs_ms}ms setup</span>
-                      <span class="text-sky-500" title="Token generation time">✍ {r.gen_ms}ms write</span>
-                      <span class="text-muted-foreground" title="Total wall-clock">⏱ {(r.total_ms/1000).toFixed(1)}s</span>
+                      <span class="text-amber-500" title="Load + image encode + prefill (time to first token)">⚙ {fmtMs(r.ttfs_ms)} setup</span>
+                      <span class="text-sky-500" title="Token generation time">✍ {fmtMs(r.gen_ms)} write</span>
+                      <span class="text-muted-foreground" title="Total wall-clock">⏱ {fmtMs(r.total_ms)}</span>
                     </div>
                   </div>
                 {/if}
