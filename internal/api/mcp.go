@@ -754,7 +754,7 @@ type PlayPresetInput struct {
 	Camera   string `json:"camera"             jsonschema:"the camera name,required"`
 	Preset   string `json:"preset"             jsonschema:"the preset name,required"`
 	Category string `json:"category,omitempty" jsonschema:"optional preset category"`
-	Loop     int    `json:"loop,omitempty"     jsonschema:"loop count: -1 = infinite, 0 = no loop, 1 = play twice (default), N = play N+1 times (pausable via pause tool)"`
+	Loop     int    `json:"loop,omitempty"     jsonschema:"loop count: -1 = infinite, 0 = no loop (default), N = play N+1 times (pausable via pause tool)"`
 }
 
 type PlayPresetOutput struct{}

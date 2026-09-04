@@ -111,6 +111,7 @@ func (c *HikvisionClient) closeChannel(sessionID string) {
 	}
 
 	if resp, err := c.client.Do(req); err == nil {
+		c.log.Debug("send: channel closed", "session", sessionID, "status", resp.StatusCode)
 		resp.Body.Close()
 	}
 }

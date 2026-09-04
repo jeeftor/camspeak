@@ -20,7 +20,7 @@
   let text = $state('')
   let voice = $state('')
   let preset = $state('')
-  let loopPreset = $state(1)
+  let loopPreset = $state(0)
   let selectedPresetIsStream = $derived(!!presets.find(x => x.name === preset)?.url)
   let url = $state('')
   let gain = $state(camera.gain ?? 3.0)
@@ -489,8 +489,8 @@
             <option value={p.name}>{p.url ? '📡 ' : ''}{p.category}/{p.name}{p.url ? '' : ` (${formatSeconds(p.duration)})`}</option>
           {/each}
         </select>
-        <label class="flex items-center gap-1 text-xs text-muted-foreground whitespace-nowrap flex-shrink-0" title={selectedPresetIsStream ? 'Loop is not applicable to stream presets' : 'Loop count: -1 = infinite, 0 = no loop, 1 = play twice (default), N = play N+1 times (pausable)'}>
-          <input type="number" bind:value={loopPreset} min="-1" step="1" disabled={busy || selectedPresetIsStream} class="w-14 rounded-md border border-input bg-transparent px-1.5 py-1 text-sm disabled:opacity-50" placeholder="1" />
+        <label class="flex items-center gap-1 text-xs text-muted-foreground whitespace-nowrap flex-shrink-0" title={selectedPresetIsStream ? 'Loop is not applicable to stream presets' : 'Loop count: -1 = infinite, 0 = no loop (default), N = play N+1 times (pausable)'}>
+          <input type="number" bind:value={loopPreset} min="-1" step="1" disabled={busy || selectedPresetIsStream} class="w-14 rounded-md border border-input bg-transparent px-1.5 py-1 text-sm disabled:opacity-50" placeholder="0" />
           loop
         </label>
         {#if streaming && playbackDetail?.includes('(loop')}

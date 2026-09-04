@@ -789,7 +789,7 @@ const openAPISpec = `{
           "preset": {"type": "string", "description": "Preset name (alternative to text)"},
           "category": {"type": "string", "example": "alerts"},
           "gain": {"type": "number", "default": 3.0},
-          "loop": {"type": "integer", "default": 1, "description": "Loop count: -1 = infinite (pausable/resumable), 0 = no loop, 1 = play twice (default), N = play N+1 times"}
+          "loop": {"type": "integer", "default": 0, "description": "Loop count: -1 = infinite (pausable/resumable), 0 = no loop (default), N = play N+1 times"}
         }
       },
       "PlayRequest": {
@@ -800,7 +800,7 @@ const openAPISpec = `{
           "preset": {"type": "string", "example": "person_detected"},
           "category": {"type": "string", "example": "alerts"},
           "gain": {"type": "number", "default": 3.0},
-          "loop": {"type": "integer", "default": 1, "description": "Loop count: -1 = infinite, 0 = no loop, 1 = play twice (default), N = play N+1 times. Uses ffmpeg -stream_loop, so the loop can be paused/resumed/stopped like a live stream via /api/pause, /api/resume, /api/stop."}
+          "loop": {"type": "integer", "default": 0, "description": "Loop count: -1 = infinite, 0 = no loop (default), N = play N+1 times. Uses ffmpeg -stream_loop, so the loop can be paused/resumed/stopped like a live stream via /api/pause, /api/resume, /api/stop."}
         }
       },
       "PlayURLRequest": {
