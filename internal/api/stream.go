@@ -289,11 +289,6 @@ func (h *Handlers) startStreamToCamera(
 	// Stop any existing ffmpeg stream for this camera first.
 	stopStream(cameraName)
 
-	// Also interrupt any active AirPlay/session on the camera itself.
-	// The Hikvision Stream() holds a mutex for the duration of the session;
-	// without Stop() the new cam.Stream(tap) call would block forever.
-	_ = cam.Stop()
-
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Build audio filter chain: gain + optional prime silence (adelay).
@@ -366,6 +361,11 @@ func (h *Handlers) startStreamToCamera(
 
 	go logStderr(stderr, log, cameraName)
 	go func() {
+		// Interrupt any active AirPlay/session on the camera right before
+		// we need the lock. Doing this here (not before the goroutine)
+		// minimizes the window for shairport's reconnect loop to grab the
+		// mutex between Stop() and Stream().
+		_ = cam.Stop()
 		_ = cam.Stream(tap)
 		// Camera side finished; clean up ffmpeg.
 		stopStream(cameraName)

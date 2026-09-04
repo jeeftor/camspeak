@@ -331,11 +331,6 @@ func (h *Handlers) playPresetLooped(
 	// Stop any existing ffmpeg stream for this camera first.
 	stopStream(cameraName)
 
-	// Also interrupt any active AirPlay/session on the camera itself.
-	// The Hikvision Stream() holds a mutex for the duration of the session;
-	// without Stop() the new cam.Stream(tap) call would block forever.
-	_ = cam.Stop()
-
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Build audio filter: volume applies the requested/camera gain, and
@@ -396,6 +391,9 @@ func (h *Handlers) playPresetLooped(
 	tap := &levelTapReader{r: stdout, session: session}
 
 	go func() {
+		// Interrupt any active AirPlay/session right before acquiring the
+		// camera mutex, minimizing the reconnect race window.
+		_ = cam.Stop()
 		_ = cam.Stream(tap)
 		stopStream(cameraName)
 		clearPlayback(cameraName)
