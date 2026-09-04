@@ -38,7 +38,7 @@
   let ruleText = $state('')
   let ruleVoice = $state('')
   let ruleEnabled = $state(true)
-  let ruleLoop = $state(0)
+  let ruleLoop = $state(1)
   let ruleStatus = $state('')
   let formOpen = $state(false)
 
@@ -323,7 +323,7 @@
       })
       ruleStatus = '✓ Saved'
       ruleTopic = 'frigate/events'; ruleFilter = ''; ruleCameras = ''
-      rulePreset = ''; ruleText = ''; ruleVoice = ''; ruleEnabled = true; ruleLoop = 0
+      rulePreset = ''; ruleText = ''; ruleVoice = ''; ruleEnabled = true; ruleLoop = 1
       formOpen = false
       load()
     } catch (e) {
@@ -644,8 +644,8 @@
           <input type="checkbox" bind:checked={ruleEnabled} class="h-4 w-4 rounded border-input accent-primary" />
           Enabled
         </label>
-        <label class="flex items-center gap-2 text-sm text-muted-foreground" title="Loop count: -1 = infinite, 0 = no loop, N = play N+1 times (pausable via /api/pause)">
-          <input type="number" bind:value={ruleLoop} min="-1" step="1" class="w-16 rounded border-input accent-primary" placeholder="0" />
+        <label class="flex items-center gap-2 text-sm text-muted-foreground" title="Loop count: -1 = infinite, 0 = no loop, 1 = play twice (default), N = play N+1 times (pausable via /api/pause)">
+          <input type="number" bind:value={ruleLoop} min="-1" step="1" class="w-16 rounded border-input accent-primary" placeholder="1" />
           Loop count
         </label>
         <div class="flex items-center gap-3">
