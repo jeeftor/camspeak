@@ -492,8 +492,7 @@ func logStderr(stderr io.ReadCloser, log *clog.Logger, camera string) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		// Parse ICY metadata from ffmpeg stderr (requires -loglevel info).
-		// ffmpeg logs: [http @ 0x...] ICY Info: StreamTitle='Artist - Title';
-		if title := parseICYTitle(line); title != "" {
+		if title := parseICYMetadata(line); title != "" {
 			updatePlaybackDetail(camera, title)
 			log.Debug("stream: icy metadata", "camera", camera, "title", title)
 			continue
@@ -502,19 +501,30 @@ func logStderr(stderr io.ReadCloser, log *clog.Logger, camera string) {
 	}
 }
 
-// parseICYTitle extracts the StreamTitle from an ffmpeg ICY Info log line.
-// Returns empty string if the line doesn't contain ICY metadata.
-func parseICYTitle(line string) string {
-	idx := strings.Index(line, "ICY Info: StreamTitle='")
-	if idx < 0 {
-		return ""
+// parseICYMetadata extracts metadata from an ffmpeg stderr line. Handles two
+// formats:
+//   - ICY Info: StreamTitle='Artist - Title';  (music streams, ongoing updates)
+//   - icy-name        : Station Name            (ATC/other streams, once at startup)
+//
+// Returns empty string if the line doesn't contain parseable metadata.
+func parseICYMetadata(line string) string {
+	// Format 1: ICY Info: StreamTitle='...'
+	if idx := strings.Index(line, "ICY Info: StreamTitle='"); idx >= 0 {
+		start := idx + len("ICY Info: StreamTitle='")
+		end := strings.Index(line[start:], "'")
+		if end >= 0 {
+			return line[start : start+end]
+		}
 	}
-	start := idx + len("ICY Info: StreamTitle='")
-	end := strings.Index(line[start:], "'")
-	if end < 0 {
-		return ""
+	// Format 2: icy-name : ...  (indented, appears in Metadata block at startup)
+	trimmed := strings.TrimSpace(line)
+	if strings.HasPrefix(trimmed, "icy-name") {
+		parts := strings.SplitN(trimmed, ":", 2)
+		if len(parts) == 2 {
+			return strings.TrimSpace(parts[1])
+		}
 	}
-	return line[start : start+end]
+	return ""
 }
 
 // stopStream kills the active ffmpeg stream for camera, if any.
