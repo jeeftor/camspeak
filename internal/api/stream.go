@@ -272,34 +272,24 @@ func (h *Handlers) PlayStream(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"status": "streaming"})
 }
 
-// startStreamToCamera starts an ffmpeg process reading a live stream URL and
-// piping transcoded G.711 µ-law to the camera speaker. It registers a
-// streamSession so the stream can be paused, resumed, and stopped. The
-// originalURL is used for logging and playback state (before playlist
-// resolution). This is shared by the /api/play-stream handler and the
-// stream-preset playback path in playPreset().
-func (h *Handlers) startStreamToCamera(
-	log *clog.Logger,
-	cam cameras.Speaker,
-	cameraName, streamURL, originalURL string,
-	reqGain float64,
-) error {
-	gain := h.effectiveGain(cameraName, reqGain)
-
-	// Stop any existing ffmpeg stream for this camera first.
-	stopStream(cameraName)
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	// Build audio filter chain: gain + optional prime silence (adelay).
-	// adelay prepends N ms of silence before the first audio sample,
-	// warming the camera's audio engine so the start isn't clipped.
-	af := fmt.Sprintf("volume=%.2f", gain)
-	if h.cfg.PrimeSilenceMs > 0 {
+// buildStreamFFmpegCmd creates and starts an ffmpeg process that reads a
+// live stream URL and outputs raw G.711 µ-law 8kHz mono to stdout.
+// The audio filter chain applies loudnorm (EBU R128 normalization to -16 LUFS,
+// matching uploaded presets) followed by the camera gain, with optional
+// prime silence (adelay) to warm the camera's audio engine.
+// Uses -loglevel info so ICY metadata is logged to stderr for parsing.
+func buildStreamFFmpegCmd(
+	ctx context.Context,
+	streamURL string,
+	gain float64,
+	primeSilenceMs int,
+) (*exec.Cmd, io.ReadCloser, io.ReadCloser, error) {
+	af := fmt.Sprintf("loudnorm=I=-16:TP=-1.5:LRA=11,volume=%.2f", gain)
+	if primeSilenceMs > 0 {
 		af = fmt.Sprintf(
-			"adelay=%d|%d,volume=%.2f",
-			h.cfg.PrimeSilenceMs,
-			h.cfg.PrimeSilenceMs,
+			"adelay=%d|%d,loudnorm=I=-16:TP=-1.5:LRA=11,volume=%.2f",
+			primeSilenceMs,
+			primeSilenceMs,
 			gain,
 		)
 	}
@@ -308,8 +298,7 @@ func (h *Handlers) startStreamToCamera(
 		ctx,
 		"ffmpeg",
 		"-nostdin",
-		"-loglevel",
-		"error",
+		"-loglevel", "info", // info level for ICY metadata
 		"-re", // read input at native frame rate for live streams
 		"-user_agent",
 		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
@@ -329,24 +318,45 @@ func (h *Handlers) startStreamToCamera(
 		"mulaw",
 		"-",
 	)
-	// ffmpeg outputs raw mu-law to stdout.
+
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		cancel()
-		return fmt.Errorf("ffmpeg stdout pipe: %w", err)
+		return nil, nil, nil, fmt.Errorf("ffmpeg stdout pipe: %w", err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		cancel()
-		return fmt.Errorf("ffmpeg stderr pipe: %w", err)
+		return nil, nil, nil, fmt.Errorf("ffmpeg stderr pipe: %w", err)
 	}
 	if err := cmd.Start(); err != nil {
-		cancel()
-		return fmt.Errorf("starting ffmpeg: %w", err)
+		return nil, nil, nil, fmt.Errorf("starting ffmpeg: %w", err)
 	}
+	return cmd, stdout, stderr, nil
+}
+
+// startStreamToCamera starts an ffmpeg process reading a live stream URL and
+// piping transcoded G.711 µ-law to the camera speaker. It registers a
+// streamSession so the stream can be paused, resumed, and stopped. The
+// originalURL is used for logging and playback state (before playlist
+// resolution). This is shared by the /api/play-stream handler and the
+// stream-preset playback path in playPreset().
+//
+// A supervisor goroutine handles automatic reconnection with exponential
+// backoff if the stream drops (network blip, server restart). ICY metadata
+// from the stream is parsed and shown in the playback detail.
+func (h *Handlers) startStreamToCamera(
+	log *clog.Logger,
+	cam cameras.Speaker,
+	cameraName, streamURL, originalURL string,
+	reqGain float64,
+) error {
+	gain := h.effectiveGain(cameraName, reqGain)
+
+	// Stop any existing ffmpeg stream for this camera first.
+	stopStream(cameraName)
+
+	ctx, cancel := context.WithCancel(context.Background())
 
 	session := &streamSession{
-		cmd:     cmd,
 		cancel:  cancel,
 		url:     originalURL,
 		started: now(),
@@ -356,41 +366,155 @@ func (h *Handlers) startStreamToCamera(
 	activeStreams[cameraName] = session
 	activeStreamsMu.Unlock()
 
-	// Wrap stdout with a level tap so the VU meter can sample audio levels.
-	tap := &levelTapReader{r: stdout, session: session}
+	setPlayback(cameraName, "stream", originalURL)
 
-	go logStderr(stderr, log, cameraName)
-	go func() {
-		// Interrupt any active AirPlay/session on the camera right before
-		// we need the lock. Doing this here (not before the goroutine)
-		// minimizes the window for shairport's reconnect loop to grab the
-		// mutex between Stop() and Stream().
-		_ = cam.Stop()
-		_ = cam.Stream(tap)
-		// Camera side finished; clean up ffmpeg.
-		stopStream(cameraName)
-	}()
-
-	// Don't block waiting for the stream; return immediately.
-	go func() {
-		_ = cmd.Wait()
-		stopStream(cameraName)
-	}()
+	// Start the stream supervisor — handles reconnection on stream drop.
+	go h.streamSupervisor(log, cam, cameraName, streamURL, gain, ctx, session)
 
 	log.Info("stream: started", "camera", cameraName, "url", originalURL)
-	setPlayback(cameraName, "stream", originalURL)
 	h.events.publish(
 		event{Camera: cameraName, Action: "play-stream", Text: originalURL, At: now()},
 	)
 	return nil
 }
 
+// streamSupervisor manages the ffmpeg → camera pipeline lifecycle. If ffmpeg
+// exits (stream drop) or the camera closes the connection, it retries with
+// exponential backoff up to maxRetries times. User-initiated stop (via
+// context cancellation) exits immediately without retry.
+func (h *Handlers) streamSupervisor(
+	log *clog.Logger,
+	cam cameras.Speaker,
+	cameraName, streamURL string,
+	gain float64,
+	ctx context.Context,
+	session *streamSession,
+) {
+	backoff := 2 * time.Second
+	const maxBackoff = 32 * time.Second
+	const maxRetries = 5
+	retries := 0
+
+	for {
+		select {
+		case <-ctx.Done():
+			stopStream(cameraName)
+			return
+		default:
+		}
+
+		cmd, stdout, stderr, err := buildStreamFFmpegCmd(
+			ctx, streamURL, gain, h.cfg.PrimeSilenceMs,
+		)
+		if err != nil {
+			log.Warn("stream: ffmpeg failed to start", "camera", cameraName, "err", err)
+			stopStream(cameraName)
+			return
+		}
+
+		// Update session with new cmd (for pause/resume/stop).
+		activeStreamsMu.Lock()
+		session.cmd = cmd
+		activeStreamsMu.Unlock()
+
+		// Wrap stdout with a level tap for VU meter sampling.
+		tap := &levelTapReader{r: stdout, session: session}
+
+		go logStderr(stderr, log, cameraName)
+
+		// Start camera stream in a goroutine — interrupt AirPlay first.
+		camDone := make(chan struct{})
+		go func() {
+			_ = cam.Stop()
+			_ = cam.Stream(tap)
+			close(camDone)
+		}()
+
+		// Wait for ffmpeg to exit in a separate goroutine.
+		ffmpegDone := make(chan error, 1)
+		go func() {
+			ffmpegDone <- cmd.Wait()
+		}()
+
+		// Wait for either side to finish, or user stop.
+		var ffmpegErr error
+		select {
+		case <-ctx.Done():
+			// User stop — kill ffmpeg, wait for both to finish.
+			if cmd.Process != nil {
+				_ = cmd.Process.Kill()
+			}
+			<-ffmpegDone
+			<-camDone
+			stopStream(cameraName)
+			log.Info("stream: stopped", "camera", cameraName)
+			return
+		case ffmpegErr = <-ffmpegDone:
+			// ffmpeg exited (stream drop) — wait for cam.Stream to finish
+			// (it will get EOF from the tap reader).
+			<-camDone
+		case <-camDone:
+			// Camera closed connection — kill ffmpeg and reap.
+			if cmd.Process != nil {
+				_ = cmd.Process.Kill()
+			}
+			ffmpegErr = <-ffmpegDone
+		}
+
+		// Stream dropped — attempt reconnection.
+		if retries >= maxRetries {
+			log.Warn("stream: reconnect attempts exhausted, stopping",
+				"camera", cameraName, "retries", retries, "err", ffmpegErr)
+			stopStream(cameraName)
+			return
+		}
+		retries++
+		log.Warn("stream: dropped, reconnecting",
+			"camera", cameraName, "attempt", retries, "backoff", backoff, "err", ffmpegErr)
+
+		select {
+		case <-ctx.Done():
+			stopStream(cameraName)
+			return
+		case <-time.After(backoff):
+		}
+
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
+}
+
 func logStderr(stderr io.ReadCloser, log *clog.Logger, camera string) {
 	defer stderr.Close()
 	scanner := bufio.NewScanner(stderr)
 	for scanner.Scan() {
-		log.Debug("stream: ffmpeg", "camera", camera, "stderr", scanner.Text())
+		line := scanner.Text()
+		// Parse ICY metadata from ffmpeg stderr (requires -loglevel info).
+		// ffmpeg logs: [http @ 0x...] ICY Info: StreamTitle='Artist - Title';
+		if title := parseICYTitle(line); title != "" {
+			updatePlaybackDetail(camera, title)
+			log.Debug("stream: icy metadata", "camera", camera, "title", title)
+			continue
+		}
+		log.Debug("stream: ffmpeg", "camera", camera, "stderr", line)
 	}
+}
+
+// parseICYTitle extracts the StreamTitle from an ffmpeg ICY Info log line.
+// Returns empty string if the line doesn't contain ICY metadata.
+func parseICYTitle(line string) string {
+	idx := strings.Index(line, "ICY Info: StreamTitle='")
+	if idx < 0 {
+		return ""
+	}
+	start := idx + len("ICY Info: StreamTitle='")
+	end := strings.Index(line[start:], "'")
+	if end < 0 {
+		return ""
+	}
+	return line[start : start+end]
 }
 
 // stopStream kills the active ffmpeg stream for camera, if any.
@@ -398,15 +522,16 @@ func stopStream(camera string) {
 	activeStreamsMu.Lock()
 	sess := activeStreams[camera]
 	delete(activeStreams, camera)
+	if sess != nil {
+		sess.cancel()
+		if sess.cmd != nil && sess.cmd.Process != nil {
+			_ = sess.cmd.Process.Kill()
+		}
+	}
 	activeStreamsMu.Unlock()
-	if sess == nil {
-		return
+	if sess != nil {
+		clearPlayback(camera)
 	}
-	sess.cancel()
-	if sess.cmd.Process != nil {
-		_ = sess.cmd.Process.Kill()
-	}
-	clearPlayback(camera)
 }
 
 // stopAllStreams kills every active ffmpeg stream.
@@ -417,13 +542,13 @@ func stopAllStreams() {
 		sessions[k] = v
 	}
 	activeStreams = make(map[string]*streamSession)
-	activeStreamsMu.Unlock()
 	for _, sess := range sessions {
 		sess.cancel()
-		if sess.cmd.Process != nil {
+		if sess.cmd != nil && sess.cmd.Process != nil {
 			_ = sess.cmd.Process.Kill()
 		}
 	}
+	activeStreamsMu.Unlock()
 }
 
 // pauseStream suspends the ffmpeg process for a camera's active stream by
@@ -432,8 +557,8 @@ func stopAllStreams() {
 // paused. ok is false when there is no active stream for the camera.
 func pauseStream(camera string) (url string, alreadyPaused, ok bool) {
 	activeStreamsMu.Lock()
+	defer activeStreamsMu.Unlock()
 	sess := activeStreams[camera]
-	activeStreamsMu.Unlock()
 	if sess == nil {
 		return "", false, false
 	}
@@ -452,8 +577,8 @@ func pauseStream(camera string) (url string, alreadyPaused, ok bool) {
 // stream for the camera.
 func resumeStream(camera string) (url string, notPaused, ok bool) {
 	activeStreamsMu.Lock()
+	defer activeStreamsMu.Unlock()
 	sess := activeStreams[camera]
-	activeStreamsMu.Unlock()
 	if sess == nil {
 		return "", false, false
 	}

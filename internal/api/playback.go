@@ -66,6 +66,18 @@ func clearPlayback(camera string) {
 	playbackStatesMu.Unlock()
 }
 
+// updatePlaybackDetail updates the detail (e.g. ICY metadata) for a camera
+// that has an active playback state. No-op if there is no state.
+func updatePlaybackDetail(camera, detail string) {
+	playbackStatesMu.Lock()
+	defer playbackStatesMu.Unlock()
+	ps := playbackStates[camera]
+	if ps == nil {
+		return
+	}
+	ps.Detail = detail
+}
+
 // clearAllPlayback removes playback state for all cameras.
 func clearAllPlayback() {
 	playbackStatesMu.Lock()
