@@ -284,10 +284,16 @@ func buildStreamFFmpegCmd(
 	gain float64,
 	primeSilenceMs int,
 ) (*exec.Cmd, io.ReadCloser, io.ReadCloser, error) {
-	af := fmt.Sprintf("loudnorm=I=-16:TP=-1.5:LRA=11,volume=%.2f", gain)
+	// Audio filter chain: dynaudnorm (real-time normalization with ~1s
+	// latency) + volume (camera gain) + optional prime silence (adelay).
+	// dynaudnorm normalizes audio levels so quiet streams (e.g. ATC) are
+	// audible without manual gain adjustment. We use dynaudnorm instead of
+	// loudnorm because loudnorm has a 3+ second buffer that causes the
+	// camera to timeout and close the connection.
+	af := fmt.Sprintf("dynaudnorm=f=150:g=15:p=0.9,volume=%.2f", gain)
 	if primeSilenceMs > 0 {
 		af = fmt.Sprintf(
-			"adelay=%d|%d,loudnorm=I=-16:TP=-1.5:LRA=11,volume=%.2f",
+			"adelay=%d|%d,dynaudnorm=f=150:g=15:p=0.9,volume=%.2f",
 			primeSilenceMs,
 			primeSilenceMs,
 			gain,
