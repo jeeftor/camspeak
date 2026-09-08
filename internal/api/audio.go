@@ -261,7 +261,17 @@ func (h *Handlers) playPreset(
 	// file is sent as-is; the GainController scales each 100ms chunk in real-time.
 	sendPath := preset.RawPath
 
+	if loop != 0 {
+		// Looped presets use ffmpeg's adelay filter for prime silence, so we
+		// pass the original raw file. (Creating a temp file with prepended
+		// silence here would race with deletion: playPresetLooped starts
+		// ffmpeg asynchronously and returns, so a defer os.Remove would
+		// delete the temp file before ffmpeg could read it.)
+		return h.playPresetLooped(log, cam, cameraName, preset, sendPath, t, gain, loop)
+	}
+
 	// Prepend prime silence to warm the camera's audio engine.
+	// (Only for the non-looped SendRaw path; looped presets use adelay.)
 	if h.cfg.PrimeSilenceMs > 0 {
 		primed, err := prependSilenceToNewFile(sendPath, h.tmpDir, h.cfg.PrimeSilenceMs)
 		if err != nil {
@@ -285,10 +295,6 @@ func (h *Handlers) playPreset(
 		"loop",
 		loop,
 	)
-
-	if loop != 0 {
-		return h.playPresetLooped(log, cam, cameraName, preset, sendPath, t, gain, loop)
-	}
 
 	setPlayback(cameraName, "play", preset.Name)
 	sendTiming, err := cam.SendRaw(sendPath, h.gainForCall(cameraName, gain))

@@ -131,7 +131,9 @@ func newAudioStream(
 		defer func() { _ = cmd.Wait() }()
 		backoff := 2 * time.Second
 		const maxBackoff = 30 * time.Second
+		const successResetThreshold = 10 * time.Second
 		for {
+			streamStart := time.Now()
 			log.Info("stream: opening camera session")
 			err := speaker.Stream(stdout)
 
@@ -147,6 +149,19 @@ func newAudioStream(
 				// ffmpeg stdout closed cleanly — we're done.
 				as.streamDone <- nil
 				return
+			}
+
+			// If the session ran for a meaningful period before dropping,
+			// reset the backoff — this was a healthy session, not a
+			// persistent failure. Without this, repeated play/stop cycles
+			// (each of which interrupts the AirPlay session) would cause
+			// the backoff to grow to 30s, making the camera unresponsive.
+			if elapsed := time.Since(streamStart); elapsed >= successResetThreshold {
+				if backoff > 2*time.Second {
+					log.Debug("stream: resetting backoff after stable session",
+						"elapsed", elapsed, "prev_backoff", backoff)
+				}
+				backoff = 2 * time.Second
 			}
 
 			atomic.AddInt64(&as.reconnects, 1)
