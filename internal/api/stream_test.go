@@ -9,66 +9,86 @@ import (
 
 func TestParseICYMetadata(t *testing.T) {
 	tests := []struct {
-		name string
-		line string
-		want string
+		name  string
+		line  string
+		want  string
+		wantK icyKind
 	}{
 		{
-			name: "music StreamTitle",
-			line: "ICY Info: StreamTitle='Artist - Title';",
-			want: "Artist - Title",
+			name:  "music StreamTitle",
+			line:  "ICY Info: StreamTitle='Artist - Title';",
+			want:  "Artist - Title",
+			wantK: icyTitle,
 		},
 		{
-			name: "music StreamTitle with trailing semicolons",
-			line: "ICY Info: StreamTitle='Song by Band';StreamUrl='http://example';",
-			want: "Song by Band",
+			name:  "music StreamTitle with trailing semicolons",
+			line:  "ICY Info: StreamTitle='Song by Band';StreamUrl='http://example';",
+			want:  "Song by Band",
+			wantK: icyTitle,
 		},
 		{
-			name: "ATC icy-name indented",
-			line: "icy-name        : KAFF",
-			want: "KAFF",
+			name:  "ATC icy-name indented",
+			line:  "icy-name        : KAFF",
+			want:  "KAFF",
+			wantK: icyName,
 		},
 		{
-			name: "icy-name no indent",
-			line: "icy-name: KAFF",
-			want: "KAFF",
+			name:  "icy-name no indent",
+			line:  "icy-name: KAFF",
+			want:  "KAFF",
+			wantK: icyName,
 		},
 		{
-			name: "icy-name with extra whitespace",
-			line: "icy-name    :   KAFF Tower   ",
-			want: "KAFF Tower",
+			name:  "icy-name with extra whitespace",
+			line:  "icy-name    :   KAFF Tower   ",
+			want:  "KAFF Tower",
+			wantK: icyName,
 		},
 		{
-			name: "non-metadata line",
-			line: "  Duration: 00:00:00.00, start: 0.000000",
-			want: "",
+			name:  "non-metadata line",
+			line:  "  Duration: 00:00:00.00, start: 0.000000",
+			want:  "",
+			wantK: icyNone,
 		},
 		{
-			name: "empty line",
-			line: "",
-			want: "",
+			name:  "empty line",
+			line:  "",
+			want:  "",
+			wantK: icyNone,
 		},
 		{
-			name: "icy-description (not parsed)",
-			line: "icy-description : KAFF",
-			want: "",
+			name:  "icy-description indented",
+			line:  "icy-description : KAFF Tower ATC",
+			want:  "KAFF Tower ATC",
+			wantK: icyDescription,
 		},
 		{
-			name: "StreamTitle empty",
-			line: "ICY Info: StreamTitle='';",
-			want: "",
+			name:  "icy-description no indent",
+			line:  "icy-description: Ambient beats",
+			want:  "Ambient beats",
+			wantK: icyDescription,
 		},
 		{
-			name: "StreamTitle with apostrophe in title",
-			line: "ICY Info: StreamTitle='Don't Stop Me Now';",
-			want: "Don",
+			name:  "StreamTitle empty",
+			line:  "ICY Info: StreamTitle='';",
+			want:  "",
+			wantK: icyTitle,
+		},
+		{
+			name:  "StreamTitle with apostrophe in title",
+			line:  "ICY Info: StreamTitle='Don't Stop Me Now';",
+			want:  "Don",
+			wantK: icyTitle,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := parseICYMetadata(tc.line)
+			got, kind := parseICYMetadata(tc.line)
 			if got != tc.want {
-				t.Errorf("parseICYMetadata(%q) = %q, want %q", tc.line, got, tc.want)
+				t.Errorf("parseICYMetadata(%q) value = %q, want %q", tc.line, got, tc.want)
+			}
+			if kind != tc.wantK {
+				t.Errorf("parseICYMetadata(%q) kind = %d, want %d", tc.line, kind, tc.wantK)
 			}
 		})
 	}
@@ -97,12 +117,11 @@ func TestMulawDecode(t *testing.T) {
 }
 
 func TestMulawDecodeSymmetry(t *testing.T) {
-	// All μ-law bytes should decode to values within the 16-bit range.
+	// All μ-law bytes should decode to valid int16 values.
+	// (staticcheck SA4003: no int16 is < math.MinInt16 or > math.MaxInt16,
+	// so we just verify the decode doesn't panic for all 256 byte values.)
 	for b := 0; b < 256; b++ {
-		v := mulawDecode(byte(b))
-		if v < -32768 || v > 32767 {
-			t.Errorf("mulawDecode(0x%02X) = %d, out of int16 range", b, v)
-		}
+		_ = mulawDecode(byte(b))
 	}
 }
 

@@ -508,43 +508,72 @@ func (h *Handlers) streamSupervisor(
 func logStderr(stderr io.ReadCloser, log *clog.Logger, camera string) {
 	defer stderr.Close()
 	scanner := bufio.NewScanner(stderr)
+	// Track the highest metadata priority seen so far so that
+	// icy-description doesn't overwrite a more specific icy-name or
+	// StreamTitle, and icy-name doesn't overwrite an ongoing StreamTitle.
+	var bestKind icyKind
 	for scanner.Scan() {
 		line := scanner.Text()
 		// Parse ICY metadata from ffmpeg stderr (requires -loglevel info).
-		if title := parseICYMetadata(line); title != "" {
-			updatePlaybackDetail(camera, title)
-			log.Debug("stream: icy metadata", "camera", camera, "title", title)
+		if title, kind := parseICYMetadata(line); kind != icyNone {
+			if kind >= bestKind {
+				updatePlaybackDetail(camera, title)
+				bestKind = kind
+				log.Debug("stream: icy metadata", "camera", camera, "title", title)
+			}
 			continue
 		}
 		log.Debug("stream: ffmpeg", "camera", camera, "stderr", line)
 	}
 }
 
-// parseICYMetadata extracts metadata from an ffmpeg stderr line. Handles two
-// formats:
+// parseICYMetadata extracts metadata from an ffmpeg stderr line. Handles
+// three formats:
 //   - ICY Info: StreamTitle='Artist - Title';  (music streams, ongoing updates)
 //   - icy-name        : Station Name            (ATC/other streams, once at startup)
+//   - icy-description : Description             (fallback if icy-name absent)
 //
-// Returns empty string if the line doesn't contain parseable metadata.
-func parseICYMetadata(line string) string {
+// Returns the parsed value and the kind of metadata found.
+// Returns empty string and kindNone if the line doesn't contain parseable
+// metadata.
+func parseICYMetadata(line string) (value string, kind icyKind) {
 	// Format 1: ICY Info: StreamTitle='...'
 	if idx := strings.Index(line, "ICY Info: StreamTitle='"); idx >= 0 {
 		start := idx + len("ICY Info: StreamTitle='")
 		end := strings.Index(line[start:], "'")
 		if end >= 0 {
-			return line[start : start+end]
+			return line[start : start+end], icyTitle
 		}
 	}
-	// Format 2: icy-name : ...  (indented, appears in Metadata block at startup)
+	// Format 2/3: icy-name / icy-description (indented, appears in Metadata
+	// block at startup).
 	trimmed := strings.TrimSpace(line)
-	if strings.HasPrefix(trimmed, "icy-name") {
-		parts := strings.SplitN(trimmed, ":", 2)
-		if len(parts) == 2 {
-			return strings.TrimSpace(parts[1])
+	for _, prefix := range []struct {
+		str  string
+		kind icyKind
+	}{
+		{"icy-name", icyName},
+		{"icy-description", icyDescription},
+	} {
+		if strings.HasPrefix(trimmed, prefix.str) {
+			parts := strings.SplitN(trimmed, ":", 2)
+			if len(parts) == 2 {
+				return strings.TrimSpace(parts[1]), prefix.kind
+			}
 		}
 	}
-	return ""
+	return "", icyNone
 }
+
+// icyKind classifies the metadata source for priority resolution.
+type icyKind int
+
+const (
+	icyNone        icyKind = iota
+	icyDescription         // icy-description: lowest priority (fallback)
+	icyName                // icy-name: medium priority (station name)
+	icyTitle               // StreamTitle: highest priority (ongoing updates)
+)
 
 // stopStream kills the active ffmpeg stream for camera, if any.
 func stopStream(camera string) {
