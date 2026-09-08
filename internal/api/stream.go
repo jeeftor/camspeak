@@ -308,8 +308,6 @@ func buildStreamFFmpegCmd(
 		"-re", // read input at native frame rate for live streams
 		"-user_agent",
 		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-		"-headers",
-		"Referer: https://www.liveatc.net/\r\n",
 		"-i",
 		streamURL,
 		"-af",
@@ -399,6 +397,8 @@ func (h *Handlers) streamSupervisor(
 	backoff := 2 * time.Second
 	const maxBackoff = 32 * time.Second
 	const maxRetries = 5
+	// Reset the retry counter if the stream ran for this long before dropping.
+	const successResetThreshold = 30 * time.Second
 	retries := 0
 
 	for {
@@ -444,6 +444,7 @@ func (h *Handlers) streamSupervisor(
 
 		// Wait for either side to finish, or user stop.
 		var ffmpegErr error
+		streamStart := time.Now() // tracked for success-reset threshold
 		select {
 		case <-ctx.Done():
 			// User stop — kill ffmpeg, wait for both to finish.
@@ -465,6 +466,18 @@ func (h *Handlers) streamSupervisor(
 				_ = cmd.Process.Kill()
 			}
 			ffmpegErr = <-ffmpegDone
+		}
+
+		// If the stream ran long enough, reset the retry counter and
+		// backoff — this was a healthy session that dropped, not a
+		// persistent failure.
+		if elapsed := time.Since(streamStart); elapsed >= successResetThreshold {
+			if retries > 0 {
+				log.Debug("stream: resetting retry counter after stable session",
+					"camera", cameraName, "elapsed", elapsed, "prev_retries", retries)
+			}
+			retries = 0
+			backoff = 2 * time.Second
 		}
 
 		// Stream dropped — attempt reconnection.
