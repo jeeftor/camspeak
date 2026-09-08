@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bluenviron/gortsplib/v4"
-	"github.com/bluenviron/gortsplib/v4/pkg/base"
-	"github.com/bluenviron/gortsplib/v4/pkg/description"
-	"github.com/bluenviron/gortsplib/v4/pkg/format"
+	"github.com/bluenviron/gortsplib/v5"
+	"github.com/bluenviron/gortsplib/v5/pkg/base"
+	"github.com/bluenviron/gortsplib/v5/pkg/description"
+	"github.com/bluenviron/gortsplib/v5/pkg/format"
 	"github.com/bluenviron/mediacommon/v2/pkg/codecs/g711"
 	clog "github.com/charmbracelet/log"
 
@@ -105,7 +105,7 @@ func (c *OnvifClient) SendRaw(rawFile string, gc *GainController) (SendTiming, e
 		RequestBackChannels: true,
 	}
 
-	if err := client.Start2(); err != nil {
+	if err := client.Start(); err != nil {
 		return SendTiming{}, fmt.Errorf("connecting to RTSP server: %w", err)
 	}
 
