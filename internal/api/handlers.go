@@ -515,7 +515,7 @@ func (h *Handlers) Beep(c echo.Context) error {
 	start := time.Now()
 
 	setPlayback(req.Camera, "beep", "800Hz test tone")
-	if _, err := sendRawWithLevel(req.Camera, cam, raw, h.reg.GetGain(req.Camera)); err != nil {
+	if _, err := sendRawWithLevel(req.Camera, cam, raw, h.gainForCall(req.Camera, 0)); err != nil {
 		clearPlayback(req.Camera)
 		log.Error(
 			"beep: send failed",

@@ -245,7 +245,7 @@ func buildMCPServer(h *Handlers) *mcp.Server {
 				Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},
 			}, BeepOutput{}, nil
 		}
-		if _, err := sendRawWithLevel(in.Camera, cam, raw, h.reg.GetGain(in.Camera)); err != nil {
+		if _, err := sendRawWithLevel(in.Camera, cam, raw, h.gainForCall(in.Camera, 0)); err != nil {
 			return &mcp.CallToolResult{
 				IsError: true,
 				Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},

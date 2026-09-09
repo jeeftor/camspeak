@@ -382,7 +382,7 @@ func (h *Handlers) Describe(c echo.Context) error {
 	}
 
 	setPlayback(req.Camera, "describe", "vision TTS")
-	sendTiming, err := sendRawWithLevel(req.Camera, cam, rawPath, h.reg.GetGain(req.Camera))
+	sendTiming, err := sendRawWithLevel(req.Camera, cam, rawPath, h.gainForCall(req.Camera, req.Gain))
 	if err != nil {
 		clearPlayback(req.Camera)
 		log.Error("describe: send failed", "camera", req.Camera, "err", err)
@@ -607,7 +607,7 @@ func (h *Handlers) AnnounceForMQTT(sourceCamera string, targets []string, prompt
 				return
 			}
 			setPlayback(t, "announce", description)
-			_, err = sendRawWithLevel(t, cam, rawPath, h.reg.GetGain(t))
+			_, err = sendRawWithLevel(t, cam, rawPath, h.gainForCall(t, 0))
 			if err != nil {
 				h.log.Error("announce: send failed", "target", t, "err", err)
 			} else {

@@ -108,8 +108,22 @@ func (h *Handlers) Broadcast(c echo.Context) error {
 
 // --- Internal helpers ---
 
+// resolveGainValue returns the numeric gain for a camera call. If reqGain > 0
+// it wins; otherwise the camera's current runtime gain is used; otherwise the
+// default (3.0) is returned. Shared by gainForCall and effectiveGain.
+func (h *Handlers) resolveGainValue(camera string, reqGain float64) float64 {
+	if reqGain > 0 {
+		return reqGain
+	}
+	if gc := h.reg.GetGain(camera); gc != nil {
+		return gc.Get()
+	}
+	return 3.0
+}
+
 // gainForCall returns a GainController for a one-off audio send. If reqGain > 0
-// that value is used; otherwise the camera's current runtime gain is used.
+// that value is used; otherwise the camera's current runtime gain controller is
+// returned (so runtime volume changes apply per-chunk during playback).
 func (h *Handlers) gainForCall(camera string, reqGain float64) *cameras.GainController {
 	if reqGain > 0 {
 		return cameras.NewGainController(reqGain)
@@ -145,13 +159,7 @@ func sendRawWithLevel(
 // and looped presets). If reqGain > 0 it wins; otherwise the camera's current
 // runtime gain is used.
 func (h *Handlers) effectiveGain(camera string, reqGain float64) float64 {
-	if reqGain > 0 {
-		return reqGain
-	}
-	if gc := h.reg.GetGain(camera); gc != nil {
-		return gc.Get()
-	}
-	return 3.0
+	return h.resolveGainValue(camera, reqGain)
 }
 
 func (h *Handlers) speakText(
