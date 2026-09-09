@@ -134,47 +134,6 @@ func grabFrameViaFFmpeg(
 	return data, nil
 }
 
-// grabRTSPFrame captures a single JPEG frame from a direct RTSP URL using ffmpeg.
-// This is used for Hikvision main/sub streams where the ISAPI /picture endpoint
-// may return the wrong resolution (some cameras always return the main stream
-// resolution regardless of the channel number). The RTSP stream delivers the
-// actual configured resolution for each channel.
-func grabRTSPFrame(rtspURL string, timeout time.Duration) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	tmpFile, err := os.CreateTemp("", "camspeak-rtsp-*.jpg")
-	if err != nil {
-		return nil, fmt.Errorf("creating temp file: %w", err)
-	}
-	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
-	tmpFile.Close()
-
-	args := []string{
-		"-y",
-		"-rtsp_transport", "tcp",
-		"-i", rtspURL,
-		"-frames:v", "1",
-		"-update", "1",
-		tmpPath,
-	}
-
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("ffmpeg rtsp frame grab failed: %w (output: %s)", err, string(output))
-	}
-
-	data, err := os.ReadFile(tmpPath)
-	if err != nil {
-		return nil, fmt.Errorf("reading captured frame: %w", err)
-	}
-	if len(data) == 0 {
-		return nil, fmt.Errorf("ffmpeg produced empty output")
-	}
-	return data, nil
-}
-
 // BenchmarkResult is a single method's benchmark result.
 type BenchmarkResult struct {
 	Method    string  `json:"method"`
