@@ -1,5 +1,5 @@
-<script>
-  import { Camera, Eye, Loader2, RefreshCw, Save, Sparkles, Upload, Trash2, Bookmark } from 'lucide-svelte'
+<script lang="ts">
+  import { Camera, Eye, Loader2, RefreshCw, Save, Sparkles, Upload, Trash2, Bookmark, Timer } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Textarea } from '$lib/components/ui/textarea'
@@ -7,6 +7,7 @@
   import Markdown from '$lib/components/Markdown.svelte'
   import { buildCurl } from '$lib/curl.svelte'
   import { apiClient } from '$lib/api'
+  import type { SnapshotBenchmarkResult } from '$lib/types'
   import { Tooltip } from '$lib/components/ui/tooltip'
   import { formatTimings, timingTooltipContent, isMobile } from '$lib/utils'
 
@@ -34,6 +35,10 @@
   let availableModels = $state([])      // list of model IDs from the endpoint
   let modelsLoading = $state(false)
   let modelPickerOpen = $state(false)
+
+  // Snapshot benchmark
+  let benchResults = $state<SnapshotBenchmarkResult[] | null>(null)
+  let benchBusy = $state(false)
 
   // Prompt presets
   let presets = $state([])
@@ -250,6 +255,23 @@
     status = ''
   }
 
+  async function runBenchmark() {
+    if (!selectedCamera) {
+      setStatus('Select a camera first', 'err')
+      return
+    }
+    benchBusy = true
+    benchResults = null
+    try {
+      const data = await apiClient.snapshotBenchmark(selectedCamera)
+      benchResults = data.results
+    } catch (e) {
+      setStatus('✗ Benchmark failed: ' + e.message, 'err')
+    } finally {
+      benchBusy = false
+    }
+  }
+
   // --- Test All Models ---
   let allResults = $state([])   // [{model, pending, description, error, ttfs_ms, gen_ms, total_ms}]
   let allBusy = $state(false)
@@ -437,12 +459,65 @@
       Test All Models
     </Button>
 
+    <Button variant="outline" onclick={runBenchmark} disabled={benchBusy || busy || !selectedCamera}
+      title="Benchmark all snapshot methods for this camera (ISAPI, go2rtc, Frigate) and compare latency">
+      {#if benchBusy}
+        <Loader2 class="h-4 w-4 animate-spin" />
+      {:else}
+        <Timer class="h-4 w-4" />
+      {/if}
+      Benchmark
+    </Button>
+
     {#if image}
       <Button variant="ghost" onclick={clearAll} disabled={busy} title="Clear snapshot and results">
         Clear
       </Button>
     {/if}
   </div>
+
+  <!-- Benchmark results -->
+  {#if benchBusy || benchResults}
+    <div class="rounded-lg border p-3 flex flex-col gap-2">
+      <h3 class="text-sm font-semibold text-foreground">Snapshot Benchmark {benchResults ? `· ${selectedCamera}` : ''}</h3>
+      {#if benchBusy}
+        <div class="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 class="h-4 w-4 animate-spin" />
+          Testing all snapshot methods…
+        </div>
+      {:else if benchResults}
+        <table class="text-sm">
+          <thead>
+            <tr class="text-xs text-muted-foreground border-b">
+              <th class="text-left py-1 pr-4">Method</th>
+              <th class="text-right py-1 pr-4">Latency</th>
+              <th class="text-right py-1 pr-4">Size</th>
+              <th class="text-left py-1">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each [...benchResults].sort((a, b) => (a.ok ? a.ms : 99999) - (b.ok ? b.ms : 99999)) as r}
+              <tr class="border-b last:border-0">
+                <td class="py-1.5 pr-4 font-mono text-xs">{r.method}</td>
+                <td class="py-1.5 pr-4 text-right font-mono text-xs {r.ok ? (r.ms === Math.min(...benchResults.filter(x => x.ok).map(x => x.ms)) ? 'text-amber-500 font-semibold' : '') : 'text-muted-foreground'}">
+                  {r.ok ? `${r.ms}ms` : '—'}
+                </td>
+                <td class="py-1.5 pr-4 text-right font-mono text-xs text-muted-foreground">
+                  {r.ok ? (r.bytes > 1024 ? `${(r.bytes / 1024).toFixed(0)}KB` : `${r.bytes}B`) : '—'}
+                </td>
+                <td class="py-1.5 text-xs {r.ok ? 'text-green-600' : 'text-destructive'}">
+                  {r.ok ? '✓' : `✗ ${r.error || 'failed'}`}
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+        <p class="text-xs text-muted-foreground">
+          Fastest method highlighted in amber. Lower latency + larger size = better detail per ms.
+        </p>
+      {/if}
+    </div>
+  {/if}
 
   <!-- Prompt presets bar -->
   <div class="flex flex-wrap items-center gap-2">

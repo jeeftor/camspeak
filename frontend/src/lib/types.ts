@@ -329,6 +329,19 @@ export interface VisionTestResponse {
   total_ms?: number
 }
 
+export interface SnapshotBenchmarkResult {
+  method: string
+  ok: boolean
+  ms: number
+  bytes: number
+  error?: string
+}
+
+export interface SnapshotBenchmarkResponse {
+  camera: string
+  results: SnapshotBenchmarkResult[]
+}
+
 export interface VisionModelResult {
   model: string
   description?: string

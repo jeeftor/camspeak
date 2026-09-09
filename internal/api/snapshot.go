@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/labstack/echo/v4"
+
 	"github.com/jeeftor/camspeak/internal/cameras"
 	"github.com/jeeftor/camspeak/internal/config"
 )
@@ -127,6 +129,120 @@ func grabFrameViaFFmpeg(
 		return nil, fmt.Errorf("ffmpeg produced empty output")
 	}
 	return data, nil
+}
+
+// SnapshotBenchmark handles GET /api/snapshot/:camera/benchmark — tries all
+// available snapshot methods for the camera, times each one, and returns
+// results sorted by latency. Useful for picking the fastest method per camera.
+func (h *Handlers) SnapshotBenchmark(c echo.Context) error {
+	log := h.logger(c)
+	camera := c.Param("camera")
+	if camera == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "camera required")
+	}
+
+	h.cfgMu.Lock()
+	cam := h.cfg.Cameras[camera]
+	frigateURL := h.cfg.FrigateURL
+	go2rtcURL := h.cfg.Go2rtcURL
+	h.cfgMu.Unlock()
+
+	type result struct {
+		Method string `json:"method"`
+		OK     bool   `json:"ok"`
+		Ms     int64  `json:"ms"`
+		Bytes  int    `json:"bytes"`
+		Error  string `json:"error,omitempty"`
+	}
+
+	var results []result
+
+	// Helper to time a method.
+	tryMethod := func(name string, fn func() ([]byte, error)) {
+		start := time.Now()
+		data, err := fn()
+		r := result{
+			Method: name,
+			OK:     err == nil,
+			Ms:     time.Since(start).Milliseconds(),
+			Bytes:  len(data),
+		}
+		if err != nil {
+			r.Error = err.Error()
+		}
+		results = append(results, r)
+	}
+
+	// 1. ISAPI main stream (Hikvision only)
+	if cam.Type == "hikvision" && cam.IP != "" && cam.User != "" {
+		hikCam := cameras.NewHikvisionClient(cam.IP, cam.User, cam.Pass, cam.Channel, camera)
+		tryMethod("isapi_main", func() ([]byte, error) {
+			return hikCam.Snapshot("main")
+		})
+	}
+
+	// 2. ISAPI sub stream (Hikvision only)
+	if cam.Type == "hikvision" && cam.IP != "" && cam.User != "" {
+		hikCam := cameras.NewHikvisionClient(cam.IP, cam.User, cam.Pass, cam.Channel, camera)
+		tryMethod("isapi_sub", func() ([]byte, error) {
+			return hikCam.Snapshot("sub")
+		})
+	}
+
+	// 3. go2rtc frame.jpeg (if vision_stream or go2rtc stream configured)
+	streamName := cam.VisionStream
+	if streamName == "" && cam.Stream != "" {
+		streamName = cam.Stream
+	}
+	if streamName != "" && go2rtcURL != "" {
+		tryMethod("go2rtc_frame", func() ([]byte, error) {
+			return grabFrameViaGo2rtcAPI(go2rtcURL, streamName, 10*time.Second)
+		})
+	}
+
+	// 4. go2rtc via ffmpeg (same stream, but ffmpeg path)
+	if streamName != "" && go2rtcURL != "" {
+		width := cam.VisionWidth
+		if width <= 0 {
+			width = 1280
+		}
+		tryMethod("go2rtc_ffmpeg", func() ([]byte, error) {
+			return grabFrameViaFFmpeg(go2rtcURL, streamName, width, 10*time.Second)
+		})
+	}
+
+	// 5. Frigate latest.jpg
+	if frigateURL != "" {
+		tryMethod("frigate", func() ([]byte, error) {
+			snapURL := fmt.Sprintf("%s/api/%s/latest.jpg?h=720", frigateURL, camera)
+			ctx, cancel := context.WithTimeout(c.Request().Context(), 30*time.Second)
+			defer cancel()
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, snapURL, nil)
+			if err != nil {
+				return nil, err
+			}
+			resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+			if err != nil {
+				return nil, err
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != 200 {
+				return nil, fmt.Errorf("frigate returned HTTP %d", resp.StatusCode)
+			}
+			return io.ReadAll(resp.Body)
+		})
+	}
+
+	if len(results) == 0 {
+		return echo.NewHTTPError(http.StatusServiceUnavailable,
+			"no snapshot methods available for this camera")
+	}
+
+	log.Info("snapshot: benchmark", "camera", camera, "methods", len(results))
+	return c.JSON(http.StatusOK, map[string]any{
+		"camera":  camera,
+		"results": results,
+	})
 }
 
 // fetchSnapshot grabs a JPEG frame for a camera, using the camera's configured
