@@ -4,6 +4,7 @@
   import { Textarea } from '$lib/components/ui/textarea'
   import { apiClient } from '$lib/api'
   import type { SnapshotBenchmarkResult } from '$lib/types'
+  import { timeUnit, toggleTimeUnit, fmtTime } from '$lib/timefmt.svelte'
 
   let { cameras = [] } = $props()
 
@@ -25,11 +26,6 @@
     } finally {
       running = false
     }
-  }
-
-  function fmtSec(s: number | undefined): string {
-    if (!s || s <= 0) return '—'
-    return `${s.toFixed(2)}s`
   }
 
   function fmtBytes(b: number): string {
@@ -108,18 +104,21 @@
     </div>
   {:else if results.length > 0}
     <div class="rounded-lg border p-4 flex flex-col gap-3">
-      <h3 class="text-sm font-semibold text-foreground">
+      <h3 class="text-sm font-semibold text-foreground flex items-center gap-2">
         {selectedCamera}
-        {#if withVision}<span class="text-xs font-normal text-muted-foreground ml-2">with vision</span>{/if}
+        {#if withVision}<span class="text-xs font-normal text-muted-foreground">with vision</span>{/if}
+        <button onclick={toggleTimeUnit} class="text-xs font-mono text-muted-foreground hover:text-primary border rounded px-1.5 py-0.5 ml-2" title="Toggle time units (s/ms)">
+          {timeUnit()}
+        </button>
       </h3>
       <table class="text-sm">
         <thead>
           <tr class="text-xs text-muted-foreground border-b">
             <th class="text-left py-1.5 pr-4">Method</th>
-            <th class="text-right py-1.5 pr-4">Capture</th>
+            <th class="text-right py-1.5 pr-4 cursor-pointer select-none hover:text-primary" onclick={toggleTimeUnit} title="Click to toggle s/ms">Capture</th>
             {#if withVision}
-              <th class="text-right py-1.5 pr-4">Vision</th>
-              <th class="text-right py-1.5 pr-4">Total</th>
+              <th class="text-right py-1.5 pr-4 cursor-pointer select-none hover:text-primary" onclick={toggleTimeUnit} title="Click to toggle s/ms">Vision</th>
+              <th class="text-right py-1.5 pr-4 cursor-pointer select-none hover:text-primary" onclick={toggleTimeUnit} title="Click to toggle s/ms">Total</th>
             {/if}
             <th class="text-right py-1.5 pr-4">Resolution</th>
             <th class="text-right py-1.5 pr-4">Size</th>
@@ -131,15 +130,15 @@
             {@const isBest = r.ok && ((r[bestKey] as number) || r.snap_sec) === bestTime}
             <tr class="border-b last:border-0">
               <td class="py-1.5 pr-4 font-mono text-xs {isBest ? 'text-amber-500 font-semibold' : ''}">{r.method}</td>
-              <td class="py-1.5 pr-4 text-right font-mono text-xs {r.ok ? '' : 'text-muted-foreground'}">
-                {r.ok ? fmtSec(r.snap_sec) : '—'}
+              <td class="py-1.5 pr-4 text-right font-mono text-xs cursor-pointer hover:text-primary {r.ok ? '' : 'text-muted-foreground'}" onclick={toggleTimeUnit} title="Toggle s/ms">
+                {r.ok ? fmtTime(r.snap_sec) : '—'}
               </td>
               {#if withVision}
-                <td class="py-1.5 pr-4 text-right font-mono text-xs {r.ok ? '' : 'text-muted-foreground'}">
-                  {r.ok && r.vision_sec ? fmtSec(r.vision_sec) : '—'}
+                <td class="py-1.5 pr-4 text-right font-mono text-xs cursor-pointer hover:text-primary {r.ok ? '' : 'text-muted-foreground'}" onclick={toggleTimeUnit} title="Toggle s/ms">
+                  {r.ok && r.vision_sec ? fmtTime(r.vision_sec) : '—'}
                 </td>
-                <td class="py-1.5 pr-4 text-right font-mono text-xs {isBest ? 'text-amber-500 font-semibold' : r.ok ? '' : 'text-muted-foreground'}">
-                  {r.ok ? fmtSec(r.total_sec) : '—'}
+                <td class="py-1.5 pr-4 text-right font-mono text-xs cursor-pointer hover:text-primary {isBest ? 'text-amber-500 font-semibold' : r.ok ? '' : 'text-muted-foreground'}" onclick={toggleTimeUnit} title="Toggle s/ms">
+                  {r.ok ? fmtTime(r.total_sec) : '—'}
                 </td>
               {/if}
               <td class="py-1.5 pr-4 text-right font-mono text-xs text-muted-foreground">

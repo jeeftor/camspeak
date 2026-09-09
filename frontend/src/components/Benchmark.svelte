@@ -4,6 +4,7 @@
   import { Textarea } from '$lib/components/ui/textarea'
   import { apiClient } from '$lib/api'
   import type { SnapshotBenchmarkResult } from '$lib/types'
+  import { timeUnit, toggleTimeUnit, fmtTime } from '$lib/timefmt.svelte'
 
   let { cameras = [] } = $props()
 
@@ -240,11 +241,6 @@
     }
   }
 
-  function fmtSec(s: number | undefined): string {
-    if (!s || s <= 0) return '—'
-    return `${s.toFixed(2)}s`
-  }
-
   function fmtBytes(b: number): string {
     if (b > 1024 * 1024) return `${(b / 1024 / 1024).toFixed(1)}MB`
     if (b > 1024) return `${(b / 1024).toFixed(0)}KB`
@@ -400,6 +396,10 @@
       {activeModelCount} model{activeModelCount === 1 ? '' : 's'}
       ≈ {estimatedTests} tests
     </span>
+
+    <button onclick={toggleTimeUnit} class="text-xs font-mono text-muted-foreground hover:text-primary border rounded px-2 py-1 ml-auto" title="Toggle time units (s/ms)">
+      Time: {timeUnit()}
+    </button>
   </div>
 
   <!-- Progress + Log -->
@@ -452,10 +452,10 @@
                 <th class="text-left py-1.5 pr-3">Prompt</th>
                 <th class="text-left py-1.5 pr-3">Method</th>
                 <th class="text-left py-1.5 pr-3">Model</th>
-                <th class="text-right py-1.5 pr-3">Capture</th>
+                <th class="text-right py-1.5 pr-3 cursor-pointer select-none hover:text-primary" onclick={toggleTimeUnit} title="Click to toggle s/ms">Capture</th>
                 {#if withVision}
-                  <th class="text-right py-1.5 pr-3">Vision</th>
-                  <th class="text-right py-1.5 pr-3">Total</th>
+                  <th class="text-right py-1.5 pr-3 cursor-pointer select-none hover:text-primary" onclick={toggleTimeUnit} title="Click to toggle s/ms">Vision</th>
+                  <th class="text-right py-1.5 pr-3 cursor-pointer select-none hover:text-primary" onclick={toggleTimeUnit} title="Click to toggle s/ms">Total</th>
                 {/if}
                 <th class="text-right py-1.5 pr-3">Res</th>
                 <th class="text-right py-1.5 pr-3">Size</th>
@@ -470,15 +470,15 @@
                   </td>
                   <td class="py-1 pr-3 font-mono text-xs">{row.method}</td>
                   <td class="py-1 pr-3 font-mono text-xs max-w-[150px] truncate" title={row.model}>{row.model}</td>
-                  <td class="py-1 pr-3 text-right font-mono text-xs {row.result.ok ? '' : 'text-muted-foreground'}">
-                    {row.result.ok ? fmtSec(row.result.snap_sec) : '—'}
+                  <td class="py-1 pr-3 text-right font-mono text-xs cursor-pointer hover:text-primary {row.result.ok ? '' : 'text-muted-foreground'}" onclick={toggleTimeUnit} title="Toggle s/ms">
+                    {row.result.ok ? fmtTime(row.result.snap_sec) : '—'}
                   </td>
                   {#if withVision}
-                    <td class="py-1 pr-3 text-right font-mono text-xs {row.result.ok ? '' : 'text-muted-foreground'}">
-                      {row.result.ok && row.result.vision_sec ? fmtSec(row.result.vision_sec) : '—'}
+                    <td class="py-1 pr-3 text-right font-mono text-xs cursor-pointer hover:text-primary {row.result.ok ? '' : 'text-muted-foreground'}" onclick={toggleTimeUnit} title="Toggle s/ms">
+                      {row.result.ok && row.result.vision_sec ? fmtTime(row.result.vision_sec) : '—'}
                     </td>
-                    <td class="py-1 pr-3 text-right font-mono text-xs {row.result.ok ? '' : 'text-muted-foreground'}">
-                      {row.result.ok ? fmtSec(row.result.total_sec) : '—'}
+                    <td class="py-1 pr-3 text-right font-mono text-xs cursor-pointer hover:text-primary {row.result.ok ? '' : 'text-muted-foreground'}" onclick={toggleTimeUnit} title="Toggle s/ms">
+                      {row.result.ok ? fmtTime(row.result.total_sec) : '—'}
                     </td>
                   {/if}
                   <td class="py-1 pr-3 text-right font-mono text-xs text-muted-foreground">
