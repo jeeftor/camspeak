@@ -512,7 +512,7 @@
     frigateTestStatus = ''
     try {
       const url = normalizeURL(frigateURL)
-      const data = await apiClient.testSettingsURL(url)
+      const data = await apiClient.testSettingsURL(url, 'frigate')
       if (data.ok) {
         frigateTestStatus = `✓ Frigate ${data.data?.version ?? 'connected'}`
       } else {
@@ -532,7 +532,7 @@
     go2rtcTestStatus = ''
     try {
       const url = normalizeURL(go2rtcURL)
-      const data = await apiClient.testSettingsURL(url)
+      const data = await apiClient.testSettingsURL(url, 'go2rtc')
       if (data.ok) {
         const count = Object.keys(data.data ?? {}).length
         go2rtcTestStatus = `✓ go2rtc (${count} stream${count === 1 ? '' : 's'})`

@@ -107,10 +107,10 @@ export const apiClient = {
   getSettings: () => api<Settings>('/api/config/settings'),
   saveSettings: (settings: Partial<Settings>) =>
     api('/api/config/settings', { method: 'PUT', body: JSON.stringify(settings) }),
-  testSettingsURL: (url: string) =>
+  testSettingsURL: (url: string, type: 'frigate' | 'go2rtc' = 'frigate') =>
     api<FrigateTestResult | Go2rtcTestResult>('/api/config/settings/test', {
       method: 'POST',
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ url, type }),
     }),
 
   // --- Config: cameras ---
