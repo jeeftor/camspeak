@@ -334,12 +334,22 @@
   }
 
   async function testRule(rule) {
+    if (!rule.cameras?.length) {
+      testStatus = { ...testStatus, ['rule_' + rule.id]: '✗ No camera selected' }
+      setTimeout(() => {
+        const s = { ...testStatus }
+        delete s['rule_' + rule.id]
+        testStatus = s
+      }, 5000)
+      return
+    }
     testStatus = { ...testStatus, ['rule_' + rule.id]: 'speaking...' }
     try {
-      const body = rule.preset
-        ? { preset: rule.preset, camera: rule.cameras?.[0] }
-        : { text: rule.text || 'Test announcement', voice: rule.voice, camera: rule.cameras?.[0] }
-      await apiClient.speak(body)
+      if (rule.preset) {
+        await apiClient.play({ preset: rule.preset, camera: rule.cameras[0], gain: 3 })
+      } else {
+        await apiClient.speak({ text: rule.text || 'Test announcement', voice: rule.voice ?? '', camera: rule.cameras[0], gain: 3 })
+      }
       testStatus = { ...testStatus, ['rule_' + rule.id]: '✓ Sent' }
     } catch (e) {
       testStatus = { ...testStatus, ['rule_' + rule.id]: '✗ ' + e.message }

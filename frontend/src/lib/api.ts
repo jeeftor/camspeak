@@ -36,7 +36,6 @@ import type {
   TTSTestResult,
   VisionConfig,
   VisionPrompt,
-  VisionTestAllResponse,
   VisionTestResponse,
   VisionTestResult,
 } from './types'
@@ -124,15 +123,10 @@ export const apiClient = {
     }),
   deleteCamera: (name: string) =>
     api(`/api/config/cameras/${encodeURIComponent(name)}`, { method: 'DELETE' }),
-  toggleCamera: (name: string, enabled: boolean) =>
-    api(`/api/config/cameras/${encodeURIComponent(name)}/toggle`, {
-      method: 'POST',
-      body: JSON.stringify({ enabled }),
-    }),
-  detectCamera: (ip: string) =>
+  detectCamera: (ip: string, user?: string, pass?: string) =>
     api<DetectCameraResponse>('/api/config/cameras/detect', {
       method: 'POST',
-      body: JSON.stringify({ ip }),
+      body: JSON.stringify({ ip, user: user ?? '', pass: pass ?? '' }),
     }),
   discoverCameras: () =>
     api<DiscoverResponse>('/api/config/cameras/discover', { method: 'POST' }),
@@ -164,7 +158,7 @@ export const apiClient = {
 
   // --- Config: airplay ---
   getAirPlayConfig: () =>
-    api<{ enabled: boolean; base_port: number; prime_silence_ms: number; model: string; gain: number; per_camera: Record<string, unknown> }>('/api/config/airplay'),
+    api<{ enabled: boolean; base_port: number; prime_silence_ms: number; model: string; gain: number; per_camera: unknown[] }>('/api/config/airplay'),
   toggleAirPlay: (name: string) =>
     api(`/api/config/airplay/${encodeURIComponent(name)}/toggle`, { method: 'PATCH' }),
   saveAirPlayConfig: (cfg: { enabled: boolean; base_port: number; prime_silence_ms: number; model: string; gain: number }) =>
@@ -262,6 +256,4 @@ export const apiClient = {
     apiRaw('/api/vision/test', { method: 'POST', body: fd }),
   visionTestJSON: (req: { image?: string; camera?: string; stream?: string; prompt: string; model?: string }) =>
     api<VisionTestResponse>('/api/vision/test', { method: 'POST', body: JSON.stringify(req) }),
-  visionTestAll: (req: { image?: string; camera?: string; stream?: string; prompt: string }) =>
-    api<VisionTestAllResponse>('/api/vision/test-all', { method: 'POST', body: JSON.stringify(req) }),
 }

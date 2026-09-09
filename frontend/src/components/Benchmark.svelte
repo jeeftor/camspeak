@@ -3,6 +3,7 @@
   import { Button } from '$lib/components/ui/button'
   import { Textarea } from '$lib/components/ui/textarea'
   import { apiClient } from '$lib/api'
+  import { isVisionCapableModel } from '$lib/models'
   import type { SnapshotBenchmarkResult } from '$lib/types'
   import { timeUnit, toggleTimeUnit, fmtTime } from '$lib/timefmt.svelte'
 
@@ -84,16 +85,6 @@
     } finally {
       modelsLoading = false
     }
-  }
-
-  function isVisionCapableModel(id: string): boolean {
-    const l = id.toLowerCase()
-    return l.includes('vision') || l.includes('vl') || l.includes('llava') ||
-      l.includes('qwen') || l.includes('intern') || l.includes('pixtral') ||
-      l.includes('gpt-4o') || l.includes('claude-3') || l.includes('gemini') ||
-      l.includes('minicpm') || l.includes('moondream') || l.includes('phi-3') ||
-      l.includes('florence') || l.includes('cogvlm') || l.includes('ovis') ||
-      l.includes('idefics')
   }
 
   // Auto-fetch models on mount

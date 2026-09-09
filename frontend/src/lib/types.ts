@@ -189,6 +189,7 @@ export interface SaveCameraReq {
   channel: number
   stream: string
   enabled: boolean
+  airplay_enabled: boolean
   vision_prompt: string
   vision_stream: string
   vision_width: number
@@ -348,20 +349,6 @@ export interface SnapshotBenchmarkResponse {
   camera: string
   vision: boolean
   results: SnapshotBenchmarkResult[]
-}
-
-export interface VisionModelResult {
-  model: string
-  description?: string
-  error?: string
-  ttfs_ms: number
-  gen_ms: number
-  total_ms: number
-}
-
-export interface VisionTestAllResponse {
-  image: string
-  results: VisionModelResult[]
 }
 
 export interface SavePresetResponse {

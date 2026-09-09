@@ -13,13 +13,13 @@
   import Benchmark from './Benchmark.svelte'
   import { toast } from '$lib/components/ui/toast'
   import { apiClient } from '$lib/api'
+  import { isVisionCapableModel } from '$lib/models'
 
   let { onRefresh } = $props()
 
   let tab = $state('settings')
   let config = $state(null)
   let ttsPresets = $state([])
-  let activeTTS = $state('')
   let cameras = $state([])
   let voices = $state([])
   let loading = $state(true)
@@ -60,6 +60,7 @@
   let camEnabled = $state(false)
   let camAirPlayName = $state('')
   let camAirPlayModel = $state('')
+  let camAirPlayEnabled = $state(true)
   let camVisionPrompt = $state('')
   let camVisionStream = $state('')
   let camVisionWidth = $state(0)
@@ -97,6 +98,7 @@
   let airplayBasePort = $state(5000)
   let airplayPrimeSilenceMs = $state(500)
   let airplayModel = $state('RealityDevice14,1')
+  let airplayGain = $state(1.0)
   let airplayToggling = $state({})  // camera name → true while toggling
 
   // Test status
@@ -116,7 +118,6 @@
       ])
       config = cfg
       ttsPresets = ttsData.presets ?? []
-      activeTTS = ttsData.active?.url ?? ''
       cameras = cams ?? []
       visionURL = v.url ?? ''
       visionModel = v.model ?? ''
@@ -126,6 +127,7 @@
       airplayBasePort = ap.base_port ?? 5000
       airplayPrimeSilenceMs = ap.prime_silence_ms ?? 500
       airplayModel = ap.model ?? 'RealityDevice14,1'
+      airplayGain = ap.gain ?? 1.0
       frigateURL = st.frigate_url ?? ''
       go2rtcURL = st.go2rtc_url ?? ''
       advertiseIP = st.advertise_ip ?? ''
@@ -133,6 +135,7 @@
       apiClient.getVoices().then(v => voices = v ?? []).catch(() => {})
     } catch (e) {
       console.error('loadConfig error:', e)
+      configError = '✗ Failed to load config: ' + (e?.message ?? String(e))
     } finally {
       loading = false
     }
@@ -183,8 +186,9 @@
   async function testTTS() {
     testStatus = { ...testStatus, tts: 'testing...' }
     try {
-      const v = await apiClient.getVoices()
-      testStatus = { ...testStatus, tts: `✓ Connected (${v?.length ?? 0} voices)` }
+      const activePreset = ttsPresets.find(p => p.is_active) ?? ttsPresets[0]
+      const data = await apiClient.testTTSConfig(activePreset?.endpoint ?? ttsEndpoint, activePreset?.api_key ?? ttsKey)
+      testStatus = { ...testStatus, tts: data.ok ? '✓ Connected' : '✗ ' + (data.message ?? 'failed') }
     } catch (e) {
       testStatus = { ...testStatus, tts: '✗ ' + e.message }
     }
@@ -199,6 +203,7 @@
         name: camName, type: camType, ip: camIP,
         user: camUser, pass: camPass, channel: parseInt(camChannel) || 1,
         stream: camStream, enabled: camEnabled,
+        airplay_enabled: camAirPlayEnabled,
         vision_prompt: camVisionPrompt,
         vision_stream: camVisionStream,
         vision_width: camVisionWidth || 0,
@@ -255,7 +260,7 @@
     camName = ''; camType = 'hikvision'; camIP = ''; camUser = ''; camPass = ''
     camChannel = 1; camStream = ''; camEnabled = false; camVisionPrompt = ''
     camVisionStream = ''; camVisionWidth = 0; camSnapMethod = ''
-    camAirPlayName = ''; camAirPlayModel = ''
+    camAirPlayName = ''; camAirPlayModel = ''; camAirPlayEnabled = true
     camStatus = ''; testCamStatus = ''; detectCamStatus = ''
     camStreamCustom = false
     loadGo2rtcStreams()
@@ -272,6 +277,7 @@
     camChannel = cam.channel || 1
     camStream = cam.stream || ''
     camEnabled = cam.enabled ?? false
+    camAirPlayEnabled = cam.airplay_enabled ?? true
     camVisionPrompt = cam.vision_prompt ?? ''
     camVisionStream = cam.vision_stream ?? ''
     camVisionWidth = cam.vision_width ?? 0
@@ -320,16 +326,6 @@
     } finally {
       testCamBusy = false
       setTimeout(() => testCamStatus = '', 5000)
-    }
-  }
-
-  async function toggleCamera(cam) {
-    try {
-      await apiClient.toggleCamera(cam.name, !cam.enabled)
-      loadConfig()
-      onRefresh?.()
-    } catch (e) {
-      console.error('toggle error:', e)
     }
   }
 
@@ -490,16 +486,6 @@
     }
   }
 
-  // Mirror of Go's isVisionCapableModel — filter /v1/models to vision-only.
-  function isVisionCapableModel(id) {
-    const lower = id.toLowerCase()
-    if (['vision', 'llava', 'moondream', 'cogvlm', 'internvl', 'pixtral'].some(kw => lower.includes(kw))) return true
-    if (['-vl-', '-vl_', '-vl.', '_vl-', '_vl_'].some(sep => lower.includes(sep))) return true
-    if (lower.endsWith('-vl') || lower.endsWith('_vl')) return true
-    if (lower.includes('minicpm-v') || lower.includes('minicpm_v')) return true
-    return false
-  }
-
   // Normalize a bare host/IP to a full URL (add http:// if no scheme)
   function normalizeURL(url) {
     if (!url) return url
@@ -562,7 +548,7 @@
     detectCamBusy = true
     detectCamStatus = ''
     try {
-      const data = await apiClient.detectCamera(camIP)
+      const data = await apiClient.detectCamera(camIP, camUser, camPass)
       if (data.type) {
         camType = data.type
         if (data.type === 'reolink' && !camStream) {
@@ -604,6 +590,7 @@
         base_port: parseInt(airplayBasePort) || 5000,
         prime_silence_ms: parseInt(airplayPrimeSilenceMs) || 500,
         model: airplayModel || 'RealityDevice14,1',
+        gain: parseFloat(airplayGain) || 1.0,
       })
       settingsStatus = '✓ Saved'
       loadConfig()
@@ -722,6 +709,13 @@
               Default icon model
               <Input bind:value={airplayModel} list="airplay-models" placeholder="RealityDevice14,1" class="w-56" />
             </label>
+            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+              AirPlay gain
+              <div class="flex items-center gap-1">
+                <Input bind:value={airplayGain} type="number" step="0.1" min="0" max="10" class="w-24" />
+                <span class="text-xs text-muted-foreground/70">×</span>
+              </div>
+            </label>
           </div>
           <p class="mt-2 text-[11px] text-muted-foreground/80">
             The model string is advertised over mDNS and tells iOS which icon to show. Cameras can override the default icon individually.
@@ -788,7 +782,7 @@
           </label>
           <label class="flex flex-col gap-1 text-xs text-muted-foreground">
             API Key (optional)
-            <Input bind:value={ttsKey} type="password" placeholder="sk-..." />
+            <Input bind:value={ttsKey} type="password" placeholder={ttsName ? 'Leave empty to keep existing' : 'sk-...'} />
           </label>
           <label class="flex flex-col gap-1 text-xs text-muted-foreground">
             Description
@@ -1036,6 +1030,10 @@
         <div class="mt-4 border-t pt-4">
           <h4 class="mb-2 text-sm font-semibold text-primary">AirPlay for this camera</h4>
           <div class="grid grid-cols-2 gap-2.5 max-sm:grid-cols-1">
+            <label class="flex items-center gap-2 text-xs text-muted-foreground col-span-2">
+              <input type="checkbox" bind:checked={camAirPlayEnabled} class="h-4 w-4 rounded border-input accent-primary" />
+              Enable AirPlay receiver for this camera
+            </label>
             <label class="flex flex-col gap-1 text-xs text-muted-foreground">
               AirPlay display name
               <Input bind:value={camAirPlayName} placeholder={camName.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) + ' Camera'} />

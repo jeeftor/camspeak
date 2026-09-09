@@ -7,6 +7,7 @@
   import Markdown from '$lib/components/Markdown.svelte'
   import { buildCurl } from '$lib/curl.svelte'
   import { apiClient } from '$lib/api'
+  import { isVisionCapableModel } from '$lib/models'
   import { Tooltip } from '$lib/components/ui/tooltip'
   import { formatTimings, timingTooltipContent, isMobile } from '$lib/utils'
 
@@ -77,16 +78,6 @@
     } finally {
       modelsLoading = false
     }
-  }
-
-  function isVisionCapableModel(id) {
-    const l = id.toLowerCase()
-    return l.includes('vision') || l.includes('vl') || l.includes('llava') ||
-      l.includes('qwen') || l.includes('intern') || l.includes('pixtral') ||
-      l.includes('gpt-4o') || l.includes('claude-3') || l.includes('gemini') ||
-      l.includes('minicpm') || l.includes('moondream') || l.includes('phi-3') ||
-      l.includes('florence') || l.includes('cogvlm') || l.includes('ovis') ||
-      l.includes('idefics')
   }
 
   loadConfiguredModel()

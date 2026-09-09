@@ -112,6 +112,18 @@ func SaveTTSPreset(db *sql.DB, p TTSPreset) error {
 			return fmt.Errorf("deactivating presets: %w", err)
 		}
 	}
+	// Preserve existing API key when the incoming key is empty.
+	// This prevents editing a preset from wiping its stored key.
+	apiKey := p.APIKey
+	if apiKey == "" {
+		var existingKey string
+		err := db.QueryRow(
+			`SELECT api_key FROM tts_presets WHERE name = ?`, p.Name,
+		).Scan(&existingKey)
+		if err == nil {
+			apiKey = existingKey
+		}
+	}
 	_, err := db.Exec(
 		`INSERT INTO tts_presets (name, endpoint, model, api_key, default_voice, description, is_active)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -122,7 +134,7 @@ func SaveTTSPreset(db *sql.DB, p TTSPreset) error {
 		p.Name,
 		p.Endpoint,
 		p.Model,
-		p.APIKey,
+		apiKey,
 		p.DefaultVoice,
 		p.Description,
 		isActive,

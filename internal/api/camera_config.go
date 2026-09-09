@@ -48,21 +48,22 @@ func (h *Handlers) ListCamerasConfig(c echo.Context) error {
 func (h *Handlers) CreateCamera(c echo.Context) error {
 	log := h.logger(c)
 	var req struct {
-		Name         string  `json:"name"`
-		Type         string  `json:"type"`
-		IP           string  `json:"ip"`
-		User         string  `json:"user"`
-		Pass         string  `json:"pass"`
-		Channel      int     `json:"channel"`
-		Stream       string  `json:"stream"`
-		Enabled      *bool   `json:"enabled"` // pointer so we can distinguish unset from false
-		AirPlayName  string  `json:"airplay_name"`
-		AirPlayModel string  `json:"airplay_model"`
-		Gain         float64 `json:"gain"`
-		VisionPrompt string  `json:"vision_prompt"`
-		VisionStream string  `json:"vision_stream"`
-		VisionWidth  int     `json:"vision_width"`
-		SnapMethod   string  `json:"snap_method"`
+		Name           string  `json:"name"`
+		Type           string  `json:"type"`
+		IP             string  `json:"ip"`
+		User           string  `json:"user"`
+		Pass           string  `json:"pass"`
+		Channel        int     `json:"channel"`
+		Stream         string  `json:"stream"`
+		Enabled        *bool   `json:"enabled"` // pointer so we can distinguish unset from false
+		AirPlayEnabled *bool   `json:"airplay_enabled"`
+		AirPlayName    string  `json:"airplay_name"`
+		AirPlayModel   string  `json:"airplay_model"`
+		Gain           float64 `json:"gain"`
+		VisionPrompt   string  `json:"vision_prompt"`
+		VisionStream   string  `json:"vision_stream"`
+		VisionWidth    int     `json:"vision_width"`
+		SnapMethod     string  `json:"snap_method"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid JSON body")
@@ -123,6 +124,12 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 	}
 
 	// Preserve per-camera AirPlay fields if not provided in this request.
+	airPlayEnabled := true
+	if req.AirPlayEnabled != nil {
+		airPlayEnabled = *req.AirPlayEnabled
+	} else if hasExisting {
+		airPlayEnabled = existing.AirPlayEnabled
+	}
 	airPlayName := req.AirPlayName
 	if airPlayName == "" && hasExisting {
 		airPlayName = existing.AirPlayName
@@ -170,21 +177,22 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 		note = existing.Note
 	}
 	cam := config.CameraConfig{
-		Type:         camType,
-		IP:           req.IP,
-		User:         user,
-		Pass:         pass,
-		Channel:      channel,
-		Stream:       stream,
-		Enabled:      enabled,
-		AirPlayName:  airPlayName,
-		AirPlayModel: airPlayModel,
-		Gain:         gain,
-		VisionPrompt: visionPrompt,
-		VisionStream: visionStream,
-		VisionWidth:  visionWidth,
-		SnapMethod:   snapMethod,
-		Note:         note,
+		Type:           camType,
+		IP:             req.IP,
+		User:           user,
+		Pass:           pass,
+		Channel:        channel,
+		Stream:         stream,
+		Enabled:        enabled,
+		AirPlayEnabled: airPlayEnabled,
+		AirPlayName:    airPlayName,
+		AirPlayModel:   airPlayModel,
+		Gain:           gain,
+		VisionPrompt:   visionPrompt,
+		VisionStream:   visionStream,
+		VisionWidth:    visionWidth,
+		SnapMethod:     snapMethod,
+		Note:           note,
 	}
 	if err := config.SaveCamera(h.db, req.Name, cam); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
