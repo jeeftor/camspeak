@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -186,6 +187,7 @@ type BenchmarkResult struct {
 	Height    int     `json:"height,omitempty"`
 	Model     string  `json:"model,omitempty"`
 	Preview   string  `json:"preview,omitempty"`
+	Image     string  `json:"image,omitempty"`
 	Error     string  `json:"error,omitempty"`
 }
 
@@ -301,6 +303,8 @@ func (h *Handlers) runCameraBenchmark(
 		}
 		// Decode JPEG dimensions AFTER timing so it doesn't affect measurements.
 		r.Width, r.Height = decodeJPEGDimensions(data)
+		// Include a base64 thumbnail for UI hover preview.
+		r.Image = "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(data)
 		results = append(results, r)
 		if onResult != nil {
 			onResult(r)
@@ -672,6 +676,7 @@ func (h *Handlers) BenchmarkStream(c echo.Context) error {
 						Width:     cap.width,
 						Height:    cap.height,
 						Model:     model,
+						Image:     "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(cap.data),
 					}
 					if vErr != nil {
 						r.Error = fmt.Sprintf("vision failed: %s", vErr)

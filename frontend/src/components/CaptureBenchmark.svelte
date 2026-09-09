@@ -13,6 +13,9 @@
   let customPrompt = $state('')
   let running = $state(false)
   let results = $state<SnapshotBenchmarkResult[]>([])
+  let hoveredImage = $state<string | null>(null)
+  let hoverX = $state(0)
+  let hoverY = $state(0)
 
   async function runBenchmark() {
     if (!selectedCamera) return
@@ -129,7 +132,12 @@
           {#each results as r}
             {@const isBest = r.ok && ((r[bestKey] as number) || r.snap_sec) === bestTime}
             <tr class="border-b last:border-0">
-              <td class="py-1.5 pr-4 font-mono text-xs {isBest ? 'text-amber-500 font-semibold' : ''}">{r.method}</td>
+              <td
+                class="py-1.5 pr-4 font-mono text-xs {isBest ? 'text-amber-500 font-semibold' : ''} {r.image ? 'cursor-help' : ''}"
+                onmouseenter={(e) => { if (r.image) { hoveredImage = r.image; hoverX = e.clientX; hoverY = e.clientY } }}
+                onmousemove={(e) => { if (hoveredImage) { hoverX = e.clientX; hoverY = e.clientY } }}
+                onmouseleave={() => { hoveredImage = null }}
+              >{r.method}</td>
               <td class="py-1.5 pr-4 text-right font-mono text-xs cursor-pointer hover:text-primary {r.ok ? '' : 'text-muted-foreground'}" onclick={toggleTimeUnit} title="Toggle s/ms">
                 {r.ok ? fmtTime(r.snap_sec) : '—'}
               </td>
@@ -174,6 +182,16 @@
     <div class="rounded-lg border border-dashed p-8 text-center text-muted-foreground">
       <Camera class="h-8 w-8 mx-auto mb-2 opacity-50" />
       <p>Select a camera and click "Run Benchmark" to test all capture methods.</p>
+    </div>
+  {/if}
+
+  <!-- Hover image preview -->
+  {#if hoveredImage}
+    <div
+      class="fixed z-50 pointer-events-none max-w-[480px] max-h-[360px] rounded-lg border-2 border-primary/50 shadow-xl bg-black/90 p-1"
+      style="left: {hoverX + 16}px; top: {hoverY + 16}px;"
+    >
+      <img src={hoveredImage} alt="captured frame" class="max-w-[464px] max-h-[348px] rounded object-contain" />
     </div>
   {/if}
 </div>

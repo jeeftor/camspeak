@@ -20,6 +20,9 @@
   let prompts = $state(defaultPrompts.map(p => p))
   let withVision = $state(true)
   let running = $state(false)
+  let hoveredImage = $state<string | null>(null)
+  let hoverX = $state(0)
+  let hoverY = $state(0)
 
   // Model selection
   let availableModels = $state<string[]>([])
@@ -459,7 +462,12 @@
                   <td class="py-1 pr-3 text-xs text-muted-foreground italic max-w-[150px] truncate" title={row.prompt}>
                     {row.prompt.length > 30 ? row.prompt.slice(0, 30) + '…' : row.prompt}
                   </td>
-                  <td class="py-1 pr-3 font-mono text-xs">{row.method}</td>
+                  <td
+                    class="py-1 pr-3 font-mono text-xs {row.result.image ? 'cursor-help' : ''}"
+                    onmouseenter={(e) => { if (row.result.image) { hoveredImage = row.result.image; hoverX = e.clientX; hoverY = e.clientY } }}
+                    onmousemove={(e) => { if (hoveredImage) { hoverX = e.clientX; hoverY = e.clientY } }}
+                    onmouseleave={() => { hoveredImage = null }}
+                  >{row.method}</td>
                   <td class="py-1 pr-3 font-mono text-xs max-w-[150px] truncate" title={row.model}>{row.model}</td>
                   <td class="py-1 pr-3 text-right font-mono text-xs cursor-pointer hover:text-primary {row.result.ok ? '' : 'text-muted-foreground'}" onclick={toggleTimeUnit} title="Toggle s/ms">
                     {row.result.ok ? fmtTime(row.result.snap_sec) : '—'}
@@ -495,5 +503,15 @@
         {/if}
       </div>
     {/each}
+  {/if}
+
+  <!-- Hover image preview -->
+  {#if hoveredImage}
+    <div
+      class="fixed z-50 pointer-events-none max-w-[480px] max-h-[360px] rounded-lg border-2 border-primary/50 shadow-xl bg-black/90 p-1"
+      style="left: {hoverX + 16}px; top: {hoverY + 16}px;"
+    >
+      <img src={hoveredImage} alt="captured frame" class="max-w-[464px] max-h-[348px] rounded object-contain" />
+    </div>
   {/if}
 </div>

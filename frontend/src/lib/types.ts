@@ -342,6 +342,7 @@ export interface SnapshotBenchmarkResult {
   width?: number
   height?: number
   preview?: string
+  image?: string
   error?: string
 }
 
