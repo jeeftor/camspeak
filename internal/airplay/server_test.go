@@ -25,6 +25,7 @@ func TestLoadRSAPrivateKey(t *testing.T) {
 	}
 	if key == nil {
 		t.Fatal("key is nil")
+		return
 	}
 	// The AirPort Express key is 2048-bit RSA
 	if key.N.BitLen() != 2048 {
@@ -447,6 +448,7 @@ func TestHandleAnnounceWithRSAChallenge(t *testing.T) {
 	server.sessionMu.Unlock()
 	if sess == nil {
 		t.Fatal("session was not created after ANNOUNCE")
+		return
 	}
 	if len(sess.aesKey) != 16 {
 		t.Errorf("session AES key length = %d, want 16", len(sess.aesKey))
