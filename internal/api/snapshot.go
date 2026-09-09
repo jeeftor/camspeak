@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jeeftor/camspeak/internal/cameras"
 	"github.com/jeeftor/camspeak/internal/config"
 )
 
@@ -130,20 +131,44 @@ func grabFrameViaFFmpeg(
 
 // fetchSnapshot grabs a JPEG frame for a camera, using the camera's configured
 // vision_stream if set (via ffmpeg from go2rtc), otherwise falls back to
-// Frigate's latest.jpg (detect stream).
+// Frigate's latest.jpg (detect stream). For Hikvision cameras, it tries the
+// direct ISAPI snapshot endpoint first (fastest, no intermediate service).
+// streamOverride, if non-empty, selects "main" or "sub" for ISAPI snapshots
+// or overrides the go2rtc stream name.
 func (h *Handlers) fetchSnapshot(
 	ctx context.Context,
 	cameraName string,
 	cam config.CameraConfig,
 	frigateURL string,
+	streamOverride string,
 ) ([]byte, error) {
+	// For Hikvision cameras, try the direct ISAPI snapshot first.
+	// This bypasses go2rtc/Frigate entirely and is typically the fastest path.
+	if cam.Type == "hikvision" && cam.IP != "" && cam.User != "" {
+		streamType := "sub"
+		if streamOverride == "main" {
+			streamType = "main"
+		}
+		hikCam := cameras.NewHikvisionClient(
+			cam.IP, cam.User, cam.Pass, cam.Channel, cameraName,
+		)
+		if data, err := hikCam.Snapshot(streamType); err == nil {
+			return data, nil
+		}
+		// Fall through to go2rtc/Frigate on failure
+	}
+
 	// If the camera has a vision_stream configured, use ffmpeg to grab from go2rtc.
-	if cam.VisionStream != "" && h.cfg.Go2rtcURL != "" {
+	streamName := cam.VisionStream
+	if streamOverride != "" && streamOverride != "main" && streamOverride != "sub" {
+		streamName = streamOverride
+	}
+	if streamName != "" && h.cfg.Go2rtcURL != "" {
 		width := cam.VisionWidth
 		if width <= 0 {
 			width = 1280 // sensible default for vision models
 		}
-		return grabFrameFromStream(h.cfg.Go2rtcURL, cam.VisionStream, width, 10*time.Second)
+		return grabFrameFromStream(h.cfg.Go2rtcURL, streamName, width, 10*time.Second)
 	}
 
 	// Fall back to Frigate detect stream.

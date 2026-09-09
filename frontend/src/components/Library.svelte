@@ -396,10 +396,11 @@
                       {#if p.gain && p.gain !== 1.0}
                         <span class="text-xs text-amber-500 whitespace-nowrap self-center mr-1 font-mono">{p.gain.toFixed(2)}x</span>
                       {/if}
+                    {:else}
+                      <Button variant="outline" size="icon" class="h-8 w-8" onclick={() => preview(p.category, p.name)} title="Preview" aria-label="Preview preset">
+                        {#if playingKey === key}<Pause class="h-4 w-4" />{:else}<Play class="h-4 w-4" />{/if}
+                      </Button>
                     {/if}
-                    <Button variant="outline" size="icon" class="h-8 w-8" onclick={() => preview(p.category, p.name)} title="Preview" aria-label="Preview preset">
-                      {#if playingKey === key}<Pause class="h-4 w-4" />{:else}<Play class="h-4 w-4" />{/if}
-                    </Button>
                     {#if !isStream}
                       <Button variant="outline" size="icon" class="h-8 w-8" onclick={() => autoNormalize(p)} title="Auto-normalize gain" aria-label="Auto-normalize gain" disabled={gainBusyKey === key}>
                         {#if gainBusyKey === key}<Loader2 class="h-4 w-4 animate-spin" />{:else}<Wand2 class="h-4 w-4" />{/if}

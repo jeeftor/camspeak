@@ -13,6 +13,7 @@
   let { cameras = [], globalPrompt = '', onSavePrompt } = $props()
 
   let selectedCamera = $state('')
+  let selectedStream = $state('') // '' = auto (ISAPI sub for Hikvision, vision_stream, or Frigate)
   let prompt = $state(globalPrompt)
   let image = $state('') // base64 data URI
   let description = $state('')
@@ -191,6 +192,7 @@
       }
       if (capture || !image) {
         body.camera = selectedCamera
+        if (selectedStream) body.stream = selectedStream
       } else {
         body.image = image
         body.camera = selectedCamera
@@ -268,7 +270,7 @@
 
     const body = { prompt, image: undefined, camera: undefined }
     if (image) { body.image = image; body.camera = selectedCamera }
-    else { body.camera = selectedCamera }
+    else { body.camera = selectedCamera; if (selectedStream) body.stream = selectedStream }
 
     try {
       const resp = await fetch('/api/vision/test-all/stream', {
@@ -327,7 +329,7 @@
   let curlCommand = $derived(
     buildCurl('POST', '/api/vision/test', image
       ? { camera: selectedCamera, prompt, image: '[base64 image data]', ...(selectedModel && selectedModel !== configuredModel ? { model: selectedModel } : {}) }
-      : { camera: selectedCamera, prompt, ...(selectedModel && selectedModel !== configuredModel ? { model: selectedModel } : {}) })
+      : { camera: selectedCamera, prompt, ...(selectedStream ? { stream: selectedStream } : {}), ...(selectedModel && selectedModel !== configuredModel ? { model: selectedModel } : {}) })
   )
 </script>
 
@@ -353,6 +355,19 @@
         {/each}
       </select>
     </label>
+
+    {#if selectedCamera && cameras.find(c => c.name === selectedCamera)?.type === 'hikvision'}
+      <label class="flex flex-col gap-1 text-sm text-muted-foreground">
+        Stream
+        <select bind:value={selectedStream} disabled={busy}
+          class="rounded-md border border-input bg-transparent px-3 py-2 text-sm disabled:opacity-50 min-w-[100px]"
+          title="Which camera stream to capture from">
+          <option value="">sub (auto)</option>
+          <option value="main">main</option>
+          <option value="sub">sub</option>
+        </select>
+      </label>
+    {/if}
 
     <label class="flex flex-col gap-1 text-sm text-muted-foreground">
       Model

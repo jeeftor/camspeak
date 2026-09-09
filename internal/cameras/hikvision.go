@@ -524,3 +524,45 @@ func (c *HikvisionClient) Ping() bool {
 	// Fallback: raw TCP connect to port 80
 	return tcpPing(c.ip, 80, 3*time.Second)
 }
+
+// Snapshot captures a single JPEG frame from the camera via ISAPI.
+// streamType selects the channel: "main" (channel*100+1) or "sub" (channel*100+2).
+// Returns the raw JPEG bytes.
+func (c *HikvisionClient) Snapshot(streamType string) ([]byte, error) {
+	ch := c.channel*100 + 1 // main stream
+	if streamType == "sub" {
+		ch = c.channel*100 + 2 // sub stream
+	}
+	url := fmt.Sprintf("http://%s/ISAPI/Streaming/channels/%d/picture", c.ip, ch)
+
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("building snapshot request: %w", err)
+	}
+
+	client := &http.Client{
+		Transport: &digest.Transport{Username: c.user, Password: c.pass},
+		Timeout:   10 * time.Second,
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("snapshot returned HTTP %d", resp.StatusCode)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading snapshot: %w", err)
+	}
+
+	if len(data) == 0 {
+		return nil, fmt.Errorf("snapshot returned empty response")
+	}
+
+	return data, nil
+}

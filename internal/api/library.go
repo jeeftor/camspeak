@@ -336,6 +336,7 @@ func (h *Handlers) PresetPeaks(c echo.Context) error {
 		bucket = 1
 	}
 
+	// First pass: compute raw max-amplitude per bucket.
 	for i := 0; i < numPeaks; i++ {
 		start := i * bucket
 		end := start + bucket
@@ -357,10 +358,24 @@ func (h *Handlers) PresetPeaks(c echo.Context) error {
 				maxAbs = abs
 			}
 		}
-		// Normalize to 0.0-1.0 (max int16 = 32124 for µ-law)
-		peaks[i] = maxAbs / 32124.0
-		if peaks[i] > 1.0 {
-			peaks[i] = 1.0
+		peaks[i] = maxAbs
+	}
+
+	// Normalize to the file's own max peak so quiet presets still show
+	// visible waveforms. Scale so the loudest bucket reaches ~0.9.
+	maxPeak := 0.0
+	for _, p := range peaks {
+		if p > maxPeak {
+			maxPeak = p
+		}
+	}
+	if maxPeak > 0 {
+		scale := 0.9 / maxPeak
+		for i := range peaks {
+			peaks[i] *= scale
+			if peaks[i] > 1.0 {
+				peaks[i] = 1.0
+			}
 		}
 	}
 

@@ -2,10 +2,10 @@
   /**
    * MiniWaveform — canvas-based audio waveform for library presets.
    *
-   * Renders a small canvas waveform (peaks fetched lazily from
+   * Renders a canvas waveform (peaks fetched lazily from
    * /api/library/:category/:name/peaks — ~2KB JSON vs full WAV download),
-   * with a play/pause button and progress overlay. Clicking the canvas seeks.
-   * Audio is streamed via the existing /preview endpoint.
+   * with a play/pause button, progress overlay, time display, and
+   * click-to-seek. Audio is streamed via the existing /preview endpoint.
    *
    * Adapted from musicgen's MiniWaveform.svelte.
    */
@@ -39,7 +39,8 @@
   let peaks: number[] | null = $state(null)
   let duration = $state(initialDuration)
   let playing = $state(false)
-  let progress = $state(0)
+  let progress = $state(0) // 0..1 playback position
+  let currentTime = $state(0) // seconds
 
   // --- Audio + animation handles (non-reactive) ---
   let audio: HTMLAudioElement | null = null
@@ -78,7 +79,7 @@
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     const w = (canvas.width = canvas.offsetWidth || 200)
-    const h = (canvas.height = canvas.offsetHeight || 32)
+    const h = (canvas.height = canvas.offsetHeight || 40)
     ctx.clearRect(0, 0, w, h)
 
     if (!peaks || peaks.length === 0) {
@@ -89,6 +90,8 @@
 
     const barW = w / peaks.length
     const progressX = progress * w
+
+    // Draw bars: played = amber, unplayed = slate
     for (let i = 0; i < peaks.length; i++) {
       const barH = Math.max(2, peaks[i] * h * 0.9)
       const x = i * barW
@@ -96,11 +99,18 @@
       ctx.fillStyle = x < progressX ? '#f59e0b' : '#64748b'
       ctx.fillRect(x, y, Math.max(1, barW - 0.5), barH)
     }
+
+    // Draw playhead line
+    if (playing || progress > 0) {
+      ctx.fillStyle = '#fff'
+      ctx.fillRect(progressX - 1, 0, 2, h)
+    }
   }
 
   $effect(() => {
     void peaks
     void progress
+    void playing
     draw()
   })
 
@@ -108,9 +118,21 @@
   function ensureAudio(): HTMLAudioElement {
     if (audio) return audio
     audio = new Audio(previewUrl)
+    audio.preload = 'metadata'
+    audio.addEventListener('loadedmetadata', () => {
+      // Use the audio element's actual duration (more accurate than
+      // the file-size-based estimate from the peaks endpoint).
+      if (audio && audio.duration && isFinite(audio.duration) && audio.duration > 0) {
+        duration = audio.duration
+      }
+    })
     audio.addEventListener('ended', () => {
       playing = false
       progress = 0
+      currentTime = 0
+      cancelRaf()
+    })
+    audio.addEventListener('pause', () => {
       cancelRaf()
     })
     return audio
@@ -125,22 +147,47 @@
 
   function updateProgress(): void {
     if (!audio || audio.paused) return
-    progress = duration > 0 ? audio.currentTime / duration : 0
+    currentTime = audio.currentTime
+    const dur = audio.duration && isFinite(audio.duration) && audio.duration > 0
+      ? audio.duration
+      : duration
+    progress = dur > 0 ? audio.currentTime / dur : 0
     raf = requestAnimationFrame(updateProgress)
   }
+
+  // --- Time display ---
+  function formatTime(s: number): string {
+    if (!s || !isFinite(s)) return '0:00'
+    const m = Math.floor(s / 60)
+    const sec = Math.floor(s % 60)
+    return `${m}:${sec.toString().padStart(2, '0')}`
+  }
+
+  let timeLabel = $derived(
+    duration > 0
+      ? playing || currentTime > 0
+        ? `${formatTime(currentTime)} / ${formatTime(duration)}`
+        : formatTime(duration)
+      : '',
+  )
 
   // --- Interaction ---
   async function togglePlay(): Promise<void> {
     if (!peaks) await loadPeaks()
     const a = ensureAudio()
     if (a.paused) {
+      // If we just finished (progress=0), restart from beginning
+      if (progress >= 1) {
+        a.currentTime = 0
+        progress = 0
+        currentTime = 0
+      }
       await a.play()
       playing = true
       updateProgress()
     } else {
       a.pause()
       playing = false
-      cancelRaf()
     }
   }
 
@@ -150,8 +197,18 @@
     const a = ensureAudio()
     const rect = canvasEl.getBoundingClientRect()
     const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-    a.currentTime = pct * duration
+    const dur = a.duration && isFinite(a.duration) && a.duration > 0
+      ? a.duration
+      : duration
+    a.currentTime = pct * dur
     progress = pct
+    currentTime = a.currentTime
+    if (!a.paused) {
+      // Already playing, keep tracking
+    } else {
+      // Paused — update display but don't resume
+      draw()
+    }
   }
 
   // --- Lifecycle ---
@@ -210,7 +267,10 @@
   <canvas
     bind:this={canvasEl}
     onclick={seek}
-    class="flex-1 h-8 cursor-pointer block min-w-0"
+    class="flex-1 h-10 cursor-pointer block min-w-0 rounded"
     title="Click to seek"
   ></canvas>
+  <span class="text-xs text-muted-foreground font-mono whitespace-nowrap shrink-0 min-w-[60px] text-right">
+    {timeLabel}
+  </span>
 </div>

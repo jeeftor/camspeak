@@ -16,9 +16,9 @@ import (
 )
 
 // Snapshot handles GET /api/snapshot/:camera — grabs a JPEG frame.
-// By default uses Frigate's latest.jpg (detect stream). If ?stream=<name> is
-// provided, uses ffmpeg to grab a frame from that go2rtc RTSP stream instead.
-// ?width=<px> optionally scales the frame (ffmpeg only).
+// For Hikvision cameras, tries the direct ISAPI snapshot first (fastest).
+// If ?stream=<name> is provided, uses ffmpeg to grab a frame from that go2rtc
+// RTSP stream instead. ?width=<px> optionally scales the frame (ffmpeg only).
 func (h *Handlers) Snapshot(c echo.Context) error {
 	camera := c.Param("camera")
 	if camera == "" {
@@ -33,8 +33,8 @@ func (h *Handlers) Snapshot(c echo.Context) error {
 		}
 	}
 
-	// If a stream is specified, use ffmpeg to grab from go2rtc.
-	if streamName != "" {
+	// If a go2rtc stream name is specified, use ffmpeg to grab from go2rtc.
+	if streamName != "" && streamName != "main" && streamName != "sub" {
 		if h.cfg.Go2rtcURL == "" {
 			return echo.NewHTTPError(http.StatusServiceUnavailable, "go2rtc URL not configured")
 		}
@@ -47,34 +47,19 @@ func (h *Handlers) Snapshot(c echo.Context) error {
 		return c.Blob(http.StatusOK, "image/jpeg", data)
 	}
 
-	// Default: Frigate detect stream.
-	if h.cfg.FrigateURL == "" {
-		return echo.NewHTTPError(http.StatusServiceUnavailable, "frigate URL not configured")
-	}
+	// Use the shared fetchSnapshot (tries ISAPI for Hikvision, then go2rtc, then Frigate).
+	h.cfgMu.Lock()
+	camCfg := h.cfg.Cameras[camera]
+	frigateURL := h.cfg.FrigateURL
+	h.cfgMu.Unlock()
 
-	// ?h=720 forces Frigate to run the frame through its image pipeline (PIL resize),
-	// which normalises the JPEG encoding and avoids raw-stream distortion artifacts.
-	snapURL := fmt.Sprintf("%s/api/%s/latest.jpg?h=720", h.cfg.FrigateURL, camera)
-	req, err := http.NewRequestWithContext(c.Request().Context(), http.MethodGet, snapURL, nil)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	data, err := h.fetchSnapshot(c.Request().Context(), camera, camCfg, frigateURL, streamName)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return echo.NewHTTPError(
-			http.StatusBadGateway,
-			fmt.Sprintf("frigate returned HTTP %d", resp.StatusCode),
-		)
-	}
-
 	c.Response().Header().Set("Content-Type", "image/jpeg")
 	c.Response().Header().Set("Cache-Control", "no-cache")
-	return c.Stream(http.StatusOK, "image/jpeg", resp.Body)
+	return c.Blob(http.StatusOK, "image/jpeg", data)
 }
 
 // resolveVisionPrompt picks the first non-empty prompt from the chain:
@@ -97,6 +82,7 @@ func (h *Handlers) Vision(c echo.Context) error {
 
 	var req struct {
 		Camera string `json:"camera"`
+		Stream string `json:"stream"`
 		Prompt string `json:"prompt"`
 	}
 	if err := c.Bind(&req); err != nil || req.Camera == "" {
@@ -113,7 +99,7 @@ func (h *Handlers) Vision(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "vision model not configured")
 	}
 
-	imageBytes, err := h.fetchSnapshot(c.Request().Context(), req.Camera, cam, frigateURL)
+	imageBytes, err := h.fetchSnapshot(c.Request().Context(), req.Camera, cam, frigateURL, req.Stream)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
 	}
@@ -147,13 +133,14 @@ func (h *Handlers) VisionTest(c echo.Context) error {
 	start := time.Now()
 	t := NewStepTimings(2)
 
-	var camera, prompt, imageB64 string
+	var camera, prompt, imageB64, streamOverride string
 	var visionClient *vision.Client
 
 	contentType := c.Request().Header.Get("Content-Type")
 	if strings.HasPrefix(contentType, "multipart/form-data") {
 		// Multipart form upload
 		prompt = c.FormValue("prompt")
+		streamOverride = c.FormValue("stream")
 		modelOverride := c.FormValue("model")
 		if modelOverride != "" {
 			h.cfgMu.Lock()
@@ -185,6 +172,7 @@ func (h *Handlers) VisionTest(c echo.Context) error {
 		// JSON body
 		var req struct {
 			Camera string `json:"camera"`
+			Stream string `json:"stream"`
 			Prompt string `json:"prompt"`
 			Image  string `json:"image"`
 			Model  string `json:"model"`
@@ -195,6 +183,7 @@ func (h *Handlers) VisionTest(c echo.Context) error {
 		camera = req.Camera
 		prompt = req.Prompt
 		imageB64 = req.Image
+		streamOverride = req.Stream
 		// Use the per-request model override if provided; otherwise fall
 		// back to the globally configured model (handled by Describe below).
 		if req.Model != "" {
@@ -246,7 +235,7 @@ func (h *Handlers) VisionTest(c echo.Context) error {
 
 		snapStart := time.Now()
 		var snapErr error
-		imageBytes, snapErr = h.fetchSnapshot(c.Request().Context(), camera, camCfg, frigateURL)
+		imageBytes, snapErr = h.fetchSnapshot(c.Request().Context(), camera, camCfg, frigateURL, streamOverride)
 		if snapErr != nil {
 			return echo.NewHTTPError(http.StatusBadGateway, snapErr.Error())
 		}
@@ -290,6 +279,7 @@ func (h *Handlers) Describe(c echo.Context) error {
 
 	var req struct {
 		Camera string  `json:"camera"`
+		Stream string  `json:"stream"`
 		Prompt string  `json:"prompt"`
 		Gain   float64 `json:"gain"`
 	}
@@ -315,7 +305,7 @@ func (h *Handlers) Describe(c echo.Context) error {
 
 	// 1. Fetch snapshot (from configured vision_stream or Frigate)
 	snapStart := time.Now()
-	imageBytes, err := h.fetchSnapshot(c.Request().Context(), req.Camera, camCfg, frigateURL)
+	imageBytes, err := h.fetchSnapshot(c.Request().Context(), req.Camera, camCfg, frigateURL, req.Stream)
 	if err != nil {
 		log.Error("describe: snapshot failed", "camera", req.Camera, "err", err)
 		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
@@ -475,6 +465,7 @@ func (h *Handlers) VisionTestAll(c echo.Context) error {
 
 	var req struct {
 		Camera string `json:"camera"`
+		Stream string `json:"stream"`
 		Prompt string `json:"prompt"`
 		Image  string `json:"image"`
 	}
@@ -516,7 +507,7 @@ func (h *Handlers) VisionTestAll(c echo.Context) error {
 		h.cfgMu.Unlock()
 
 		var snapErr error
-		imageBytes, snapErr = h.fetchSnapshot(c.Request().Context(), req.Camera, camCfg, frigateURL)
+		imageBytes, snapErr = h.fetchSnapshot(c.Request().Context(), req.Camera, camCfg, frigateURL, req.Stream)
 		if snapErr != nil {
 			return echo.NewHTTPError(http.StatusBadGateway, snapErr.Error())
 		}
@@ -632,6 +623,7 @@ func (h *Handlers) VisionTestAllStream(c echo.Context) error {
 
 	var req struct {
 		Camera string `json:"camera"`
+		Stream string `json:"stream"`
 		Prompt string `json:"prompt"`
 		Image  string `json:"image"`
 	}
@@ -673,7 +665,7 @@ func (h *Handlers) VisionTestAllStream(c echo.Context) error {
 		h.cfgMu.Unlock()
 
 		var snapErr error
-		imageBytes, snapErr = h.fetchSnapshot(c.Request().Context(), req.Camera, camCfg, frigateURL)
+		imageBytes, snapErr = h.fetchSnapshot(c.Request().Context(), req.Camera, camCfg, frigateURL, req.Stream)
 		if snapErr != nil {
 			return echo.NewHTTPError(http.StatusBadGateway, snapErr.Error())
 		}
