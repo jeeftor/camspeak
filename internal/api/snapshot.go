@@ -143,6 +143,7 @@ func (h *Handlers) SnapshotBenchmark(c echo.Context) error {
 	}
 
 	withVision := c.QueryParam("vision") == "true"
+	promptOverride := c.QueryParam("prompt") // optional prompt to use instead of camera's configured one
 
 	h.cfgMu.Lock()
 	cam := h.cfg.Cameras[camera]
@@ -172,6 +173,14 @@ func (h *Handlers) SnapshotBenchmark(c echo.Context) error {
 
 	var results []result
 
+	// Resolve the prompt to use: query param override > camera prompt > global prompt.
+	resolvePrompt := func() string {
+		if promptOverride != "" {
+			return promptOverride
+		}
+		return resolveVisionPrompt("", cam.VisionPrompt != "", cam.VisionPrompt, globalPrompt)
+	}
+
 	// Warmup: when vision=true, do one untimed vision call first so the model
 	// is loaded into VRAM. Without this, the first method pays the cold-start
 	// penalty (model loading) and appears unfairly slow compared to the rest.
@@ -188,8 +197,7 @@ func (h *Handlers) SnapshotBenchmark(c echo.Context) error {
 			}
 		}
 		if len(warmupData) > 0 {
-			prompt := resolveVisionPrompt("", cam.VisionPrompt != "", cam.VisionPrompt, globalPrompt)
-			_, _ = visionClient.Describe(warmupData, "image/jpeg", prompt)
+			_, _ = visionClient.Describe(warmupData, "image/jpeg", resolvePrompt())
 			log.Info("snapshot: benchmark warmup (model loaded)",
 				"elapsed", time.Since(warmupStart).Seconds())
 		}
@@ -212,9 +220,8 @@ func (h *Handlers) SnapshotBenchmark(c echo.Context) error {
 		}
 
 		if withVision {
-			prompt := resolveVisionPrompt("", cam.VisionPrompt != "", cam.VisionPrompt, globalPrompt)
 			vStart := time.Now()
-			desc, vErr := visionClient.Describe(data, "image/jpeg", prompt)
+			desc, vErr := visionClient.Describe(data, "image/jpeg", resolvePrompt())
 			r.VisionSec = time.Since(vStart).Seconds()
 			r.TotalSec = r.SnapSec + r.VisionSec
 			if vErr != nil {

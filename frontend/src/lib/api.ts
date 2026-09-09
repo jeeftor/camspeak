@@ -247,8 +247,13 @@ export const apiClient = {
     const qs = params.toString()
     return apiRaw(`/api/snapshot/${encodeURIComponent(camera)}${qs ? '?' + qs : ''}`)
   },
-  snapshotBenchmark: (camera: string, vision = false) =>
-    api<SnapshotBenchmarkResponse>(`/api/snapshot/${encodeURIComponent(camera)}/benchmark${vision ? '?vision=true' : ''}`),
+  snapshotBenchmark: (camera: string, vision = false, prompt = '') => {
+    const params = new URLSearchParams()
+    if (vision) params.set('vision', 'true')
+    if (prompt) params.set('prompt', prompt)
+    const qs = params.toString()
+    return api<SnapshotBenchmarkResponse>(`/api/snapshot/${encodeURIComponent(camera)}/benchmark${qs ? '?' + qs : ''}`)
+  },
   streams: () =>
     api<{ status: string; streams: StreamInfo[] }>('/api/streams'),
   describe: (req: { camera: string; prompt?: string; gain?: number }) =>
