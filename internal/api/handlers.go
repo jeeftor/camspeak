@@ -537,7 +537,8 @@ func (h *Handlers) Cameras(c echo.Context) error {
 	status := h.reg.Status()
 
 	out := make([]map[string]any, 0)
-	for name, cfg := range h.cfg.Cameras {
+	for _, name := range h.sortedCameraNames() {
+		cfg := h.cfg.Cameras[name]
 		if !cfg.Enabled {
 			continue
 		}
@@ -554,6 +555,7 @@ func (h *Handlers) Cameras(c echo.Context) error {
 			"airplay_enabled": cfg.AirPlayEnabled,
 			"airplay_name":    cfg.AirPlayName,
 			"airplay_model":   cfg.AirPlayModel,
+			"sort_order":      cfg.SortOrder,
 		})
 	}
 

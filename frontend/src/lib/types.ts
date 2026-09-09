@@ -27,6 +27,7 @@ export interface Camera {
   vision_width: number
   snap_method: string
   note: string
+  sort_order?: number
 }
 
 export interface StreamInfo {

@@ -189,4 +189,7 @@ func migrate(db *sql.DB) {
 	// Add 'snap_method' column to cameras if missing (added in v2.19.5).
 	// Preferred snapshot method: "auto", "isapi", "go2rtc", "frigate".
 	addColumn("cameras", "snap_method", "TEXT DEFAULT ''")
+	// Add 'sort_order' column to cameras if missing (added in v4.0.3).
+	// Controls display order in the UI (lower = first). 0 = auto (alphabetical).
+	addColumn("cameras", "sort_order", "INTEGER DEFAULT 0")
 }

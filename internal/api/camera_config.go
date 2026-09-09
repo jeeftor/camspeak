@@ -39,9 +39,69 @@ func (h *Handlers) ListCamerasConfig(c echo.Context) error {
 			"vision_width":    sc.VisionWidth,
 			"snap_method":     sc.SnapMethod,
 			"note":            sc.Note,
+			"sort_order":      sc.SortOrder,
 		})
 	}
 	return c.JSON(http.StatusOK, cameras)
+}
+
+// sortedCameraNames returns camera names sorted by sort_order (ascending),
+// then alphabetically for cameras with the same (or zero) sort_order.
+func (h *Handlers) sortedCameraNames() []string {
+	type camSort struct {
+		name  string
+		order int
+	}
+	cams := make([]camSort, 0, len(h.cfg.Cameras))
+	for name, cfg := range h.cfg.Cameras {
+		cams = append(cams, camSort{name: name, order: cfg.SortOrder})
+	}
+	// Sort by order, then by name for ties (or when order is 0).
+	for i := 0; i < len(cams); i++ {
+		for j := i + 1; j < len(cams); j++ {
+			if cams[i].order > cams[j].order ||
+				(cams[i].order == cams[j].order && cams[i].name > cams[j].name) {
+				cams[i], cams[j] = cams[j], cams[i]
+			}
+		}
+	}
+	names := make([]string, len(cams))
+	for i, c := range cams {
+		names[i] = c.name
+	}
+	return names
+}
+
+// ReorderCameras handles POST /api/config/cameras/reorder — sets sort_order
+// for each camera based on the provided name list.
+func (h *Handlers) ReorderCameras(c echo.Context) error {
+	var req struct {
+		Cameras []string `json:"cameras"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid JSON body")
+	}
+	if len(req.Cameras) == 0 {
+		return echo.NewHTTPError(http.StatusBadRequest, "cameras list required")
+	}
+
+	h.cfgMu.Lock()
+	defer h.cfgMu.Unlock()
+
+	for i, name := range req.Cameras {
+		cam, ok := h.cfg.Cameras[name]
+		if !ok {
+			continue
+		}
+		cam.SortOrder = i + 1 // 1-based so 0 remains "unset"
+		h.cfg.Cameras[name] = cam
+		if err := config.SaveCamera(h.db, name, cam); err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		}
+	}
+
+	h.logger(c).Info("cameras reordered", "order", req.Cameras)
+	return c.JSON(http.StatusOK, map[string]any{"status": "ok"})
 }
 
 // CreateCamera handles POST /api/config/cameras — adds or updates a camera.

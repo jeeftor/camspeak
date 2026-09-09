@@ -60,6 +60,7 @@ type CameraConfig struct {
 	VisionWidth    int     `json:"vision_width"`    // max width in px for vision snapshots (0 = no resize); e.g. 1280
 	SnapMethod     string  `json:"snap_method"`     // preferred snapshot method: "auto", "isapi", "go2rtc", "frigate"; empty = auto
 	Note           string  `json:"note"`            // limitation/warning shown in UI (e.g. "Limited — see docs")
+	SortOrder      int     `json:"sort_order"`      // display order in UI (lower = first); 0 = auto (alphabetical)
 }
 
 // Sanitized returns a copy of c with the password removed.

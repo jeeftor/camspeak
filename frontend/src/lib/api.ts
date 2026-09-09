@@ -143,6 +143,8 @@ export const apiClient = {
     }),
   discoverCameras: () =>
     api<DiscoverResponse>('/api/config/cameras/discover', { method: 'POST' }),
+  reorderCameras: (cameras: string[]) =>
+    api('/api/config/cameras/reorder', { method: 'POST', body: JSON.stringify({ cameras }) }),
 
   // --- Config: TTS ---
   listTTSPresets: () => api<{ presets: TTSPreset[]; active: { url: string } | null }>('/api/config/tts'),
