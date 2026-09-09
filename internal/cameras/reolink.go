@@ -45,7 +45,8 @@ type reolinkLoginResponse []struct {
 	Code  int    `json:"code"`
 	Value struct {
 		Token struct {
-			LeoneSoftToken string `json:"LeoneSoftToken"`
+			Name      string `json:"name"`
+			LeaseTime int    `json:"leaseTime"`
 		} `json:"Token"`
 	} `json:"value"`
 }
@@ -95,7 +96,7 @@ func (c *ReolinkClient) Snapshot(streamType string) ([]byte, error) {
 	if len(loginResp) == 0 || loginResp[0].Code != 0 {
 		return nil, fmt.Errorf("reolink login failed (code=%d)", loginResp[0].Code)
 	}
-	token := loginResp[0].Value.Token.LeoneSoftToken
+	token := loginResp[0].Value.Token.Name
 	if token == "" {
 		return nil, fmt.Errorf("reolink login: empty token")
 	}
