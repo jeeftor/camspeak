@@ -483,13 +483,16 @@ func (h *Handlers) streamSupervisor(
 		// Stream dropped — attempt reconnection.
 		if retries >= maxRetries {
 			log.Warn("stream: reconnect attempts exhausted, stopping",
-				"camera", cameraName, "retries", retries, "err", ffmpegErr)
+				"camera", cameraName, "retries", retries,
+				"session_duration", time.Since(streamStart), "err", ffmpegErr)
 			stopStream(cameraName)
 			return
 		}
 		retries++
 		log.Warn("stream: dropped, reconnecting",
-			"camera", cameraName, "attempt", retries, "backoff", backoff, "err", ffmpegErr)
+			"camera", cameraName, "attempt", retries,
+			"backoff", backoff, "session_duration", time.Since(streamStart),
+			"err", ffmpegErr)
 
 		select {
 		case <-ctx.Done():

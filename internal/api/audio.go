@@ -400,13 +400,24 @@ func (h *Handlers) playPresetLooped(
 		// Interrupt any active AirPlay/session right before acquiring the
 		// camera mutex, minimizing the reconnect race window.
 		_ = cam.Stop()
-		_ = cam.Stream(tap)
+		streamErr := cam.Stream(tap)
 		stopStream(cameraName)
 		clearPlayback(cameraName)
-		log.Info("play: looped preset ended", "camera", cameraName, "preset", preset.Name)
+		elapsed := time.Since(now())
+		if streamErr != nil {
+			log.Warn("play: looped preset ended with error",
+				"camera", cameraName, "preset", preset.Name,
+				"elapsed", elapsed, "err", streamErr)
+		} else {
+			log.Info("play: looped preset ended",
+				"camera", cameraName, "preset", preset.Name, "elapsed", elapsed)
+		}
 	}()
 	go func() {
-		_ = cmd.Wait()
+		if err := cmd.Wait(); err != nil {
+			log.Warn("play: looped preset ffmpeg exited with error",
+				"camera", cameraName, "preset", preset.Name, "err", err)
+		}
 		stopStream(cameraName)
 	}()
 

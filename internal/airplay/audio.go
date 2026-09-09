@@ -165,7 +165,8 @@ func newAudioStream(
 			}
 
 			atomic.AddInt64(&as.reconnects, 1)
-			log.Warn("stream: camera session lost, reconnecting", "backoff", backoff, "err", err)
+			log.Warn("stream: camera session lost, reconnecting",
+				"backoff", backoff, "session_duration", time.Since(streamStart), "err", err)
 			select {
 			case <-time.After(backoff):
 			case <-as.quit:
