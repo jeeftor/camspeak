@@ -7,8 +7,13 @@ import (
 	"os"
 	"path/filepath"
 
+	clog "github.com/charmbracelet/log"
+
+	"github.com/jeeftor/camspeak/internal/logging"
 	_ "modernc.org/sqlite"
 )
+
+var log = logging.New("db", clog.InfoLevel)
 
 // Schema defines the database tables.
 const schema = `
@@ -135,99 +140,66 @@ func Open(dbPath string) (*sql.DB, error) {
 
 // migrate applies incremental schema changes for existing databases.
 func migrate(db *sql.DB) {
-	// Add 'stream' column to cameras if missing (added in v1.4.0).
-	var streamCol int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cameras') WHERE name='stream'`).Scan(&streamCol); err == nil &&
-		streamCol == 0 {
-		_, _ = db.Exec(`ALTER TABLE cameras ADD COLUMN stream TEXT DEFAULT ''`)
+	// addColumn adds a column to a table if it doesn't already exist.
+	// Returns true if the column was added (migration ran).
+	addColumn := func(table, column, def string) bool {
+		var col int
+		if err := db.QueryRow(
+			`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name=?`,
+			table, column,
+		).Scan(&col); err != nil {
+			log.Warn("migration: failed to check column", "table", table, "column", column, "err", err)
+			return false
+		}
+		if col > 0 {
+			return false
+		}
+		stmt := fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, table, column, def)
+		if _, err := db.Exec(stmt); err != nil {
+			log.Warn("migration: failed to add column", "table", table, "column", column, "err", err)
+			return false
+		}
+		log.Info("migration: added column", "table", table, "column", column)
+		return true
 	}
+
+	// Add 'stream' column to cameras if missing (added in v1.4.0).
+	addColumn("cameras", "stream", "TEXT DEFAULT ''")
 	// Add 'enabled' column to cameras if missing (added in v1.4.5).
 	// Default 0 (disabled) — users must explicitly enable cameras.
-	var enabledCol int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cameras') WHERE name='enabled'`).Scan(&enabledCol); err == nil &&
-		enabledCol == 0 {
-		_, _ = db.Exec(`ALTER TABLE cameras ADD COLUMN enabled INTEGER DEFAULT 0`)
-	}
+	addColumn("cameras", "enabled", "INTEGER DEFAULT 0")
 	// Add 'vision_prompt' column to cameras if missing (added in v1.8.0).
-	var vpCol int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cameras') WHERE name='vision_prompt'`).Scan(&vpCol); err == nil &&
-		vpCol == 0 {
-		_, _ = db.Exec(`ALTER TABLE cameras ADD COLUMN vision_prompt TEXT DEFAULT ''`)
-	}
+	addColumn("cameras", "vision_prompt", "TEXT DEFAULT ''")
 	// Add 'airplay_enabled' column to cameras if missing (added in v1.9.0).
 	// Default 1 (enabled) — existing cameras automatically get AirPlay.
-	var apCol int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cameras') WHERE name='airplay_enabled'`).Scan(&apCol); err == nil &&
-		apCol == 0 {
-		_, _ = db.Exec(`ALTER TABLE cameras ADD COLUMN airplay_enabled INTEGER DEFAULT 1`)
-	}
+	addColumn("cameras", "airplay_enabled", "INTEGER DEFAULT 1")
 	// Add 'airplay_name' column to cameras if missing (added in v2.3.17).
-	var apNameCol int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cameras') WHERE name='airplay_name'`).Scan(&apNameCol); err == nil &&
-		apNameCol == 0 {
-		_, _ = db.Exec(`ALTER TABLE cameras ADD COLUMN airplay_name TEXT DEFAULT ''`)
-	}
+	addColumn("cameras", "airplay_name", "TEXT DEFAULT ''")
 	// Add 'airplay_model' column to cameras if missing (added in v2.3.34).
-	var apModelCol int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cameras') WHERE name='airplay_model'`).Scan(&apModelCol); err == nil &&
-		apModelCol == 0 {
-		_, _ = db.Exec(`ALTER TABLE cameras ADD COLUMN airplay_model TEXT DEFAULT ''`)
-	}
+	addColumn("cameras", "airplay_model", "TEXT DEFAULT ''")
 	// Add 'gain' column to cameras if missing (added in v2.3.40).
-	var gainCol int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cameras') WHERE name='gain'`).Scan(&gainCol); err == nil &&
-		gainCol == 0 {
-		_, _ = db.Exec(`ALTER TABLE cameras ADD COLUMN gain REAL DEFAULT 3.0`)
-	}
+	addColumn("cameras", "gain", "REAL DEFAULT 3.0")
 	// Add 'note' column to cameras if missing (added in v2.4.0).
 	// Stores per-camera limitation warnings (e.g. Reolink "Limited" tag).
-	var noteCol int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cameras') WHERE name='note'`).Scan(&noteCol); err == nil &&
-		noteCol == 0 {
-		_, _ = db.Exec(`ALTER TABLE cameras ADD COLUMN note TEXT DEFAULT ''`)
-	}
+	addColumn("cameras", "note", "TEXT DEFAULT ''")
 	// Add 'vision_stream' column to cameras if missing (added in v2.10.0).
 	// go2rtc stream name for vision snapshots (e.g. "frontyard_sub"); empty = Frigate detect.
-	var visStreamCol int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cameras') WHERE name='vision_stream'`).Scan(&visStreamCol); err == nil &&
-		visStreamCol == 0 {
-		_, _ = db.Exec(`ALTER TABLE cameras ADD COLUMN vision_stream TEXT DEFAULT ''`)
-	}
+	addColumn("cameras", "vision_stream", "TEXT DEFAULT ''")
 	// Add 'vision_width' column to cameras if missing (added in v2.10.0).
 	// Max width in pixels for vision snapshots (0 = no resize).
-	var visWidthCol int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cameras') WHERE name='vision_width'`).Scan(&visWidthCol); err == nil &&
-		visWidthCol == 0 {
-		_, _ = db.Exec(`ALTER TABLE cameras ADD COLUMN vision_width INTEGER DEFAULT 0`)
-	}
+	addColumn("cameras", "vision_width", "INTEGER DEFAULT 0")
 	// Add 'loop' column to rules if missing (added in v2.12.0).
 	// When true, the preset loops infinitely and can be paused/resumed.
-	var loopCol int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('rules') WHERE name='loop'`).Scan(&loopCol); err == nil &&
-		loopCol == 0 {
-		_, _ = db.Exec(`ALTER TABLE rules ADD COLUMN loop INTEGER DEFAULT 0`)
-	}
+	addColumn("rules", "loop", "INTEGER DEFAULT 0")
 	// Add 'voice' column to events if missing (added in v2.13.0).
-	var voiceCol int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('events') WHERE name='voice'`).Scan(&voiceCol); err == nil &&
-		voiceCol == 0 {
-		_, _ = db.Exec(`ALTER TABLE events ADD COLUMN voice TEXT DEFAULT ''`)
-	}
+	addColumn("events", "voice", "TEXT DEFAULT ''")
 	// Add 'url' column to presets if missing (added in v2.14.0).
 	// Stream presets store a live stream/playlist URL here; audio presets
 	// leave it empty and use raw_path instead.
-	var urlCol int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('presets') WHERE name='url'`).Scan(&urlCol); err == nil &&
-		urlCol == 0 {
-		_, _ = db.Exec(`ALTER TABLE presets ADD COLUMN url TEXT DEFAULT ''`)
-	}
+	addColumn("presets", "url", "TEXT DEFAULT ''")
 	// Add 'gain' column to presets if missing (added in v2.19.0).
 	// Per-preset gain multiplier (1.0 = no change). Applied at send time
 	// in addition to the camera's gain. Auto-calculated from RMS or
 	// manually adjusted from the library UI.
-	var presetGainCol int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('presets') WHERE name='gain'`).Scan(&presetGainCol); err == nil &&
-		presetGainCol == 0 {
-		_, _ = db.Exec(`ALTER TABLE presets ADD COLUMN gain REAL DEFAULT 1.0`)
-	}
+	addColumn("presets", "gain", "REAL DEFAULT 1.0")
 }
