@@ -72,7 +72,6 @@ func setupTestHandlers(t *testing.T) (*Handlers, *echo.Echo, *sql.DB) {
 	e.DELETE("/api/config/cameras/:name", h.DeleteCameraConfig)
 	e.GET("/api/config/tts", h.ListTTSPresets)
 	e.POST("/api/config/tts", h.CreateTTSPreset)
-	e.GET("/api/config/rules", h.ListRules)
 	e.GET("/api/config/airplay", h.GetAirPlayConfig)
 	e.POST("/api/pause", h.Pause)
 	e.POST("/api/resume", h.Resume)
@@ -451,11 +450,6 @@ func TestGetConfig(t *testing.T) {
 		Model:  "gpt-4o",
 		APIKey: "vision-secret-key",
 	}
-	h.cfg.MQTT = config.MQTTConfig{
-		Broker: "tcp://mqtt:1883",
-		User:   "mqttuser",
-		Pass:   "mqtt-secret-pass",
-	}
 	h.cfg.Cameras["front"] = config.CameraConfig{
 		Type: "hikvision",
 		IP:   "192.168.1.100",
@@ -489,15 +483,6 @@ func TestGetConfig(t *testing.T) {
 	}
 	if vision["api_key"] != nil && vision["api_key"] != "" {
 		t.Errorf("vision api_key = %v, want empty", vision["api_key"])
-	}
-
-	// MQTT password should be redacted.
-	mqtt, ok := cfg["mqtt"].(map[string]interface{})
-	if !ok {
-		t.Fatal("missing mqtt in config")
-	}
-	if mqtt["pass"] != nil && mqtt["pass"] != "" {
-		t.Errorf("mqtt pass = %v, want empty", mqtt["pass"])
 	}
 
 	// Camera password should be redacted.
@@ -643,72 +628,6 @@ func TestCreateTTSPresetValidation(t *testing.T) {
 			t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
 		}
 	})
-}
-
-func TestListRules(t *testing.T) {
-	h, e, database := setupTestHandlers(t)
-
-	// Insert a rule directly into the DB.
-	_, err := database.Exec(
-		`INSERT INTO rules (topic, filter, cameras, preset, text, voice, loop, enabled)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		"frigate/events", `{"zone":"front"}`, "front", "", "Hello", "af_sky", 0, 1,
-	)
-	if err != nil {
-		t.Fatalf("inserting rule: %v", err)
-	}
-
-	// Reload config to pick up the rule.
-	cfg, err := config.Load(database)
-	if err != nil {
-		t.Fatalf("reloading config: %v", err)
-	}
-	cfg.Go2rtcURL = "http://127.0.0.1:1"
-	h.cfg = cfg
-
-	rec := doJSON(e, http.MethodGet, "/api/config/rules", "")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
-
-	var rules []config.Rule
-	if err := json.Unmarshal(rec.Body.Bytes(), &rules); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(rules) == 0 {
-		t.Fatal("expected at least one rule")
-	}
-
-	// Find our rule.
-	var found bool
-	for _, r := range rules {
-		if r.Topic == "frigate/events" && r.Text == "Hello" {
-			found = true
-			if !r.Enabled {
-				t.Error("rule should be enabled")
-			}
-			break
-		}
-	}
-	if !found {
-		t.Error("inserted rule not found in response")
-	}
-}
-
-func TestListRulesEmpty(t *testing.T) {
-	_, e, _ := setupTestHandlers(t)
-
-	rec := doJSON(e, http.MethodGet, "/api/config/rules", "")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
-	var rules []config.Rule
-	if err := json.Unmarshal(rec.Body.Bytes(), &rules); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(rules) != 0 {
-		t.Errorf("len = %d, want 0", len(rules))
-	}
 }
 
 func TestGetAirPlayConfig(t *testing.T) {

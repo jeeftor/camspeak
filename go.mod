@@ -8,7 +8,6 @@ require (
 	github.com/bluenviron/mediacommon/v2 v2.9.4
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/log v1.0.0
-	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/grandcat/zeroconf v1.0.0
 	github.com/icholy/digest v1.2.0
 	github.com/joho/godotenv v1.5.1

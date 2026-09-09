@@ -39,7 +39,6 @@ log: clog.NewWithOptions(os.Stderr, clog.Options{
 - `internal/db/` — SQLite schema + migrations
 - `internal/frigate/` — Frigate NVR camera discovery
 - `internal/library/` — preset store (raw audio on disk, metadata in SQLite)
-- `internal/mqtt/` — Frigate MQTT subscriber
 - `internal/tts/` — TTS client (OpenAI-compatible)
 - `internal/util/` — shared utilities (`digest.go`, `stream.go`, `audio.go`, `net.go`, `url.go`)
 - `internal/vision/` — Vision LLM client

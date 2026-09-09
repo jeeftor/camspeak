@@ -21,7 +21,6 @@ const openAPISpec = `{
     {"name": "vision", "description": "Snapshot, vision, describe"},
     {"name": "library", "description": "Preset management"},
     {"name": "config", "description": "Runtime configuration"},
-    {"name": "mqtt", "description": "MQTT status and browser"},
     {"name": "system", "description": "Health, events, cameras"}
   ],
   "paths": {
@@ -648,19 +647,6 @@ const openAPISpec = `{
         "responses": {"200": {"description": "OK"}}
       }
     },
-    "/config/rules": {
-      "get": {
-        "tags": ["config"],
-        "summary": "List MQTT rules",
-        "responses": {"200": {"description": "OK"}}
-      },
-      "post": {
-        "tags": ["config"],
-        "summary": "Create an MQTT rule",
-        "requestBody": {"required": true, "content": {"application/json": {}}},
-        "responses": {"200": {"description": "OK"}}
-      }
-    },
     "/config/airplay": {
       "get": {
         "tags": ["config"],
@@ -672,35 +658,6 @@ const openAPISpec = `{
         "summary": "Update AirPlay receiver configuration (requires restart)",
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "base_port": {"type": "integer"}, "prime_silence_ms": {"type": "integer"}, "model": {"type": "string", "description": "Device model advertised over mDNS; controls the iOS AirPlay icon", "example": "RealityDevice14,1"}, "gain": {"type": "number", "default": 1.0, "description": "Digital gain applied to AirPlay audio before sending to camera"}}}}}},
         "responses": {"200": {"description": "Updated — restart required for changes to take effect"}}
-      }
-    },
-    "/mqtt/status": {
-      "get": {
-        "tags": ["mqtt"],
-        "summary": "MQTT connection status",
-        "responses": {"200": {"description": "OK"}}
-      }
-    },
-    "/mqtt/events": {
-      "get": {
-        "tags": ["mqtt"],
-        "summary": "SSE stream of MQTT messages",
-        "responses": {"200": {"description": "SSE stream"}}
-      }
-    },
-    "/mqtt/topics": {
-      "get": {
-        "tags": ["mqtt"],
-        "summary": "All topics seen by the broker since startup",
-        "responses": {"200": {"description": "OK"}}
-      }
-    },
-    "/mqtt/subscribe": {
-      "post": {
-        "tags": ["mqtt"],
-        "summary": "Dynamically subscribe to a topic at runtime",
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "properties": {"topic": {"type": "string"}}}}}},
-        "responses": {"200": {"description": "OK"}}
       }
     }
   },

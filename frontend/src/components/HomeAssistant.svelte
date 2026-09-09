@@ -1,5 +1,5 @@
 <script>
-  import { Home, BookOpen } from 'lucide-svelte'
+  import { BookOpen } from 'lucide-svelte'
   import CopyButton from '$lib/components/CopyButton.svelte'
   import YamlCode from '$lib/components/YamlCode.svelte'
 
@@ -137,11 +137,11 @@ tap_action:
       <p>
         HA gives you rich conditions (time windows, presence, multi-sensor AND/OR), Jinja
         templates, scene management, and a dashboard — all things that would be complex to
-        build into camspeak's built-in MQTT rule engine. The HACS integration above gives
+        build into camspeak directly. Home Assistant automations are the way to trigger
+        camspeak actions. The HACS integration above gives
         you all of this with native entities and services. The
         <code class="bg-muted px-1 rounded text-xs">rest_command</code> snippets below are
-        for setups where you prefer not to install the integration. The MQTT rules
-        (Frigate tab) still work alongside both for standalone setups without HA.
+        for setups where you prefer not to install the integration.
       </p>
     </div>
   </div>
@@ -201,9 +201,8 @@ tap_action:
       <p class="text-sm font-medium text-foreground">Frigate MQTT review alert → speak on triggering camera</p>
       <p class="text-xs text-muted-foreground">
         Subscribes to <code class="bg-muted px-1 rounded">frigate/reviews</code> via HA's
-        built-in MQTT trigger and uses Jinja to extract the camera name from the payload.
-        This gives you the same event source as camspeak's MQTT rules, but with HA's
-        condition/template engine.
+        built-in MQTT trigger and uses Jinja to extract the camera name from the payload,
+        then calls camspeak to speak on the triggering camera.
       </p>
       <div class="relative">
         <YamlCode code={frigateAutomationYaml} />
@@ -245,20 +244,6 @@ tap_action:
       <div class="absolute top-2 right-2">
         <CopyButton text={dashboardYaml} label="Copy YAML" size="sm" />
       </div>
-    </div>
-  </div>
-
-  <!-- Note about MQTT -->
-  <div class="rounded-lg border bg-muted/30 px-4 py-3 text-sm text-muted-foreground flex gap-3">
-    <Home class="h-5 w-5 text-primary flex-shrink-0 mt-0.5" />
-    <div>
-      <p class="text-foreground font-medium mb-0.5">MQTT rules still work</p>
-      <p>
-        The Frigate tab's built-in MQTT rule engine is independent of HA.
-        If you run camspeak without Home Assistant, use the MQTT rules. If you run HA,
-        the HACS integration (above) or REST commands give you more flexibility
-        (conditions, templates, time windows) without any extra camspeak configuration.
-      </p>
     </div>
   </div>
 

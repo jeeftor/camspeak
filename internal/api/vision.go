@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -9,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -539,86 +537,6 @@ func (h *Handlers) Announce(c echo.Context) error {
 		"ttfs_ms":       t.TTFS(),
 		"total_ms":      TotalMs(start),
 	})
-}
-
-// AnnounceForMQTT is called by the MQTT subscriber when an announce rule
-// matches. It captures from the rule's SourceCamera and plays the description
-// on each of the rule's Cameras (target speakers) in parallel.
-func (h *Handlers) AnnounceForMQTT(sourceCamera string, targets []string, prompt, voice string) {
-	if sourceCamera == "" || len(targets) == 0 {
-		return
-	}
-
-	h.cfgMu.Lock()
-	frigateURL := h.cfg.FrigateURL
-	globalPrompt := h.cfg.Vision.Prompt
-	srcCfg, srcOk := h.cfg.Cameras[sourceCamera]
-	defaultVoice := h.cfg.TTS.DefaultVoice
-	h.cfgMu.Unlock()
-
-	if h.vision == nil {
-		h.log.Warn("announce: vision not configured", "source", sourceCamera)
-		return
-	}
-
-	// 1. Capture from source
-	imageBytes, err := h.fetchSnapshot(context.Background(), sourceCamera, srcCfg, frigateURL, "")
-	if err != nil {
-		h.log.Error("announce: snapshot failed", "source", sourceCamera, "err", err)
-		return
-	}
-
-	// 2. Vision
-	resolvedPrompt := resolveVisionPrompt(prompt, srcOk, srcCfg.VisionPrompt, globalPrompt)
-	description, err := h.vision.Describe(imageBytes, "image/jpeg", resolvedPrompt)
-	if err != nil {
-		h.log.Error("announce: vision failed", "source", sourceCamera, "err", err)
-		return
-	}
-	h.log.Info("announce: vision result", "source", sourceCamera, "text", description)
-
-	// 3. TTS
-	v := voice
-	if v == "" {
-		v = defaultVoice
-	}
-	wav, err := h.tts.Speak(description, v)
-	if err != nil {
-		h.log.Error("announce: TTS failed", "err", err)
-		return
-	}
-
-	// 4. Transcode once, send to all targets in parallel
-	rawPath, err := wavBytesToRawWithPrime(wav, h.tmpDir, 1.0, h.cfg.PrimeSilenceMs)
-	if err != nil {
-		h.log.Error("announce: transcode failed", "err", err)
-		return
-	}
-	defer os.Remove(rawPath)
-
-	var wg sync.WaitGroup
-	for _, target := range targets {
-		wg.Add(1)
-		go func(t string) {
-			defer wg.Done()
-			cam, err := h.reg.Get(t)
-			if err != nil {
-				h.log.Error("announce: target not found", "target", t, "err", err)
-				return
-			}
-			setPlayback(t, "announce", description)
-			_, err = sendRawWithLevel(t, cam, rawPath, h.gainForCall(t, 0))
-			if err != nil {
-				h.log.Error("announce: send failed", "target", t, "err", err)
-			} else {
-				h.events.publish(event{
-					Camera: t, Action: "announce", Text: description, At: time.Now(),
-				})
-			}
-			clearPlayback(t)
-		}(target)
-	}
-	wg.Wait()
 }
 
 func isVisionCapableModel(id string) bool {

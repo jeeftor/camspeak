@@ -69,41 +69,6 @@ func (c CameraConfig) Sanitized() CameraConfig {
 	return out
 }
 
-// MQTTConfig holds connection details for the MQTT broker.
-type MQTTConfig struct {
-	Broker string `json:"broker"`
-	User   string `json:"user"`
-	Pass   string `json:"pass"`
-}
-
-// Sanitized returns a copy of c with the password removed.
-func (c MQTTConfig) Sanitized() MQTTConfig {
-	out := c
-	out.Pass = ""
-	return out
-}
-
-// Rule defines an MQTT-triggered auto-speak rule.
-//
-// When SourceCamera is set, the rule is an "announce" rule: it captures a
-// snapshot from SourceCamera, runs vision to generate a description, then
-// TTS-plays that description on the Cameras (target speakers). When
-// SourceCamera is empty, the rule is a standard speak/play rule (text or
-// preset to Cameras).
-type Rule struct {
-	ID           int               `json:"id"`
-	Topic        string            `json:"topic"`
-	Filter       map[string]string `json:"filter"`
-	Cameras      []string          `json:"cameras"`
-	Preset       string            `json:"preset"`
-	Text         string            `json:"text"`
-	Voice        string            `json:"voice"`
-	Loop         int               `json:"loop"`
-	Enabled      bool              `json:"enabled"`
-	SourceCamera string            `json:"source_camera,omitempty"`
-	Prompt       string            `json:"prompt,omitempty"`
-}
-
 // TTSPreset is a named TTS endpoint configuration (klipbord-style).
 type TTSPreset struct {
 	Name         string `json:"name"`
@@ -127,8 +92,6 @@ type Config struct {
 	TTS            TTSConfig               `json:"tts"`
 	Vision         VisionConfig            `json:"vision"`
 	Cameras        map[string]CameraConfig `json:"cameras"`
-	MQTT           MQTTConfig              `json:"mqtt"`
-	Rules          []Rule                  `json:"rules"`
 	Library        string                  `json:"library"`
 	Port           int                     `json:"port"`
 	FrigateURL     string                  `json:"frigate_url,omitempty"`
@@ -153,7 +116,6 @@ func (cfg Config) Sanitized() Config {
 	out := cfg
 	out.TTS = out.TTS.Sanitized()
 	out.Vision = out.Vision.Sanitized()
-	out.MQTT = out.MQTT.Sanitized()
 	if len(cfg.Cameras) > 0 {
 		out.Cameras = make(map[string]CameraConfig, len(cfg.Cameras))
 		for name, cam := range cfg.Cameras {

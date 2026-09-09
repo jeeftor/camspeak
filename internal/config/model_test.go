@@ -16,11 +16,6 @@ func TestConfigSanitized(t *testing.T) {
 			Model:  "qwen",
 			APIKey: "secret-vision-key",
 		},
-		MQTT: MQTTConfig{
-			Broker: "tcp://mqtt:1883",
-			User:   "mqttuser",
-			Pass:   "secret-mqtt-pass",
-		},
 		Cameras: map[string]CameraConfig{
 			"backyard": {
 				Type: "hikvision",
@@ -38,9 +33,6 @@ func TestConfigSanitized(t *testing.T) {
 	}
 	if redacted.Vision.APIKey != "" {
 		t.Errorf("Vision API key not redacted: %q", redacted.Vision.APIKey)
-	}
-	if redacted.MQTT.Pass != "" {
-		t.Errorf("MQTT pass not redacted: %q", redacted.MQTT.Pass)
 	}
 	if redacted.Cameras["backyard"].Pass != "" {
 		t.Errorf("Camera pass not redacted: %q", redacted.Cameras["backyard"].Pass)

@@ -77,7 +77,7 @@ func buildMCPServer(h *Handlers) *mcp.Server {
 				Content: []mcp.Content{&mcp.TextContent{Text: "text or preset required"}},
 			}, BroadcastOutput{}, nil
 		}
-		h.SpeakForMQTT(h.reg.Names(), in.Text, in.Preset, in.Voice, 0)
+		h.BroadcastToCameras(h.reg.Names(), in.Text, in.Preset, in.Voice, 0)
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: "Broadcast sent to all cameras"}},
 		}, BroadcastOutput{}, nil

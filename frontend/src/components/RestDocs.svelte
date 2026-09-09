@@ -219,7 +219,7 @@
   </div>
 
   <div class="rounded-lg border bg-card px-4 py-3 text-sm text-muted-foreground">
-    <p>Config endpoints: <code class="font-mono text-xs">/api/config</code>, <code class="font-mono text-xs">/api/config/tts</code>, <code class="font-mono text-xs">/api/config/cameras</code>, <code class="font-mono text-xs">/api/config/rules</code> — see the Config tab to manage these.</p>
+    <p>Config endpoints: <code class="font-mono text-xs">/api/config</code>, <code class="font-mono text-xs">/api/config/tts</code>, <code class="font-mono text-xs">/api/config/cameras</code> — see the Config tab to manage these.</p>
     <p class="mt-1">Rate limit: 10 req/s per IP, burst 20.</p>
   </div>
 </div>

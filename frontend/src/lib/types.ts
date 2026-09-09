@@ -50,12 +50,6 @@ export interface VisionConfig {
   prompt: string
 }
 
-export interface MQTTConfig {
-  broker: string
-  user: string
-  pass: string
-}
-
 export interface AirPlayConfig {
   enabled: boolean
   base_port: number
@@ -78,20 +72,6 @@ export interface VisionPrompt {
   name: string
   prompt: string
   description: string
-}
-
-export interface Rule {
-  id: number
-  topic: string
-  filter: Record<string, string>
-  cameras: string[]
-  preset: string
-  text: string
-  voice: string
-  loop: number
-  enabled: boolean
-  source_camera?: string
-  prompt?: string
 }
 
 export interface Preset {
@@ -120,7 +100,6 @@ export interface AppConfig {
   tts: TTSConfig
   vision: VisionConfig
   cameras: Record<string, Camera>
-  mqtt: MQTTConfig
   airplay: AirPlayConfig
 }
 
@@ -217,29 +196,10 @@ export interface SaveVisionReq {
   prompt: string
 }
 
-export interface SaveRuleReq {
-  topic: string
-  filter: Record<string, string>
-  cameras: string[]
-  preset: string
-  text: string
-  voice: string
-  loop: number
-  enabled: boolean
-}
-
 export interface SaveVisionPromptReq {
   name: string
   prompt: string
   description: string
-}
-
-export interface MQTTTopic {
-  topic: string
-  count: number
-  payload: string
-  raw: string
-  at: string
 }
 
 // Response types

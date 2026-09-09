@@ -2,9 +2,7 @@ package config
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
-	"strings"
 )
 
 // SetPreference writes a key-value preference to SQLite.
@@ -233,28 +231,4 @@ func DeleteVisionPrompt(db *sql.DB, name string) error {
 		return fmt.Errorf("deleting vision prompt %s: %w", name, err)
 	}
 	return nil
-}
-
-// parseFilterJSON parses a JSON filter string into a map.
-func parseFilterJSON(jsonStr string) map[string]string {
-	if jsonStr == "" || jsonStr == "{}" {
-		return make(map[string]string)
-	}
-	var m map[string]string
-	if err := json.Unmarshal([]byte(jsonStr), &m); err != nil {
-		return make(map[string]string)
-	}
-	return m
-}
-
-// parseCSV parses a comma-separated string into a slice.
-func parseCSV(csv string) []string {
-	if csv == "" {
-		return nil
-	}
-	parts := strings.Split(csv, ",")
-	for i, p := range parts {
-		parts[i] = strings.TrimSpace(p)
-	}
-	return parts
 }

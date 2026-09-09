@@ -84,8 +84,6 @@ Multiple TTS endpoints can be configured (klipbord-style presets). The active pr
 | `CAMSPEAK_TTS_URL` | TTS API endpoint (overrides active preset) | (from active preset) |
 | `CAMSPEAK_TTS_MODEL` | TTS model name | (from active preset) |
 | `CAMSPEAK_TTS_VOICE` | Default TTS voice | (from active preset) |
-| `CAMSPEAK_MQTT_BROKER` | MQTT broker URL | (none — MQTT disabled) |
-| `CAMSPEAK_MQTT_USER` / `CAMSPEAK_MQTT_PASS` | MQTT credentials | (none) |
 | `CAMSPEAK_VISION_URL` | Vision LLM endpoint (OpenAI-compatible) | (none) |
 | `CAMSPEAK_VISION_MODEL` | Vision model name | (none) |
 | `CAMSPEAK_VISION_API_KEY` | Vision API key | (none) |
@@ -111,14 +109,13 @@ Copy `.env.example` to `.env` for local dev. Loaded by godotenv at startup. Giti
 - `internal/discovery/` — mDNS (Zeroconf) advertisement of `_camspeak._tcp.local` so Home Assistant can auto-discover the server
 - `internal/frigate/` — Frigate NVR camera discovery (parses /config/raw)
 - `internal/library/` — Preset store (raw audio on disk, metadata in SQLite)
-- `internal/mqtt/` — Frigate MQTT subscriber for auto-speak rules
 - `internal/tts/` — OpenAI-compatible TTS client (Kokoro)
 - `frontend/` — Svelte 5 SPA (Vite, Bun)
 
 ### SQLite tables
 - `presets` — preset metadata (name, category, text, voice, duration, raw_path)
 - `events` — speak/play/beep event log for SSE history
-- `preferences` — key-value runtime preferences (port, library path, frigate URL, MQTT)
+- `preferences` — key-value runtime preferences (port, library path, frigate URL)
 - `tts_presets` — named TTS endpoint configurations (klipbord-style)
 - `cameras` — camera definitions (name, type, ip, user, pass, channel, stream, gain, note)
 
@@ -129,12 +126,8 @@ Copy `.env.example` to `.env` for local dev. Loaded by godotenv at startup. Giti
 | `reolink` | go2rtc stream-to-camera (via RTSP backchannel) | Routes through go2rtc when a stream name is configured; native Reolink protocol (Baichuan) is a stub | go2rtc must have a matching stream with `#backchannel=1`. Set `CAMSPEAK_GO2RTC_URL`. **LIMITED**: only works on Reolink Doorbells with specific firmware. |
 | `go2rtc` | go2rtc stream-to-camera API | `POST http://go2rtc:1984/api/streams?dst=<stream>&src=ffmpeg:<url>#audio=pcmu` | go2rtc must have a stream with `#backchannel=1`. Set `CAMSPEAK_GO2RTC_URL`. |
 | `onvif` | ONVIF RTSP backchannel | Direct RTP/G.711 via gortsplib (no external deps) | Camera must advertise `a=sendonly` audio track in RTSP SDP |
-- `rules` — MQTT-triggered auto-speak rules
 
 ### Audio format
-All camera types currently receive **G.711 µ-law** (pcm_mulaw) 8kHz mono audio from the ffmpeg transcoder. The runtime volume gain (`ApplyGainMulaw` in `internal/util/mulaw.go`) decodes each µ-law byte to 16-bit PCM, scales by the gain factor, and re-encodes — this works on all three working camera types (Hikvision, go2rtc, ONVIF) since they all consume µ-law.
-
-If a future camera type requires a different codec (e.g. AAC, G.722, ADPCM for native Reolink Baichuan), the transcoder would need to produce that format and the gain function must NOT be called on non-µ-law data — it would corrupt the audio. A codec-aware gain interface would be needed at that point.
 
 ### REST API
 - `GET /api/config` — current runtime config
@@ -147,7 +140,6 @@ If a future camera type requires a different codec (e.g. AAC, G.722, ADPCM for n
 - `POST /api/config/cameras/detect` — probe camera IP and auto-detect vendor type
 - `POST /api/config/cameras/discover` — discover cameras from Frigate NVR
 - `DELETE /api/config/cameras/:name` — remove camera
-- `GET/POST /api/config/rules` — list/create MQTT rules
 - `GET/PUT /api/config/airplay` — get/update AirPlay receiver config
 - `GET /api/health` — health check with version
 - `GET /api/openapi.json` — OpenAPI 3.0 spec
@@ -182,7 +174,6 @@ services:
       CAMSPEAK_DATA_DIR: /config
       CAMSPEAK_FRIGATE_URL: http://frigate:5000
       CAMSPEAK_TTS_URL: http://tts:8080/v1/audio/speech
-      CAMSPEAK_MQTT_BROKER: tcp://mqtt:1883
       CAMSPEAK_AIRPLAY_ENABLED: true
       CAMSPEAK_AIRPLAY_BASE_PORT: 5100
     volumes:
@@ -346,12 +337,12 @@ lsof -i :5100
   var log = logging.New("mypackage", clog.InfoLevel)
   ```
 - Do **not** call package-level `clog.Info/Error/Warn/Debug` directly; always use a logger from `logging.New` so timestamps, colored prefixes, and caller reporting are consistent.
-- `CAMSPEAK_LOG_LEVEL` (debug, info, warn, error) is read by `cmd` and propagated to `api`, `cameras`, `mqtt`, `airplay`, `tts`, and `vision` at startup.
+- `CAMSPEAK_LOG_LEVEL` (debug, info, warn, error) is read by `cmd` and propagated to `api`, `cameras`, `airplay`, `tts`, and `vision` at startup.
 - Caller reporting (`file:line`) is enabled automatically when the level is `debug`.
-- **Request IDs**: all API handlers receive an `X-Request-ID` and should log with the per-request logger from `h.logger(c)`. Internal helpers that run outside a request (e.g. `SpeakForMQTT`) use the package logger.
+- **Request IDs**: all API handlers receive an `X-Request-ID` and should log with the per-request logger from `h.logger(c)`. Internal helpers that run outside a request (e.g. `BroadcastToCameras`) use the package logger.
 - **Error boundary**: synchronous HTTP handlers are the boundary for `Error` logs; lower-level clients should wrap errors and log them at `Debug`. This avoids double-logging the same failure.
 - **Sanitize before logging**:
   - Strip embedded credentials from user-supplied URLs with `redactURL` (see `internal/api/util.go`).
   - Redact AirPlay SDP `fpaeskey`, `rsaaeskey`, and `aesiv` values before logging (`internal/airplay/server.go`).
   - Never log decrypted AES keys, API keys, or camera passwords.
-- **Config redaction**: `GET /api/config` returns a sanitized copy (`Config.Sanitized()`) with `TTS.APIKey`, `Vision.APIKey`, `MQTT.Pass`, and camera passwords removed.
+- **Config redaction**: `GET /api/config` returns a sanitized copy (`Config.Sanitized()`) with `TTS.APIKey`, `Vision.APIKey`, and camera passwords removed.

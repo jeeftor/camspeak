@@ -30,9 +30,6 @@ func Load(db *sql.DB) (*Config, error) {
 	// Load cameras from SQLite
 	loadCameras(db, cfg)
 
-	// Load rules from SQLite
-	loadRules(db, cfg)
-
 	// Apply env var overrides (env always wins)
 	applyEnvOverrides(cfg)
 
@@ -79,15 +76,6 @@ func loadPreferences(db *sql.DB, cfg *Config) {
 	}
 	if v, ok := prefs["advertise_ip"]; ok {
 		cfg.AdvertiseIP = v
-	}
-	if v, ok := prefs["mqtt_broker"]; ok {
-		cfg.MQTT.Broker = v
-	}
-	if v, ok := prefs["mqtt_user"]; ok {
-		cfg.MQTT.User = v
-	}
-	if v, ok := prefs["mqtt_pass"]; ok {
-		cfg.MQTT.Pass = v
 	}
 	if v, ok := prefs["vision_url"]; ok {
 		cfg.Vision.URL = v
@@ -243,31 +231,6 @@ func loadCameras(db *sql.DB, cfg *Config) {
 	}
 }
 
-// loadRules loads MQTT rules from SQLite.
-func loadRules(db *sql.DB, cfg *Config) {
-	rows, err := db.Query(
-		`SELECT id, topic, filter, cameras, preset, text, voice, loop, enabled, source_camera, prompt FROM rules WHERE enabled = 1`,
-	)
-	if err != nil {
-		return
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var r Rule
-		var filterJSON, camerasCSV string
-		var enabled, loop int
-		if err := rows.Scan(&r.ID, &r.Topic, &filterJSON, &camerasCSV, &r.Preset, &r.Text, &r.Voice, &loop, &enabled, &r.SourceCamera, &r.Prompt); err != nil {
-			continue
-		}
-		r.Enabled = enabled == 1
-		r.Loop = loop
-		r.Filter = parseFilterJSON(filterJSON)
-		r.Cameras = parseCSV(camerasCSV)
-		cfg.Rules = append(cfg.Rules, r)
-	}
-}
-
 // applyEnvOverrides applies environment variable overrides on top of SQLite config.
 // Env vars always win.
 func applyEnvOverrides(cfg *Config) {
@@ -311,15 +274,6 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("CAMSPEAK_VISION_PROMPT"); v != "" {
 		cfg.Vision.Prompt = v
-	}
-	if v := os.Getenv("CAMSPEAK_MQTT_BROKER"); v != "" {
-		cfg.MQTT.Broker = v
-	}
-	if v := os.Getenv("CAMSPEAK_MQTT_USER"); v != "" {
-		cfg.MQTT.User = v
-	}
-	if v := os.Getenv("CAMSPEAK_MQTT_PASS"); v != "" {
-		cfg.MQTT.Pass = v
 	}
 	if v := os.Getenv("CAMSPEAK_AIRPLAY_ENABLED"); v != "" {
 		cfg.AirPlay.Enabled = v == "1" || v == "true" || v == "yes"

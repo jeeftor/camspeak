@@ -72,16 +72,15 @@ func New(
 	}
 
 	h := &Handlers{
-		cfg:        cfg,
-		reg:        reg,
-		store:      store,
-		tts:        ttsClient,
-		vision:     vision.NewClient(cfg.Vision.URL, cfg.Vision.Model, cfg.Vision.APIKey),
-		events:     newEventBus(store.DB()),
-		mqttMsgBus: newMQTTMsgBus(),
-		db:         database,
-		tmpDir:     tmpDir,
-		log:        logging.New("api", apiLogLevel),
+		cfg:    cfg,
+		reg:    reg,
+		store:  store,
+		tts:    ttsClient,
+		vision: vision.NewClient(cfg.Vision.URL, cfg.Vision.Model, cfg.Vision.APIKey),
+		events: newEventBus(store.DB()),
+		db:     database,
+		tmpDir: tmpDir,
+		log:    logging.New("api", apiLogLevel),
 	}
 
 	e := echo.New()
@@ -197,19 +196,11 @@ func New(
 	api.PATCH("/config/cameras/:name/toggle", h.ToggleCamera)
 	api.DELETE("/config/cameras/:name", h.DeleteCameraConfig)
 	api.GET("/config/go2rtc/streams", h.ListGo2rtcStreams)
-	api.GET("/config/rules", h.ListRules)
-	api.POST("/config/rules", h.CreateRule)
 
 	// AirPlay config
 	api.GET("/config/airplay", h.GetAirPlayConfig)
 	api.PUT("/config/airplay", h.UpdateAirPlayConfig)
 	api.PATCH("/config/airplay/:camera/toggle", h.ToggleAirPlay)
-
-	// MQTT status + live event browser + dynamic subscriptions
-	api.GET("/mqtt/status", h.MQTTStatus)
-	api.GET("/mqtt/events", h.MQTTEvents)
-	api.GET("/mqtt/topics", h.MQTTTopics)
-	api.POST("/mqtt/subscribe", h.MQTTSubscribe)
 
 	// MCP endpoint
 	mcpServer := buildMCPServer(h)
@@ -259,7 +250,7 @@ func New(
 	}
 }
 
-// Handlers returns the handlers for external wiring (e.g. MQTT).
+// Handlers returns the handlers for external wiring.
 func (s *Server) Handlers() *Handlers {
 	return s.handlers
 }

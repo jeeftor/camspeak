@@ -7,7 +7,6 @@
   import { Badge } from '$lib/components/ui/badge'
   import JsonCode from '$lib/components/JsonCode.svelte'
   import Modal from '$lib/components/Modal.svelte'
-  import Frigate from './Frigate.svelte'
   import VisionTest from './VisionTest.svelte'
   import CaptureBenchmark from './CaptureBenchmark.svelte'
   import Benchmark from './Benchmark.svelte'
@@ -609,7 +608,6 @@
     { id: 'settings', label: 'Settings' },
     { id: 'tts', label: 'TTS Presets' },
     { id: 'cameras', label: 'Cameras' },
-    { id: 'frigate', label: 'Frigate / MQTT' },
     { id: 'vision', label: 'Vision' },
     { id: 'vision-test', label: 'Playground' },
     { id: 'announce', label: 'Announce' },
@@ -1066,10 +1064,6 @@
           {#if testCamStatus}<span class="text-sm text-primary">{testCamStatus}</span>{/if}
         </div>
       </Modal>
-
-    <!-- Frigate / MQTT -->
-    {:else if tab === 'frigate'}
-      <Frigate cameras={cameras} />
 
     <!-- Vision -->
     {:else if tab === 'vision'}

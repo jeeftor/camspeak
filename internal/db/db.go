@@ -71,18 +71,6 @@ CREATE TABLE IF NOT EXISTS cameras (
     note          TEXT DEFAULT ''
 );
 
-CREATE TABLE IF NOT EXISTS rules (
-    id      INTEGER PRIMARY KEY AUTOINCREMENT,
-    topic   TEXT NOT NULL DEFAULT 'frigate/events',
-    filter  TEXT DEFAULT '{}',
-    cameras TEXT DEFAULT '',
-    preset  TEXT DEFAULT '',
-    text    TEXT DEFAULT '',
-    voice   TEXT DEFAULT '',
-    loop    INTEGER DEFAULT 0,
-    enabled INTEGER DEFAULT 1
-);
-
 CREATE TABLE IF NOT EXISTS vision_prompts (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT UNIQUE NOT NULL,
@@ -94,7 +82,6 @@ CREATE TABLE IF NOT EXISTS vision_prompts (
 CREATE INDEX IF NOT EXISTS idx_presets_category ON presets(category);
 CREATE INDEX IF NOT EXISTS idx_events_created ON events(created DESC);
 CREATE INDEX IF NOT EXISTS idx_tts_presets_active ON tts_presets(is_active);
-CREATE INDEX IF NOT EXISTS idx_rules_enabled ON rules(enabled);
 `
 
 // Open opens (or creates) the SQLite database at dbPath.
@@ -188,9 +175,6 @@ func migrate(db *sql.DB) {
 	// Add 'vision_width' column to cameras if missing (added in v2.10.0).
 	// Max width in pixels for vision snapshots (0 = no resize).
 	addColumn("cameras", "vision_width", "INTEGER DEFAULT 0")
-	// Add 'loop' column to rules if missing (added in v2.12.0).
-	// When true, the preset loops infinitely and can be paused/resumed.
-	addColumn("rules", "loop", "INTEGER DEFAULT 0")
 	// Add 'voice' column to events if missing (added in v2.13.0).
 	addColumn("events", "voice", "TEXT DEFAULT ''")
 	// Add 'url' column to presets if missing (added in v2.14.0).
@@ -205,10 +189,4 @@ func migrate(db *sql.DB) {
 	// Add 'snap_method' column to cameras if missing (added in v2.19.5).
 	// Preferred snapshot method: "auto", "isapi", "go2rtc", "frigate".
 	addColumn("cameras", "snap_method", "TEXT DEFAULT ''")
-	// Add 'source_camera' and 'prompt' columns to rules if missing
-	// (added in v2.19.18). When source_camera is set, the rule is an
-	// "announce" rule: capture from source_camera → vision → TTS → play
-	// on the rule's cameras (target speakers).
-	addColumn("rules", "source_camera", "TEXT DEFAULT ''")
-	addColumn("rules", "prompt", "TEXT DEFAULT ''")
 }

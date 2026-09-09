@@ -34,7 +34,6 @@ func TestColorForPrefix(t *testing.T) {
 		{"api", "#38BDF8"},
 		{"airplay", "#A78BFA"},
 		{"airplay[backyard]", "#A78BFA"},
-		{"mqtt", "#FB923C"},
 		{"unknown", "#94A3B8"},
 	}
 	for _, tc := range cases {

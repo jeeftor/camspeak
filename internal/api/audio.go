@@ -459,8 +459,9 @@ func (h *Handlers) playPresetLooped(
 	return t, nil
 }
 
-// SpeakForMQTT is called by the MQTT subscriber.
-func (h *Handlers) SpeakForMQTT(cams []string, text, preset, voice string, loop int) {
+// BroadcastToCameras sends text or preset to multiple cameras in parallel.
+// Used by the broadcast endpoint and MCP broadcast tool.
+func (h *Handlers) BroadcastToCameras(cams []string, text, preset, voice string, loop int) {
 	var wg sync.WaitGroup
 	for _, cam := range cams {
 		wg.Add(1)

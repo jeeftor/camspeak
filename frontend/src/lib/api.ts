@@ -13,17 +13,14 @@ import type {
   Go2rtcStreamsResponse,
   Go2rtcTestResult,
   Health,
-  MQTTTopic,
   PingResponse,
   PlaybackState,
   PlayReq,
   PlayResponse,
   Preset,
   PresetAnalysis,
-  Rule,
   SaveCameraReq,
   SavePresetResponse,
-  SaveRuleReq,
   SaveTTSReq,
   SaveVisionPromptReq,
   SaveVisionReq,
@@ -167,17 +164,6 @@ export const apiClient = {
 
   // --- Config: go2rtc ---
   getGo2rtcStreams: () => api<Go2rtcStreamsResponse>('/api/config/go2rtc/streams'),
-
-  // --- Config: rules ---
-  listRules: () => api<Rule[]>('/api/config/rules'),
-  saveRule: (rule: SaveRuleReq) =>
-    api('/api/config/rules', { method: 'POST', body: JSON.stringify(rule) }),
-
-  // --- MQTT ---
-  getMQTTStatus: () => api<{ status: string; broker: string }>('/api/mqtt/status'),
-  getMQTTTopics: () => api<MQTTTopic[]>('/api/mqtt/topics'),
-  subscribeMQTT: (topic: string) =>
-    api('/api/mqtt/subscribe', { method: 'POST', body: JSON.stringify({ topic }) }),
 
   // --- Voices ---
   getVoices: () => api<string[]>('/api/voices'),

@@ -17,7 +17,6 @@ import (
 	"github.com/jeeftor/camspeak/internal/discovery"
 	"github.com/jeeftor/camspeak/internal/frigate"
 	"github.com/jeeftor/camspeak/internal/library"
-	"github.com/jeeftor/camspeak/internal/mqtt"
 	"github.com/jeeftor/camspeak/internal/tts"
 	"github.com/jeeftor/camspeak/internal/util"
 	"github.com/jeeftor/camspeak/internal/vision"
@@ -41,7 +40,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 	api.SetLogLevel(level)
 	cameras.SetLogLevel(level)
 	discovery.SetLogLevel(level)
-	mqtt.SetLogLevel(level)
 	tts.SetLogLevel(level)
 	vision.SetLogLevel(level)
 
@@ -123,17 +121,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if airplayMgr != nil {
 		srv.Handlers().SetAirPlayManager(airplayMgr)
 	}
-
-	// Wire MQTT → API handlers
-	mqttSub := mqtt.New(cfg.MQTT, cfg.Rules, srv.Handlers().SpeakForMQTT)
-	mqttSub.SetAnnounceFunc(srv.Handlers().AnnounceForMQTT)
-	mqttSub.SetMessageHook(srv.Handlers().HandleMQTTMessage)
-	srv.Handlers().SetMQTT(cfg.MQTT.Broker, mqttSub.Status)
-	srv.Handlers().SetMQTTSubscribeFn(mqttSub.SubscribeTopic)
-	if err := mqttSub.Start(); err != nil {
-		appLog.Warn("MQTT not connected", "err", err)
-	}
-	defer mqttSub.Stop()
 
 	// Advertise via mDNS so Home Assistant can auto-discover camspeak.
 	var disc *discovery.Service

@@ -25,10 +25,8 @@ result to G.711ulaw 8kHz, and streams it to a camera speaker over Hikvision
 ISAPI, Reolink/go2rtc, or ONVIF RTSP backchannel.
 
 It is built to live alongside a [Frigate](https://frigate.video) NVR deployment:
-cameras can be auto-discovered from Frigate's config, go2rtc can be used for
-cameras that need a two-way audio bridge (especially Reolink doorbells), and
-MQTT rules can trigger spoken announcements when Frigate publishes detection
-events.
+cameras can be auto-discovered from Frigate's config and go2rtc can be used for
+cameras that need a two-way audio bridge (especially Reolink doorbells).
 
 A built-in AirPlay v1 receiver also lets every camera appear as a separate
 AirPlay target on your iPhone, so you can stream music, calls, or any iOS audio
@@ -60,8 +58,6 @@ and response data.
   Frigate's built-in go2rtc, or common local endpoints.
 - **Camera type detection** — probe an IP to classify it as Hikvision, Reolink,
   or ONVIF when adding cameras manually.
-- **Frigate MQTT rules** — subscribe to Frigate event topics and trigger TTS or
-  preset playback with payload filters and wildcard topic matching.
 
 ### TTS & audio sources
 
@@ -106,7 +102,7 @@ and response data.
   `list_presets`, `generate_preset`, and `beep` tools over the Model Context
   Protocol for LLM-driven automation (Claude, Cursor, OpenAI, Ollama via LiteLLM, etc.).
 - **REST API** — full HTTP API for speaking, playing presets, broadcasting,
-  managing cameras, TTS presets, rules, and the audio library.
+  managing cameras, TTS presets, and the audio library.
 - **Home Assistant** — first-class HACS integration with media player entities, binary sensors, real-time SSE playback updates, and smart services with entity selectors, voice dropdowns, and response data. See [camspeak-hacs](https://github.com/jeeftor/camspeak-hacs). Also works via `rest_command` for simpler setups.
 - **Svelte UI** — embedded Svelte 5 SPA served from the binary for point-and-click control.
 
@@ -128,8 +124,8 @@ and response data.
 
 ### Deployment
 
-- **SQLite configuration** — no YAML. All preferences, cameras, TTS presets, and
-  rules live in a single `camspeak.db` file.
+- **SQLite configuration** — no YAML. All preferences, cameras, and TTS presets
+  live in a single `camspeak.db` file.
 - **Multi-arch Docker** — `linux/amd64` and `linux/arm64` images published to GHCR.
 - **Pure Go** — SQLite via `modernc.org/sqlite`, no CGO required.
 
@@ -156,9 +152,6 @@ services:
       - CAMSPEAK_TTS_URL=${CAMSPEAK_TTS_URL:-}
       - CAMSPEAK_TTS_MODEL=${CAMSPEAK_TTS_MODEL:-kokoro}
       - CAMSPEAK_TTS_VOICE=${CAMSPEAK_TTS_VOICE:-af_sky}
-      - CAMSPEAK_MQTT_BROKER=${CAMSPEAK_MQTT_BROKER:-}
-      - CAMSPEAK_MQTT_USER=${CAMSPEAK_MQTT_USER:-}
-      - CAMSPEAK_MQTT_PASS=${CAMSPEAK_MQTT_PASS:-}
       - CAMSPEAK_AIRPLAY_ENABLED=${CAMSPEAK_AIRPLAY_ENABLED:-true}
       - CAMSPEAK_AIRPLAY_BASE_PORT=${CAMSPEAK_AIRPLAY_BASE_PORT:-5100}
       - CAMSPEAK_AIRPLAY_MODEL=${CAMSPEAK_AIRPLAY_MODEL:-RealityDevice14,1}
@@ -195,7 +188,7 @@ Configuration is resolved in the following order (highest precedence first):
 
 1. **Environment variables** — `CAMSPEAK_*` prefix, always win.
 2. **SQLite preferences** — stored in the `preferences`, `tts_presets`,
-   `cameras`, and `rules` tables.
+   and `cameras` tables.
 3. **Built-in defaults** — sensible values for local development.
 
 A `.env` file (gitignored) is loaded by godotenv at startup for local dev. Copy
@@ -219,9 +212,6 @@ A `.env` file (gitignored) is loaded by godotenv at startup for local dev. Copy
 | `CAMSPEAK_TTS_MODEL` | TTS model name | (from active preset) |
 | `CAMSPEAK_TTS_VOICE` | Default TTS voice | (from active preset) |
 | `CAMSPEAK_TTS_API_KEY` | TTS API key (cloud providers only) | (none) |
-| `CAMSPEAK_MQTT_BROKER` | MQTT broker URL (empty disables MQTT) | (none) |
-| `CAMSPEAK_MQTT_USER` | MQTT username | (none) |
-| `CAMSPEAK_MQTT_PASS` | MQTT password | (none) |
 | `CAMSPEAK_VISION_URL` | Vision LLM endpoint (OpenAI-compatible chat completions, e.g. OpenAI, Ollama, LiteLLM) | (none) |
 | `CAMSPEAK_VISION_MODEL` | Vision model name | (none) |
 | `CAMSPEAK_VISION_API_KEY` | Vision API key (cloud providers only) | (none) |
@@ -374,8 +364,6 @@ All routes are under `/api`. The server listens on port `8585` by default.
 | `DELETE` | `/api/config/cameras/:name` | Remove a camera |
 | `GET` | `/api/config/airplay` | Get AirPlay receiver configuration |
 | `PUT` | `/api/config/airplay` | Update AirPlay receiver configuration |
-| `GET` | `/api/config/rules` | List MQTT auto-speak rules |
-| `POST` | `/api/config/rules` | Create an MQTT rule |
 
 ### System
 
@@ -486,8 +474,7 @@ automation:
 This gives you HA's full condition/template engine (time windows, presence
 detection, multi-sensor logic) for triggering announcements. For the full
 integration experience (entity selectors, real-time state, response data),
-use the HACS integration above. The built-in MQTT rule engine (Frigate / MQTT
-tab) still works alongside both for standalone setups without Home Assistant.
+use the HACS integration above.
 
 See the **Home Assistant** section in the UI for copy-paste-ready snippets including
 webhook triggers and dashboard buttons.
@@ -546,7 +533,6 @@ prek install
 | `internal/db/` | SQLite database initialization and schema |
 | `internal/frigate/` | Frigate NVR camera discovery (parses `/api/config` and go2rtc streams) |
 | `internal/library/` | Preset store — raw audio on disk, metadata in SQLite |
-| `internal/mqtt/` | Frigate MQTT subscriber for auto-speak rules (wildcard topics, payload filters) |
 | `internal/tts/` | OpenAI-compatible TTS client (works with OpenAI, Ollama, LiteLLM, Lemonade, etc.) |
 | `frontend/` | Svelte 5 SPA (Vite, Bun), embedded into the Go binary |
 
@@ -556,10 +542,9 @@ prek install
 |---|---|
 | `presets` | Preset metadata (name, category, text, voice, duration, raw_path) |
 | `events` | Speak/play/beep event log for SSE history |
-| `preferences` | Key-value runtime preferences (port, library path, frigate URL, MQTT) |
+| `preferences` | Key-value runtime preferences (port, library path, frigate URL) |
 | `tts_presets` | Named TTS endpoint configurations (klipbord-style, one active) |
 | `cameras` | Camera definitions (name, type, ip, user, pass, channel, gain, airplay_name, airplay_model, airplay_enabled) |
-| `rules` | MQTT-triggered auto-speak rules (topic, filter, cameras, preset/text, voice) |
 
 ### Audio pipeline
 
@@ -591,12 +576,3 @@ authentication and the ISAPI `TwoWayAudio` endpoint:
 3. `PUT /audioData?sessionId=...` — stream G.711ulaw audio, rate-limited to
    8000 bytes/sec via a throttled reader.
 4. `PUT /close?sessionId=...` — close the session.
-
-### MQTT rules
-
-MQTT rules (`internal/mqtt/subscriber.go`) subscribe to Frigate event topics
-and match incoming payloads against configured filters. Filters support nested
-dot-notation keys (e.g. `after.camera`) and type-aware value comparison
-(strings, numbers, booleans). Topic matching supports `+` and `#` wildcards.
-When a rule matches, it calls the speak handler with the configured cameras,
-text/preset, and voice.

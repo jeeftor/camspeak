@@ -29,21 +29,17 @@ import (
 
 // Handlers holds all route handler dependencies.
 type Handlers struct {
-	cfg             *config.Config
-	cfgMu           sync.Mutex
-	reg             *cameras.Registry
-	airplayMgr      *airplay.Manager
-	store           *library.Store
-	tts             *tts.Client
-	vision          *vision.Client
-	events          *eventBus
-	mqttMsgBus      *mqttMsgBus
-	mqttBroker      string
-	mqttStatusFn    func() string
-	mqttSubscribeFn func(string) error
-	db              *sql.DB
-	tmpDir          string
-	log             *clog.Logger
+	cfg        *config.Config
+	cfgMu      sync.Mutex
+	reg        *cameras.Registry
+	airplayMgr *airplay.Manager
+	store      *library.Store
+	tts        *tts.Client
+	vision     *vision.Client
+	events     *eventBus
+	db         *sql.DB
+	tmpDir     string
+	log        *clog.Logger
 }
 
 // SetAirPlayManager attaches a live AirPlay manager so per-camera toggles

@@ -21,7 +21,6 @@ var subsystemColors = []struct {
 	{"api", lipgloss.Color("#38BDF8")},       // sky
 	{"airplay", lipgloss.Color("#A78BFA")},   // violet
 	{"shairport", lipgloss.Color("#C084FC")}, // purple
-	{"mqtt", lipgloss.Color("#FB923C")},      // orange
 	{"hikvision", lipgloss.Color("#4ADE80")}, // green
 	{"go2rtc", lipgloss.Color("#4ADE80")},    // green
 	{"reolink", lipgloss.Color("#4ADE80")},   // green

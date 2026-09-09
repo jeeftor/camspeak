@@ -82,7 +82,7 @@
   })
 
   // Poll the server for playback state so the UI stays in sync even when
-  // playback is started/stopped from another client (MQTT, REST, etc.).
+  // playback is started/stopped from another client (REST, HA, etc.).
   // Skipped while busy to avoid racing with in-flight requests.
   $effect(() => {
     const interval = setInterval(async () => {

@@ -1,55 +1,13 @@
 package api
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/labstack/echo/v4"
 
 	"github.com/jeeftor/camspeak/internal/config"
 )
-
-// ListRules handles GET /api/config/rules — returns all MQTT rules.
-func (h *Handlers) ListRules(c echo.Context) error {
-	return c.JSON(http.StatusOK, h.cfg.Rules)
-}
-
-// CreateRule handles POST /api/config/rules — creates a new MQTT rule.
-func (h *Handlers) CreateRule(c echo.Context) error {
-	var r config.Rule
-	if err := c.Bind(&r); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid JSON body")
-	}
-	if r.Topic == "" {
-		r.Topic = "frigate/events"
-	}
-	// Serialize filter and cameras for SQLite
-	filterJSON, err := json.Marshal(r.Filter)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	camerasCSV := strings.Join(r.Cameras, ",")
-	enabled := 1
-	if !r.Enabled {
-		enabled = 0
-	}
-	result, err := h.db.Exec(
-		`INSERT INTO rules (topic, filter, cameras, preset, text, voice, loop, enabled, source_camera, prompt)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.Topic, string(filterJSON), camerasCSV, r.Preset, r.Text, r.Voice, r.Loop, enabled, r.SourceCamera, r.Prompt,
-	)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	id, err := result.LastInsertId()
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	r.ID = int(id)
-	return c.JSON(http.StatusCreated, r)
-}
 
 // GetAirPlayConfig handles GET /api/config/airplay — returns AirPlay config and per-camera status.
 func (h *Handlers) GetAirPlayConfig(c echo.Context) error {
