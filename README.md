@@ -74,6 +74,32 @@ and response data.
   (e.g. LiveATC, internet radio) directly to a camera speaker.
 - **Broadcast** — send TTS or a preset to all enabled cameras at once.
 
+### Vision (describe & announce)
+
+- **Describe** — `POST /api/describe` captures a still image from a camera, sends
+  it to a vision LLM (any OpenAI-compatible chat completions endpoint — OpenAI,
+  Ollama, LiteLLM, etc.), gets a text description back, then TTS-speaks that
+  description on the same camera's speaker.
+- **Cross-camera announce** — `POST /api/announce` captures an image from one
+  camera, describes it with the vision model, and speaks the description on a
+  *different* target camera's speaker. Useful for doorbells or cameras without
+  speakers.
+- **Vision config** — `GET/PUT /api/config/vision` manages the vision endpoint
+  (URL, model, API key, default prompt). Configure via env vars
+  (`CAMSPEAK_VISION_URL`, `CAMSPEAK_VISION_MODEL`, `CAMSPEAK_VISION_API_KEY`,
+  `CAMSPEAK_VISION_PROMPT`) or the UI.
+- **Vision Playground** — the frontend's Vision Playground lets you capture a
+  frame from any camera (or upload your own image), run it against the
+  configured vision model with a custom prompt, and view the description with
+  timing breakdowns. You can also test a single image against *all* available
+  vision models at once via a streaming endpoint.
+- **Capture Benchmark** — benchmarks every capture method for a single camera,
+  comparing capture time, image resolution, and file size. Enable "with vision"
+  to also measure the full pipeline (capture + model inference).
+- **Full Matrix Benchmark** — runs the full vision pipeline across every
+  selected camera, prompt, capture method, and model in a streaming matrix,
+  producing a side-by-side comparison of results.
+
 ### Automation & control
 
 - **MCP endpoint** — expose `speak`, `play_preset`, `broadcast`, `list_cameras`,
@@ -90,7 +116,15 @@ and response data.
   speaker in the iOS picker.
 - **iOS audio to camera** — stream music, calls, or any iOS audio to a camera
   speaker with per-camera gain, custom display name, and device icon model.
-- **Pure Go** — no CGO; compatible with iOS 18+ and iOS 26.
+- **shairport-sync on Linux/Docker** — on Linux (including the Docker image),
+  camspeak prefers [shairport-sync](https://github.com/mikebrady/shairport-sync),
+  an external binary that handles the RAOP/FairPlay/ALAC work internally and
+  emits decoded PCM on stdout. That PCM is transcoded by `ffmpeg` to G.711 µ-law
+  8 kHz mono and streamed to the camera. The Docker image bundles
+  shairport-sync, so no extra setup is required.
+- **Built-in pure-Go RAOP on macOS** — on macOS, camspeak uses a built-in pure-Go
+  RAOP receiver (no CGO) as a fallback when shairport-sync is not available.
+  This path is compatible with iOS 18+ and iOS 26.
 
 ### Deployment
 
@@ -286,16 +320,18 @@ All routes are under `/api`. The server listens on port `8585` by default.
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/api/speak` | Send TTS to a named camera |
-| `POST` | `/api/play` | Play a saved preset on a camera |
+| `POST` | `/api/play` | Play a saved preset on a camera (supports `loop` integer: -1 = infinite, 0 = no loop, N = play N+1 times; looped presets are pausable/resumable via `/api/pause` and `/api/resume`) |
 | `POST` | `/api/play-url` | Download an audio URL and play it on a camera |
-| `POST` | `/api/play-stream` | Stream a live URL or `.pls`/`.m3u` playlist to a camera |
+| `POST` | `/api/play-stream` | Stream a live URL or `.pls`/`.m3u` playlist to a camera (Hikvision, requires ffmpeg) |
 | `POST` | `/api/beep` | Play an 800Hz test beep on a camera |
-| `POST` | `/api/stop` | Stop audio, live streams, and reset AirPlay for a camera (or all) |
-| `POST` | `/api/pause` | Pause a live `/api/play-stream` stream (camera or all) — suspends ffmpeg without closing the speaker connection |
-| `POST` | `/api/resume` | Resume a paused live stream (camera or all) |
-| `GET` | `/api/playback` | Current playback state for all cameras (playing/paused/idle + what's playing) |
+| `POST` | `/api/stop` | Stop audio, live streams, and reset AirPlay for a camera (or all cameras if body empty) |
+| `POST` | `/api/pause` | Pause a live `/api/play-stream` stream (camera or all) — suspends ffmpeg via SIGSTOP without tearing down the camera connection |
+| `POST` | `/api/resume` | Resume a paused stream (camera or all) via SIGCONT |
+| `GET` | `/api/playback` | Current playback state for all enabled cameras (playing/paused/idle + source, detail, timestamps) |
 | `POST` | `/api/broadcast` | Broadcast TTS or a preset to all cameras |
 | `GET` | `/api/cameras` | List cameras with online status |
+| `GET` | `/api/cameras/:name/info` | Query camera device info & streaming settings (ISAPI/ONVIF, read-only) |
+| `PUT` | `/api/cameras/:name/volume` | Set runtime gain (0-10); takes effect on next audio chunk without restarting playback; also persists to config |
 | `GET` | `/api/voices` | List available TTS voices |
 
 ### Library
@@ -307,7 +343,17 @@ All routes are under `/api`. The server listens on port `8585` by default.
 | `POST` | `/api/library/upload` | Upload an audio file (async — returns `job_id` for progress polling) |
 | `GET` | `/api/library/upload/jobs/:id` | Poll upload/transcode job progress (percent, step, error) |
 | `DELETE` | `/api/library/:category/:name` | Delete a preset |
+| `PATCH` | `/api/library/:category/:name` | Rename a preset |
 | `GET` | `/api/library/:category/:name/preview` | Preview a preset's audio |
+
+### Vision
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/describe` | Capture an image from a camera, send to the vision LLM, get a description, then TTS-speak it on the same camera |
+| `POST` | `/api/announce` | Capture an image from one camera, describe it, and speak the description on a target camera |
+| `GET` | `/api/config/vision` | Get vision endpoint config (URL, model, API key, default prompt) |
+| `PUT` | `/api/config/vision` | Update vision endpoint config |
 
 ### Config
 
@@ -322,7 +368,9 @@ All routes are under `/api`. The server listens on port `8585` by default.
 | `DELETE` | `/api/config/tts/:name` | Delete a TTS preset (not the active one) |
 | `POST` | `/api/config/tts/:name/activate` | Set a TTS preset as active |
 | `GET` | `/api/config/cameras` | List configured cameras |
-| `POST` | `/api/config/cameras` | Add or update a camera |
+| `POST` | `/api/config/cameras` | Add or update a camera; includes per-camera `gain` (default `3.0`) |
+| `POST` | `/api/config/cameras/detect` | Probe a camera IP and auto-detect vendor type (Hikvision, Reolink, ONVIF) |
+| `POST` | `/api/config/cameras/discover` | Discover cameras from a Frigate NVR instance |
 | `DELETE` | `/api/config/cameras/:name` | Remove a camera |
 | `GET` | `/api/config/airplay` | Get AirPlay receiver configuration |
 | `PUT` | `/api/config/airplay` | Update AirPlay receiver configuration |
