@@ -617,6 +617,7 @@ func (h *Handlers) AnnounceForMQTT(sourceCamera string, targets []string, prompt
 	}
 	wg.Wait()
 }
+
 func isVisionCapableModel(id string) bool {
 	lower := strings.ToLower(id)
 	// Substring keywords that unambiguously indicate vision capability.
