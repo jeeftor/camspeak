@@ -376,8 +376,33 @@ func (h *Handlers) SnapshotBenchmark(c echo.Context) error {
 	})
 }
 
+// cachedCapture holds a single captured image with timing/metadata.
+type cachedCapture struct {
+	camera  string
+	method  string
+	data    []byte
+	snapSec float64
+	bytes   int
+	width   int
+	height  int
+	err     error
+}
+
 // BenchmarkStream handles POST /api/benchmark — runs the full matrix of
 // cameras × prompts × capture methods × models, streaming results as SSE.
+//
+// Two-phase approach to ensure fair vision timing:
+//
+//	Phase 1: Capture all images (per camera × method), cache them.
+//	         Only capture time is measured — no model involvement.
+//	Phase 2: For each model, warm it up (load into VRAM), then run through
+//	         ALL cached images × prompts. The model stays loaded for all
+//	         its tests, so no reload time leaks into vision_sec.
+//
+// This is critical because Lemonade (llama.cpp) can only hold one model in
+// VRAM at a time. If we switched models per-image, each switch would evict
+// the previous model and the reload time would be counted as "vision time",
+// making the comparison unfair.
 //
 // SSE events:
 //
@@ -459,72 +484,159 @@ func (h *Handlers) BenchmarkStream(c echo.Context) error {
 		writeEvent("log", map[string]string{"msg": msg})
 	}
 
-	// Calculate total steps: cameras × prompts × (methods vary per camera, estimate)
-	// We don't know exact method count per camera upfront, so we count methods per camera.
-	totalSteps := 0
-	for _, cam := range camerasToTest {
-		totalSteps += countMethods(cam, go2rtcURL != "", frigateURL != "") * len(req.Prompts) * len(modelsToTest)
-	}
+	// --- Phase 1: Capture all images (no model involvement) ---
+	var captures []cachedCapture
+	writeLog("Phase 1: Capturing all images (no model involvement)")
 
+	for camName, cam := range camerasToTest {
+		caps := h.captureAllMethods(camName, cam, frigateURL, go2rtcURL)
+		for _, cap := range caps {
+			captures = append(captures, cap)
+			if cap.err != nil {
+				writeLog(fmt.Sprintf("  Capture FAILED %s / %s: %s", camName, cap.method, cap.err))
+			} else {
+				writeLog(fmt.Sprintf("  Captured %s / %s (%.2fs, %d bytes)",
+					camName, cap.method, cap.snapSec, cap.bytes))
+			}
+		}
+	}
+	writeLog(fmt.Sprintf("Phase 1 complete: %d images captured", len(captures)))
+
+	// --- Phase 2: For each model, warm up then run through all cached images ---
+	totalSteps := len(captures) * len(req.Prompts) * len(modelsToTest)
 	writeEvent("start", map[string]any{
 		"total_steps": totalSteps,
 		"cameras":     len(camerasToTest),
 		"prompts":     len(req.Prompts),
 		"models":      modelsToTest,
 		"with_vision": req.WithVision,
+		"captures":    len(captures),
 	})
 
 	startTime := time.Now()
 	step := 0
 
-	for camName, cam := range camerasToTest {
-		writeLog(fmt.Sprintf("Starting camera %s", camName))
-
-		// Warm up each model once per camera (if vision enabled)
-		if req.WithVision {
-			for _, model := range modelsToTest {
-				writeLog(fmt.Sprintf("Warming up model %s", model))
-				warmupData, _ := grabFrameViaGo2rtcAPI(go2rtcURL, cam.VisionStream, 10*time.Second)
-				if len(warmupData) == 0 && frigateURL != "" {
-					snapURL := fmt.Sprintf("%s/api/%s/latest.jpg?h=720", frigateURL, camName)
-					resp, err := (&http.Client{Timeout: 30 * time.Second}).Get(snapURL)
-					if err == nil {
-						warmupData, _ = io.ReadAll(resp.Body)
-						resp.Body.Close()
-					}
+	if !req.WithVision {
+		// No vision: just report capture results (one per capture × prompt)
+		for _, cap := range captures {
+			for _, prompt := range req.Prompts {
+				step++
+				r := BenchmarkResult{
+					Method:  cap.method,
+					OK:      cap.err == nil,
+					SnapSec: cap.snapSec,
+					Bytes:   cap.bytes,
+					Width:   cap.width,
+					Height:  cap.height,
 				}
-				if len(warmupData) > 0 {
-					_, _ = visionClient.DescribeWithModel(warmupData, "image/jpeg", "warmup", model)
+				if cap.err != nil {
+					r.Error = cap.err.Error()
 				}
+				writeEvent("progress", map[string]any{
+					"step": step, "total": totalSteps,
+					"camera": cap.camera, "prompt": prompt,
+					"method": cap.method, "model": "",
+				})
+				writeEvent("result", map[string]any{
+					"camera": cap.camera, "prompt": prompt, "model": "",
+					"results": []BenchmarkResult{r},
+				})
 			}
 		}
+	} else {
+		// Model is the OUTER loop so it stays loaded in VRAM for all its tests.
+		for _, model := range modelsToTest {
+			writeLog(fmt.Sprintf("Phase 2: Loading model %s into VRAM", model))
 
-		for _, prompt := range req.Prompts {
-			// Run all methods for this camera+prompt, capturing once and running all models
-			results := h.runMatrixCamera(
-				camName, cam, frigateURL, go2rtcURL, visionClient, globalPrompt,
-				req.WithVision, prompt, modelsToTest,
-				func(r BenchmarkResult) {
+			// Warm up this model with the first good capture
+			if len(captures) > 0 {
+				for _, cap := range captures {
+					if cap.err == nil && len(cap.data) > 0 {
+						warmupStart := time.Now()
+						_, _ = visionClient.DescribeWithModel(
+							cap.data, "image/jpeg", "warmup", model,
+						)
+						writeLog(fmt.Sprintf("  Model %s loaded in %.2fs",
+							model, time.Since(warmupStart).Seconds()))
+						break
+					}
+				}
+			}
+
+			writeLog(fmt.Sprintf("  Running %d images × %d prompts through model %s",
+				len(captures), len(req.Prompts), model))
+
+			for _, cap := range captures {
+				for _, prompt := range req.Prompts {
 					step++
+
+					if cap.err != nil {
+						r := BenchmarkResult{
+							Method:  cap.method,
+							OK:      false,
+							SnapSec: cap.snapSec,
+							Model:   model,
+							Error:   cap.err.Error(),
+						}
+						writeEvent("progress", map[string]any{
+							"step": step, "total": totalSteps,
+							"camera": cap.camera, "prompt": prompt,
+							"method": cap.method, "model": model,
+						})
+						writeEvent("result", map[string]any{
+							"camera": cap.camera, "prompt": prompt, "model": model,
+							"results": []BenchmarkResult{r},
+						})
+						continue
+					}
+
+					resolvePrompt := func() string {
+						if prompt != "" {
+							return prompt
+						}
+						cam := camerasToTest[cap.camera]
+						return resolveVisionPrompt("", cam.VisionPrompt != "", cam.VisionPrompt, globalPrompt)
+					}
+
+					vStart := time.Now()
+					desc, vErr := visionClient.DescribeWithModel(
+						cap.data, "image/jpeg", resolvePrompt(), model,
+					)
+					visionSec := time.Since(vStart).Seconds()
+
+					r := BenchmarkResult{
+						Method:    cap.method,
+						OK:        vErr == nil,
+						SnapSec:   cap.snapSec,
+						VisionSec: visionSec,
+						TotalSec:  cap.snapSec + visionSec,
+						Bytes:     cap.bytes,
+						Width:     cap.width,
+						Height:    cap.height,
+						Model:     model,
+					}
+					if vErr != nil {
+						r.Error = fmt.Sprintf("vision failed: %s", vErr)
+					} else {
+						if len(desc) > 120 {
+							desc = desc[:120] + "…"
+						}
+						r.Preview = desc
+					}
+
 					writeEvent("progress", map[string]any{
-						"step":   step,
-						"total":  totalSteps,
-						"camera": camName,
-						"prompt": prompt,
-						"method": r.Method,
-						"model":  r.Model,
+						"step": step, "total": totalSteps,
+						"camera": cap.camera, "prompt": prompt,
+						"method": cap.method, "model": model,
 					})
 					writeEvent("result", map[string]any{
-						"camera":  camName,
-						"prompt":  prompt,
-						"model":   r.Model,
+						"camera": cap.camera, "prompt": prompt, "model": model,
 						"results": []BenchmarkResult{r},
 					})
-				},
-			)
-			_ = results // results are streamed via onResult callback
+				}
+			}
+			writeLog(fmt.Sprintf("  Model %s complete", model))
 		}
-		writeLog(fmt.Sprintf("Camera %s complete", camName))
 	}
 
 	elapsed := time.Since(startTime).Seconds()
@@ -537,137 +649,43 @@ func (h *Handlers) BenchmarkStream(c echo.Context) error {
 	return nil
 }
 
-// countMethods estimates how many capture methods are available for a camera.
-func countMethods(cam config.CameraConfig, hasGo2rtc, hasFrigate bool) int {
-	n := 0
-	if (cam.Type == "hikvision" || cam.Type == "reolink") && cam.IP != "" && cam.User != "" {
-		n += 2 // main + sub
-	}
-	streamName := cam.VisionStream
-	if streamName == "" && cam.Stream != "" {
-		streamName = cam.Stream
-	}
-	if streamName != "" && hasGo2rtc {
-		n += 2 // frame + ffmpeg
-	}
-	if hasFrigate {
-		n++ // frigate
-	}
-	if n == 0 {
-		n = 1 // at least something
-	}
-	return n
-}
-
-// runMatrixCamera runs all capture methods for a camera, and for each captured
-// frame, runs it through all models. Results are streamed via onResult callback.
-func (h *Handlers) runMatrixCamera(
+// captureAllMethods runs all available capture methods for a camera and returns
+// the captured images with timing/metadata. No vision is involved.
+func (h *Handlers) captureAllMethods(
 	camera string,
 	cam config.CameraConfig,
 	frigateURL, go2rtcURL string,
-	visionClient *vision.Client,
-	globalPrompt string,
-	withVision bool,
-	promptOverride string,
-	models []string,
-	onResult func(BenchmarkResult),
-) []BenchmarkResult {
-	resolvePrompt := func() string {
-		if promptOverride != "" {
-			return promptOverride
-		}
-		return resolveVisionPrompt("", cam.VisionPrompt != "", cam.VisionPrompt, globalPrompt)
-	}
+) []cachedCapture {
+	var captures []cachedCapture
 
-	var results []BenchmarkResult
-
-	// tryMethod captures once, then runs through all models
-	tryMethod := func(name string, fn func() ([]byte, error)) {
+	doCapture := func(name string, fn func() ([]byte, error)) {
 		start := time.Now()
 		data, err := fn()
-		snapSec := time.Since(start).Seconds()
-
-		if err != nil {
-			for _, model := range models {
-				r := BenchmarkResult{
-					Method:  name,
-					OK:      false,
-					SnapSec: snapSec,
-					Model:   model,
-					Error:   err.Error(),
-				}
-				results = append(results, r)
-				if onResult != nil {
-					onResult(r)
-				}
-			}
-			return
+		c := cachedCapture{
+			camera:  camera,
+			method:  name,
+			data:    data,
+			snapSec: time.Since(start).Seconds(),
+			bytes:   len(data),
+			err:     err,
 		}
-
-		w, h := decodeJPEGDimensions(data)
-		bytes := len(data)
-
-		if !withVision {
-			// No vision: one result per method (but still per model for consistency)
-			for _, model := range models {
-				r := BenchmarkResult{
-					Method:  name,
-					OK:      true,
-					SnapSec: snapSec,
-					Bytes:   bytes,
-					Width:   w,
-					Height:  h,
-					Model:   model,
-				}
-				results = append(results, r)
-				if onResult != nil {
-					onResult(r)
-				}
-			}
-			return
+		if err == nil && len(data) > 0 {
+			c.width, c.height = decodeJPEGDimensions(data)
 		}
-
-		// With vision: run through each model
-		for _, model := range models {
-			vStart := time.Now()
-			desc, vErr := visionClient.DescribeWithModel(data, "image/jpeg", resolvePrompt(), model)
-			r := BenchmarkResult{
-				Method:    name,
-				OK:        vErr == nil,
-				SnapSec:   snapSec,
-				VisionSec: time.Since(vStart).Seconds(),
-				TotalSec:  snapSec + time.Since(vStart).Seconds(),
-				Bytes:     bytes,
-				Width:     w,
-				Height:    h,
-				Model:     model,
-			}
-			if vErr != nil {
-				r.Error = fmt.Sprintf("vision failed: %s", vErr)
-			} else {
-				if len(desc) > 120 {
-					desc = desc[:120] + "…"
-				}
-				r.Preview = desc
-			}
-			results = append(results, r)
-			if onResult != nil {
-				onResult(r)
-			}
-		}
+		captures = append(captures, c)
 	}
 
-	// 1. Direct camera API
+	// 1. Direct camera API (ISAPI for Hikvision, HTTP API for Reolink)
 	if (cam.Type == "hikvision" || cam.Type == "reolink") && cam.IP != "" && cam.User != "" {
 		switch cam.Type {
 		case "hikvision":
 			hikCam := cameras.NewHikvisionClient(cam.IP, cam.User, cam.Pass, cam.Channel, camera)
-			tryMethod("isapi_main", func() ([]byte, error) { return hikCam.Snapshot("main") })
-			tryMethod("isapi_sub", func() ([]byte, error) { return hikCam.Snapshot("sub") })
+			doCapture("isapi_main", func() ([]byte, error) { return hikCam.Snapshot("main") })
+			doCapture("isapi_sub", func() ([]byte, error) { return hikCam.Snapshot("sub") })
 		case "reolink":
 			reoCam := cameras.NewReolinkClient(cam.IP, cam.User, cam.Pass)
-			tryMethod("reolink_main", func() ([]byte, error) { return reoCam.Snapshot("main") })
-			tryMethod("reolink_sub", func() ([]byte, error) { return reoCam.Snapshot("sub") })
+			doCapture("reolink_main", func() ([]byte, error) { return reoCam.Snapshot("main") })
+			doCapture("reolink_sub", func() ([]byte, error) { return reoCam.Snapshot("sub") })
 		}
 	}
 
@@ -677,7 +695,7 @@ func (h *Handlers) runMatrixCamera(
 		streamName = cam.Stream
 	}
 	if streamName != "" && go2rtcURL != "" {
-		tryMethod("go2rtc_frame", func() ([]byte, error) {
+		doCapture("go2rtc_frame", func() ([]byte, error) {
 			return grabFrameViaGo2rtcAPI(go2rtcURL, streamName, 10*time.Second)
 		})
 	}
@@ -688,14 +706,14 @@ func (h *Handlers) runMatrixCamera(
 		if width <= 0 {
 			width = 1280
 		}
-		tryMethod("go2rtc_ffmpeg", func() ([]byte, error) {
+		doCapture("go2rtc_ffmpeg", func() ([]byte, error) {
 			return grabFrameViaFFmpeg(go2rtcURL, streamName, width, 10*time.Second)
 		})
 	}
 
 	// 4. Frigate
 	if frigateURL != "" {
-		tryMethod("frigate", func() ([]byte, error) {
+		doCapture("frigate", func() ([]byte, error) {
 			snapURL := fmt.Sprintf("%s/api/%s/latest.jpg?h=720", frigateURL, camera)
 			resp, err := (&http.Client{Timeout: 30 * time.Second}).Get(snapURL)
 			if err != nil {
@@ -709,7 +727,7 @@ func (h *Handlers) runMatrixCamera(
 		})
 	}
 
-	return results
+	return captures
 }
 
 // fetchSnapshot grabs a JPEG frame for a camera, using the camera's configured
