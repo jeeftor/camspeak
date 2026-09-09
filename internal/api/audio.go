@@ -261,6 +261,12 @@ func (h *Handlers) playPreset(
 	// file is sent as-is; the GainController scales each 100ms chunk in real-time.
 	sendPath := preset.RawPath
 
+	// Apply per-preset gain on top of camera/request gain.
+	if preset.Gain > 0 && preset.Gain != 1.0 {
+		baseGain := h.effectiveGain(cameraName, gain)
+		gain = baseGain * preset.Gain
+	}
+
 	if loop != 0 {
 		// Looped presets use ffmpeg's adelay filter for prime silence, so we
 		// pass the original raw file. (Creating a temp file with prepended

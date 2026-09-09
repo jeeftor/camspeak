@@ -221,4 +221,13 @@ func migrate(db *sql.DB) {
 		urlCol == 0 {
 		_, _ = db.Exec(`ALTER TABLE presets ADD COLUMN url TEXT DEFAULT ''`)
 	}
+	// Add 'gain' column to presets if missing (added in v2.19.0).
+	// Per-preset gain multiplier (1.0 = no change). Applied at send time
+	// in addition to the camera's gain. Auto-calculated from RMS or
+	// manually adjusted from the library UI.
+	var presetGainCol int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('presets') WHERE name='gain'`).Scan(&presetGainCol); err == nil &&
+		presetGainCol == 0 {
+		_, _ = db.Exec(`ALTER TABLE presets ADD COLUMN gain REAL DEFAULT 1.0`)
+	}
 }

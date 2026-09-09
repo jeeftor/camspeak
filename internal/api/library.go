@@ -10,6 +10,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/jeeftor/camspeak/internal/library"
 	"github.com/jeeftor/camspeak/internal/util"
 )
 
@@ -366,5 +367,79 @@ func (h *Handlers) PresetPeaks(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{
 		"peaks":    peaks,
 		"duration": preset.Duration,
+	})
+}
+
+// PresetAnalyze handles GET /api/library/:category/:name/analyze — computes
+// the true RMS of the preset's raw audio and suggests a gain multiplier to
+// normalize it to a target RMS level. Non-destructive: does not modify the
+// preset or its gain setting.
+func (h *Handlers) PresetAnalyze(c echo.Context) error {
+	preset, err := h.store.Get(c.Param("category"), c.Param("name"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, err.Error())
+	}
+
+	if preset.IsStream() {
+		return echo.NewHTTPError(
+			http.StatusBadRequest,
+			"analysis not available for stream presets",
+		)
+	}
+
+	rms, err := library.ComputeRMS(preset.RawPath)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	// Target RMS: 0.3 (roughly -14dBFS). This is a comfortable listening
+	// level that avoids clipping for most content.
+	const targetRMS = 0.3
+
+	suggestedGain := 1.0
+	if rms > 0 {
+		suggestedGain = targetRMS / rms
+		// Clamp to reasonable bounds: 0.1x to 10x
+		if suggestedGain < 0.1 {
+			suggestedGain = 0.1
+		}
+		if suggestedGain > 10.0 {
+			suggestedGain = 10.0
+		}
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"rms":            rms,
+		"current_gain":   preset.Gain,
+		"suggested_gain": suggestedGain,
+		"target_rms":     targetRMS,
+	})
+}
+
+// PresetSetGain handles PUT /api/library/:category/:name/gain — sets the
+// per-preset gain multiplier. A gain of 1.0 means no change.
+func (h *Handlers) PresetSetGain(c echo.Context) error {
+	var req struct {
+		Gain float64 `json:"gain"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid request body")
+	}
+
+	if req.Gain < 0 || req.Gain > 20 {
+		return echo.NewHTTPError(http.StatusBadRequest, "gain must be between 0 and 20")
+	}
+
+	category := c.Param("category")
+	name := c.Param("name")
+
+	if err := h.store.SetGain(category, name, req.Gain); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"category": category,
+		"name":     name,
+		"gain":     req.Gain,
 	})
 }

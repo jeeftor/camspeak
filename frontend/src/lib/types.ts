@@ -99,10 +99,18 @@ export interface Preset {
   url?: string
   duration: number
   size: number
+  gain?: number
   created: string
   timings?: Timings
   ttfs_ms?: number
   total_ms?: number
+}
+
+export interface PresetAnalysis {
+  rms: number
+  current_gain: number
+  suggested_gain: number
+  target_rms: number
 }
 
 export interface AppConfig {

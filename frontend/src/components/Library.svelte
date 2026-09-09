@@ -1,6 +1,6 @@
 <script>
   import { onDestroy } from 'svelte'
-  import { Sparkles, Save, Upload, Play, Pause, X, Loader2, Pencil, ArrowUp, ArrowDown, Radio } from 'lucide-svelte'
+  import { Sparkles, Save, Upload, Play, Pause, X, Loader2, Pencil, ArrowUp, ArrowDown, Radio, Wand2, Gauge } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Select } from '$lib/components/ui/select'
@@ -58,6 +58,12 @@
   let streamURL = $state('')
   let streamBusy = $state(false)
   let streamStatus = $state('')
+
+  // Per-preset gain state
+  let gainBusyKey = $state('')       // which preset is being analyzed
+  let gainEditKey = $state('')       // which preset's gain slider is open
+  let gainEditValue = $state(1.0)     // slider value while editing
+  let gainAnalysis = $state(null)    // {rms, suggested_gain} from last analyze
 
   let grouped = $derived((() => {
     const groups = presets.reduce((acc, p) => {
@@ -283,6 +289,46 @@
     playingKey = key
   }
 
+  async function autoNormalize(p) {
+    const key = `${p.category}/${p.name}`
+    gainBusyKey = key
+    try {
+      const analysis = await apiClient.analyzePreset(p.category, p.name)
+      gainAnalysis = analysis
+      gainEditValue = analysis.suggested_gain
+      gainEditKey = key
+      await apiClient.setPresetGain(p.category, p.name, analysis.suggested_gain)
+      p.gain = analysis.suggested_gain
+      toast.success(`Normalized ${p.name}: gain ${analysis.suggested_gain.toFixed(2)}x (RMS ${(analysis.rms * 100).toFixed(0)}%)`)
+    } catch (e) {
+      toast.error(`Normalize failed: ${e.message}`)
+    } finally {
+      gainBusyKey = ''
+    }
+  }
+
+  async function saveGain(p) {
+    try {
+      await apiClient.setPresetGain(p.category, p.name, gainEditValue)
+      p.gain = gainEditValue
+      toast.success(`Gain set to ${gainEditValue.toFixed(2)}x for ${p.name}`)
+    } catch (e) {
+      toast.error(`Set gain failed: ${e.message}`)
+    }
+  }
+
+  function toggleGainEdit(p) {
+    const key = `${p.category}/${p.name}`
+    if (gainEditKey === key) {
+      gainEditKey = ''
+      gainAnalysis = null
+    } else {
+      gainEditValue = p.gain || 1.0
+      gainEditKey = key
+      gainAnalysis = null
+    }
+  }
+
   const libTabs = [
     { id: 'browse', label: 'Browse' },
     { id: 'generate', label: 'Generate TTS' },
@@ -347,10 +393,21 @@
                   <div class="flex shrink-0 gap-1">
                     {#if !isStream}
                       <span class="text-xs text-muted-foreground whitespace-nowrap self-center mr-1">{formatSeconds(p.duration)}</span>
+                      {#if p.gain && p.gain !== 1.0}
+                        <span class="text-xs text-amber-500 whitespace-nowrap self-center mr-1 font-mono">{p.gain.toFixed(2)}x</span>
+                      {/if}
                     {/if}
                     <Button variant="outline" size="icon" class="h-8 w-8" onclick={() => preview(p.category, p.name)} title="Preview" aria-label="Preview preset">
                       {#if playingKey === key}<Pause class="h-4 w-4" />{:else}<Play class="h-4 w-4" />{/if}
                     </Button>
+                    {#if !isStream}
+                      <Button variant="outline" size="icon" class="h-8 w-8" onclick={() => autoNormalize(p)} title="Auto-normalize gain" aria-label="Auto-normalize gain" disabled={gainBusyKey === key}>
+                        {#if gainBusyKey === key}<Loader2 class="h-4 w-4 animate-spin" />{:else}<Wand2 class="h-4 w-4" />{/if}
+                      </Button>
+                      <Button variant={gainEditKey === key ? 'default' : 'outline'} size="icon" class="h-8 w-8" onclick={() => toggleGainEdit(p)} title="Adjust gain" aria-label="Adjust gain">
+                        <Gauge class="h-4 w-4" />
+                      </Button>
+                    {/if}
                     <Button variant="outline" size="icon" class="h-8 w-8" onclick={() => startRename(p)} title="Rename" aria-label="Rename preset">
                       <Pencil class="h-4 w-4" />
                     </Button>
@@ -362,6 +419,22 @@
                 {#if !isStream}
                   <div class="mt-1.5">
                     <MiniWaveform category={p.category} name={p.name} duration={p.duration} />
+                  </div>
+                {/if}
+                {#if gainEditKey === key}
+                  <div class="mt-2 flex items-center gap-3 border-t pt-2">
+                    <span class="text-xs text-muted-foreground whitespace-nowrap">Gain</span>
+                    <input
+                      type="range"
+                      min="0.1"
+                      max="5"
+                      step="0.05"
+                      bind:value={gainEditValue}
+                      class="flex-1 accent-amber-500"
+                    />
+                    <span class="text-xs font-mono w-12 text-right">{gainEditValue.toFixed(2)}x</span>
+                    <Button size="sm" class="h-7" onclick={() => saveGain(p)}>Set</Button>
+                    <Button size="sm" variant="ghost" class="h-7" onclick={() => { gainEditKey = ''; gainAnalysis = null }}>Close</Button>
                   </div>
                 {/if}
                 {#if editingKey === key}

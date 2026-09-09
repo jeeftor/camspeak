@@ -163,6 +163,8 @@ func New(
 	api.PATCH("/library/:category/:name", h.RenamePreset)
 	api.GET("/library/:category/:name/preview", h.PreviewPreset)
 	api.GET("/library/:category/:name/peaks", h.PresetPeaks)
+	api.GET("/library/:category/:name/analyze", h.PresetAnalyze)
+	api.PUT("/library/:category/:name/gain", h.PresetSetGain)
 	api.GET("/events", h.Events)
 	api.GET("/events/log", h.EventLog)
 	api.GET("/stream-levels", h.StreamLevels)

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/jeeftor/camspeak/internal/db"
 	"github.com/jeeftor/camspeak/internal/logging"
+	"github.com/jeeftor/camspeak/internal/util"
 )
 
 // Meta holds metadata for a preset alongside its .raw file.
@@ -30,6 +32,7 @@ type Meta struct {
 	URL      string    `json:"url,omitempty"` // live stream URL (stream presets only)
 	Duration float64   `json:"duration"`      // seconds
 	Size     int64     `json:"size"`          // bytes
+	Gain     float64   `json:"gain"`          // per-preset gain multiplier (1.0 = no change)
 	Created  time.Time `json:"created"`
 }
 
@@ -208,18 +211,19 @@ func (s *Store) saveMeta(category, name, text, voice, rawFile string) (*Preset, 
 		Voice:    voice,
 		Duration: duration,
 		Size:     size,
+		Gain:     1.0,
 		Created:  time.Now(),
 	}
 
 	_, err = s.db.Exec(
-		`INSERT INTO presets (name, category, text, voice, url, duration, size, raw_path, created)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO presets (name, category, text, voice, url, duration, size, raw_path, gain, created)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(category, name) DO UPDATE SET
 		   text=excluded.text, voice=excluded.voice, url=excluded.url,
 		   duration=excluded.duration, size=excluded.size,
-		   raw_path=excluded.raw_path, created=excluded.created`,
+		   raw_path=excluded.raw_path, gain=excluded.gain, created=excluded.created`,
 		meta.Name, meta.Category, meta.Text, meta.Voice, "",
-		meta.Duration, meta.Size, rawFile, meta.Created,
+		meta.Duration, meta.Size, rawFile, meta.Gain, meta.Created,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("saving metadata: %w", err)
@@ -233,11 +237,11 @@ func (s *Store) Get(category, name string) (*Preset, error) {
 	var p Preset
 
 	err := s.db.QueryRow(
-		`SELECT name, category, text, voice, url, duration, size, raw_path, created
+		`SELECT name, category, text, voice, url, duration, size, raw_path, gain, created
 		 FROM presets WHERE category = ? AND name = ?`,
 		category, name,
 	).Scan(&p.Name, &p.Category, &p.Text, &p.Voice, &p.URL,
-		&p.Duration, &p.Size, &p.RawPath, &p.Created)
+		&p.Duration, &p.Size, &p.RawPath, &p.Gain, &p.Created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("preset %s/%s not found", category, name)
 	}
@@ -254,11 +258,11 @@ func (s *Store) GetByName(name string) (*Preset, error) {
 	var p Preset
 
 	err := s.db.QueryRow(
-		`SELECT name, category, text, voice, url, duration, size, raw_path, created
+		`SELECT name, category, text, voice, url, duration, size, raw_path, gain, created
 		 FROM presets WHERE name = ? LIMIT 1`,
 		name,
 	).Scan(&p.Name, &p.Category, &p.Text, &p.Voice, &p.URL,
-		&p.Duration, &p.Size, &p.RawPath, &p.Created)
+		&p.Duration, &p.Size, &p.RawPath, &p.Gain, &p.Created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("preset %q not found", name)
 	}
@@ -273,7 +277,7 @@ func (s *Store) GetByName(name string) (*Preset, error) {
 // List returns all presets in the library.
 func (s *Store) List() ([]Preset, error) {
 	rows, err := s.db.Query(
-		`SELECT name, category, text, voice, url, duration, size, raw_path, created
+		`SELECT name, category, text, voice, url, duration, size, raw_path, gain, created
 		 FROM presets ORDER BY category, name`,
 	)
 	if err != nil {
@@ -286,7 +290,7 @@ func (s *Store) List() ([]Preset, error) {
 	for rows.Next() {
 		var p Preset
 		err := rows.Scan(&p.Name, &p.Category, &p.Text, &p.Voice, &p.URL,
-			&p.Duration, &p.Size, &p.RawPath, &p.Created)
+			&p.Duration, &p.Size, &p.RawPath, &p.Gain, &p.Created)
 		if err != nil {
 			return nil, fmt.Errorf("scanning preset row: %w", err)
 		}
@@ -386,6 +390,44 @@ func (s *Store) Rename(oldCategory, oldName, newCategory, newName string) (*Pres
 // GetRawPath returns the path to the raw file for streaming.
 func (p *Preset) GetRawPath() string {
 	return p.RawPath
+}
+
+// SetGain updates the per-preset gain multiplier in the database.
+func (s *Store) SetGain(category, name string, gain float64) error {
+	_, err := s.db.Exec(
+		`UPDATE presets SET gain = ? WHERE category = ? AND name = ?`,
+		gain, category, name,
+	)
+	if err != nil {
+		return fmt.Errorf("updating preset gain: %w", err)
+	}
+	return nil
+}
+
+// ComputeRMS reads the raw G.711 µ-law file and returns the true RMS of
+// all decoded samples, normalized to 0.0-1.0 (relative to max µ-law value).
+func ComputeRMS(rawPath string) (float64, error) {
+	rawBytes, err := os.ReadFile(rawPath)
+	if err != nil {
+		return 0, fmt.Errorf("reading raw file: %w", err)
+	}
+	if len(rawBytes) == 0 {
+		return 0, nil
+	}
+
+	var sumSq float64
+	for _, b := range rawBytes {
+		pcm := float64(util.MulawDecode(b))
+		sumSq += pcm * pcm
+	}
+
+	rms := math.Sqrt(sumSq / float64(len(rawBytes)))
+	// Normalize to 0.0-1.0 (max µ-law value is 32124)
+	normalized := rms / 32124.0
+	if normalized > 1.0 {
+		normalized = 1.0
+	}
+	return normalized, nil
 }
 
 // IsStream returns true if this preset is a live stream URL rather than a

@@ -18,6 +18,7 @@ import type {
   PlayReq,
   PlayResponse,
   Preset,
+  PresetAnalysis,
   Rule,
   SaveCameraReq,
   SavePresetResponse,
@@ -222,6 +223,14 @@ export const apiClient = {
     api(`/api/library/${encodeURIComponent(oldCategory)}/${encodeURIComponent(oldName)}`, {
       method: 'PATCH',
       body: JSON.stringify(req),
+    }),
+  analyzePreset: (category: string, name: string) =>
+    api<PresetAnalysis>(`/api/library/${encodeURIComponent(category)}/${encodeURIComponent(name)}/analyze`),
+  setPresetGain: (category: string, name: string, gain: number) =>
+    api(`/api/library/${encodeURIComponent(category)}/${encodeURIComponent(name)}/gain`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gain }),
     }),
   ttsPreview: (req: { text: string; voice: string }) =>
     apiRaw('/api/tts/preview', {
