@@ -5,6 +5,7 @@ import type {
   AppConfig,
   Camera,
   CameraInfo,
+  AnnounceResponse,
   DescribeResponse,
   DetectCameraResponse,
   DiscoverResponse,
@@ -252,6 +253,8 @@ export const apiClient = {
     api<{ status: string; streams: StreamInfo[] }>('/api/streams'),
   describe: (req: { camera: string; prompt?: string; gain?: number }) =>
     api<DescribeResponse>('/api/describe', { method: 'POST', body: JSON.stringify(req) }),
+  announce: (req: { source_camera: string; target_camera: string; prompt?: string; voice?: string; gain?: number }) =>
+    api<AnnounceResponse>('/api/announce', { method: 'POST', body: JSON.stringify(req) }),
   visionTest: (fd: FormData) =>
     apiRaw('/api/vision/test', { method: 'POST', body: fd }),
   visionTestJSON: (req: { image?: string; camera?: string; stream?: string; prompt: string; model?: string }) =>

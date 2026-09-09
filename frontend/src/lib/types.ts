@@ -90,6 +90,8 @@ export interface Rule {
   voice: string
   loop: number
   enabled: boolean
+  source_camera?: string
+  prompt?: string
 }
 
 export interface Preset {
@@ -317,6 +319,17 @@ export interface PlayResponse {
 export interface DescribeResponse {
   status?: string
   description?: string
+  image?: string
+  timings?: Timings
+  ttfs_ms?: number
+  total_ms?: number
+}
+
+export interface AnnounceResponse {
+  status?: string
+  description?: string
+  source_camera?: string
+  target_camera?: string
   image?: string
   timings?: Timings
   ttfs_ms?: number

@@ -205,4 +205,10 @@ func migrate(db *sql.DB) {
 	// Add 'snap_method' column to cameras if missing (added in v2.19.5).
 	// Preferred snapshot method: "auto", "isapi", "go2rtc", "frigate".
 	addColumn("cameras", "snap_method", "TEXT DEFAULT ''")
+	// Add 'source_camera' and 'prompt' columns to rules if missing
+	// (added in v2.19.18). When source_camera is set, the rule is an
+	// "announce" rule: capture from source_camera → vision → TTS → play
+	// on the rule's cameras (target speakers).
+	addColumn("rules", "source_camera", "TEXT DEFAULT ''")
+	addColumn("rules", "prompt", "TEXT DEFAULT ''")
 }

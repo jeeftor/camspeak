@@ -126,6 +126,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Wire MQTT → API handlers
 	mqttSub := mqtt.New(cfg.MQTT, cfg.Rules, srv.Handlers().SpeakForMQTT)
+	mqttSub.SetAnnounceFunc(srv.Handlers().AnnounceForMQTT)
 	mqttSub.SetMessageHook(srv.Handlers().HandleMQTTMessage)
 	srv.Handlers().SetMQTT(cfg.MQTT.Broker, mqttSub.Status)
 	srv.Handlers().SetMQTTSubscribeFn(mqttSub.SubscribeTopic)

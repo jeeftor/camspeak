@@ -11,6 +11,7 @@
   import VisionTest from './VisionTest.svelte'
   import CaptureBenchmark from './CaptureBenchmark.svelte'
   import Benchmark from './Benchmark.svelte'
+  import Announce from './Announce.svelte'
   import { toast } from '$lib/components/ui/toast'
   import { apiClient } from '$lib/api'
   import { isVisionCapableModel } from '$lib/models'
@@ -609,6 +610,7 @@
     { id: 'frigate', label: 'Frigate / MQTT' },
     { id: 'vision', label: 'Vision' },
     { id: 'vision-test', label: 'Playground' },
+    { id: 'announce', label: 'Announce' },
     { id: 'capture-bench', label: 'Capture Benchmark' },
     { id: 'benchmark', label: 'Full Matrix' },
     { id: 'overview', label: 'Overview' },
@@ -1068,7 +1070,7 @@
 
     <!-- Frigate / MQTT -->
     {:else if tab === 'frigate'}
-      <Frigate />
+      <Frigate cameras={cameras} />
 
     <!-- Vision -->
     {:else if tab === 'vision'}
@@ -1143,6 +1145,10 @@
     <!-- Vision Test -->
     {:else if tab === 'vision-test'}
       <VisionTest cameras={cameras} globalPrompt={visionPrompt} onSavePrompt={async (p) => { visionPrompt = p; await saveVision(); }} />
+
+    <!-- Announce -->
+    {:else if tab === 'announce'}
+      <Announce cameras={cameras} />
 
     <!-- Capture Benchmark -->
     {:else if tab === 'capture-bench'}

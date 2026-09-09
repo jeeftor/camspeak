@@ -36,9 +36,9 @@ func (h *Handlers) CreateRule(c echo.Context) error {
 		enabled = 0
 	}
 	result, err := h.db.Exec(
-		`INSERT INTO rules (topic, filter, cameras, preset, text, voice, loop, enabled)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.Topic, string(filterJSON), camerasCSV, r.Preset, r.Text, r.Voice, r.Loop, enabled,
+		`INSERT INTO rules (topic, filter, cameras, preset, text, voice, loop, enabled, source_camera, prompt)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.Topic, string(filterJSON), camerasCSV, r.Preset, r.Text, r.Voice, r.Loop, enabled, r.SourceCamera, r.Prompt,
 	)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -420,9 +422,201 @@ func (h *Handlers) Describe(c echo.Context) error {
 	})
 }
 
-// isVisionCapableModel returns true if the model ID matches known vision/multimodal
-// naming patterns. This is used to skip audio, image-gen, embedding, and plain-LLM
-// models when running "Test All Models".
+// Announce handles POST /api/announce — captures a snapshot from a source
+// camera, runs vision to generate a description, then TTS-plays that
+// description on a target camera's speaker. This enables cross-camera
+// scenarios like "capture from doorbell, announce on frontyard speaker".
+func (h *Handlers) Announce(c echo.Context) error {
+	log := h.logger(c)
+
+	var req struct {
+		SourceCamera string  `json:"source_camera"`
+		TargetCamera string  `json:"target_camera"`
+		Stream       string  `json:"stream"`
+		Prompt       string  `json:"prompt"`
+		Voice        string  `json:"voice"`
+		Gain         float64 `json:"gain"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid JSON body")
+	}
+	if req.SourceCamera == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "source_camera required")
+	}
+	if req.TargetCamera == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "target_camera required")
+	}
+
+	h.cfgMu.Lock()
+	frigateURL := h.cfg.FrigateURL
+	globalPrompt := h.cfg.Vision.Prompt
+	srcCfg, srcOk := h.cfg.Cameras[req.SourceCamera]
+	defaultVoice := h.cfg.TTS.DefaultVoice
+	h.cfgMu.Unlock()
+
+	if h.vision == nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "vision model not configured")
+	}
+
+	start := time.Now()
+	t := NewStepTimings(4)
+	log.Info("announce: request", "source", req.SourceCamera, "target", req.TargetCamera)
+
+	// 1. Capture snapshot from source camera
+	snapStart := time.Now()
+	imageBytes, err := h.fetchSnapshot(c.Request().Context(), req.SourceCamera, srcCfg, frigateURL, req.Stream)
+	if err != nil {
+		log.Error("announce: snapshot failed", "source", req.SourceCamera, "err", err)
+		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("snapshot: %s", err))
+	}
+	t.Add("snap_ms", snapStart)
+	log.Debug("announce: snapshot fetched", "source", req.SourceCamera, "bytes", len(imageBytes))
+
+	// 2. Run vision model
+	prompt := resolveVisionPrompt(req.Prompt, srcOk, srcCfg.VisionPrompt, globalPrompt)
+	visionStart := time.Now()
+	description, err := h.vision.Describe(imageBytes, "image/jpeg", prompt)
+	if err != nil {
+		log.Error("announce: vision failed", "source", req.SourceCamera, "err", err)
+		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("vision: %s", err))
+	}
+	t.Add("vision_ms", visionStart)
+	log.Info("announce: vision result", "source", req.SourceCamera, "text", description)
+
+	// 3. TTS
+	voice := req.Voice
+	if voice == "" {
+		voice = defaultVoice
+	}
+	ttsStart := time.Now()
+	wav, err := h.tts.Speak(description, voice)
+	if err != nil {
+		log.Error("announce: TTS failed", "err", err)
+		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("TTS: %s", err))
+	}
+	t.Add("tts_ms", ttsStart)
+
+	// 4. Transcode + send to target camera
+	transcodeStart := time.Now()
+	rawPath, err := wavBytesToRawWithPrime(wav, h.tmpDir, 1.0, h.cfg.PrimeSilenceMs)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("transcoding: %s", err))
+	}
+	t.Add("transcode_ms", transcodeStart)
+	defer os.Remove(rawPath)
+
+	cam, err := h.reg.Get(req.TargetCamera)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, fmt.Sprintf("target camera: %s", err))
+	}
+
+	setPlayback(req.TargetCamera, "announce", description)
+	sendTiming, err := cam.SendRaw(rawPath, h.gainForCall(req.TargetCamera, req.Gain))
+	if err != nil {
+		clearPlayback(req.TargetCamera)
+		log.Error("announce: send failed", "target", req.TargetCamera, "err", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	t.steps["send_open_ms"] = time.Duration(sendTiming.OpenMs) * time.Millisecond
+	t.steps["send_playback_ms"] = time.Duration(sendTiming.PlaybackMs) * time.Millisecond
+
+	log.Info("announce: done", "source", req.SourceCamera, "target", req.TargetCamera, "elapsed", time.Since(start))
+	h.events.publish(event{
+		Camera: req.TargetCamera, Action: "announce", Text: description, At: time.Now(),
+	})
+	clearPlayback(req.TargetCamera)
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"status":        "ok",
+		"description":   description,
+		"source_camera": req.SourceCamera,
+		"target_camera": req.TargetCamera,
+		"image":         "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(imageBytes),
+		"timings":       t.Ms(),
+		"ttfs_ms":       t.TTFS(),
+		"total_ms":      TotalMs(start),
+	})
+}
+
+// AnnounceForMQTT is called by the MQTT subscriber when an announce rule
+// matches. It captures from the rule's SourceCamera and plays the description
+// on each of the rule's Cameras (target speakers) in parallel.
+func (h *Handlers) AnnounceForMQTT(sourceCamera string, targets []string, prompt, voice string) {
+	if sourceCamera == "" || len(targets) == 0 {
+		return
+	}
+
+	h.cfgMu.Lock()
+	frigateURL := h.cfg.FrigateURL
+	globalPrompt := h.cfg.Vision.Prompt
+	srcCfg, srcOk := h.cfg.Cameras[sourceCamera]
+	defaultVoice := h.cfg.TTS.DefaultVoice
+	h.cfgMu.Unlock()
+
+	if h.vision == nil {
+		h.log.Warn("announce: vision not configured", "source", sourceCamera)
+		return
+	}
+
+	// 1. Capture from source
+	imageBytes, err := h.fetchSnapshot(context.Background(), sourceCamera, srcCfg, frigateURL, "")
+	if err != nil {
+		h.log.Error("announce: snapshot failed", "source", sourceCamera, "err", err)
+		return
+	}
+
+	// 2. Vision
+	resolvedPrompt := resolveVisionPrompt(prompt, srcOk, srcCfg.VisionPrompt, globalPrompt)
+	description, err := h.vision.Describe(imageBytes, "image/jpeg", resolvedPrompt)
+	if err != nil {
+		h.log.Error("announce: vision failed", "source", sourceCamera, "err", err)
+		return
+	}
+	h.log.Info("announce: vision result", "source", sourceCamera, "text", description)
+
+	// 3. TTS
+	v := voice
+	if v == "" {
+		v = defaultVoice
+	}
+	wav, err := h.tts.Speak(description, v)
+	if err != nil {
+		h.log.Error("announce: TTS failed", "err", err)
+		return
+	}
+
+	// 4. Transcode once, send to all targets in parallel
+	rawPath, err := wavBytesToRawWithPrime(wav, h.tmpDir, 1.0, h.cfg.PrimeSilenceMs)
+	if err != nil {
+		h.log.Error("announce: transcode failed", "err", err)
+		return
+	}
+	defer os.Remove(rawPath)
+
+	var wg sync.WaitGroup
+	for _, target := range targets {
+		wg.Add(1)
+		go func(t string) {
+			defer wg.Done()
+			cam, err := h.reg.Get(t)
+			if err != nil {
+				h.log.Error("announce: target not found", "target", t, "err", err)
+				return
+			}
+			setPlayback(t, "announce", description)
+			_, err = cam.SendRaw(rawPath, h.reg.GetGain(t))
+			if err != nil {
+				h.log.Error("announce: send failed", "target", t, "err", err)
+			} else {
+				h.events.publish(event{
+					Camera: t, Action: "announce", Text: description, At: time.Now(),
+				})
+			}
+			clearPlayback(t)
+		}(target)
+	}
+	wg.Wait()
+}
 func isVisionCapableModel(id string) bool {
 	lower := strings.ToLower(id)
 	// Substring keywords that unambiguously indicate vision capability.

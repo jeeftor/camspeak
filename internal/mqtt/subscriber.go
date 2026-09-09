@@ -13,8 +13,12 @@ import (
 	"github.com/jeeftor/camspeak/internal/logging"
 )
 
-// SpeakFunc is called when a rule matches. It handles TTS or preset playback.
+// SpeakFunc is called when a standard rule matches. It handles TTS or preset playback.
 type SpeakFunc func(cameras []string, text, preset, voice string, loop int)
+
+// AnnounceFunc is called when an announce rule matches. It captures from
+// sourceCamera, runs vision, and TTS-plays the description on the target cameras.
+type AnnounceFunc func(sourceCamera string, targets []string, prompt, voice string)
 
 // MsgHook is called for every received MQTT message before rule matching.
 type MsgHook func(topic string, payload []byte)
@@ -29,12 +33,13 @@ func SetLogLevel(level clog.Level) {
 
 // Subscriber listens to MQTT and triggers SpeakFunc on rule matches.
 type Subscriber struct {
-	cfg     config.MQTTConfig
-	rules   []config.Rule
-	speak   SpeakFunc
-	msgHook MsgHook
-	client  paho.Client
-	log     *clog.Logger
+	cfg      config.MQTTConfig
+	rules    []config.Rule
+	speak    SpeakFunc
+	announce AnnounceFunc
+	msgHook  MsgHook
+	client   paho.Client
+	log      *clog.Logger
 }
 
 // New creates a Subscriber. Call Start() to connect.
@@ -46,6 +51,9 @@ func New(cfg config.MQTTConfig, rules []config.Rule, fn SpeakFunc) *Subscriber {
 		log:   logging.New("mqtt", LogLevel),
 	}
 }
+
+// SetAnnounceFunc registers the announce handler for announce rules.
+func (s *Subscriber) SetAnnounceFunc(fn AnnounceFunc) { s.announce = fn }
 
 // Start connects to the MQTT broker and subscribes to all rule topics.
 func (s *Subscriber) Start() error {
@@ -147,8 +155,15 @@ func (s *Subscriber) handleMessage(_ paho.Client, msg paho.Message) {
 			continue
 		}
 
-		s.log.Info("rule matched", "topic", msg.Topic(), "cameras", rule.Cameras, "loop", rule.Loop)
-		s.speak(rule.Cameras, rule.Text, rule.Preset, rule.Voice, rule.Loop)
+		if rule.SourceCamera != "" {
+			s.log.Info("announce rule matched", "topic", msg.Topic(), "source", rule.SourceCamera, "targets", rule.Cameras)
+			if s.announce != nil {
+				s.announce(rule.SourceCamera, rule.Cameras, rule.Prompt, rule.Voice)
+			}
+		} else {
+			s.log.Info("rule matched", "topic", msg.Topic(), "cameras", rule.Cameras, "loop", rule.Loop)
+			s.speak(rule.Cameras, rule.Text, rule.Preset, rule.Voice, rule.Loop)
+		}
 	}
 }
 

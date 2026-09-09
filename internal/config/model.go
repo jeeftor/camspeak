@@ -84,16 +84,24 @@ func (c MQTTConfig) Sanitized() MQTTConfig {
 }
 
 // Rule defines an MQTT-triggered auto-speak rule.
+//
+// When SourceCamera is set, the rule is an "announce" rule: it captures a
+// snapshot from SourceCamera, runs vision to generate a description, then
+// TTS-plays that description on the Cameras (target speakers). When
+// SourceCamera is empty, the rule is a standard speak/play rule (text or
+// preset to Cameras).
 type Rule struct {
-	ID      int               `json:"id"`
-	Topic   string            `json:"topic"`
-	Filter  map[string]string `json:"filter"`
-	Cameras []string          `json:"cameras"`
-	Preset  string            `json:"preset"`
-	Text    string            `json:"text"`
-	Voice   string            `json:"voice"`
-	Loop    int               `json:"loop"`
-	Enabled bool              `json:"enabled"`
+	ID           int               `json:"id"`
+	Topic        string            `json:"topic"`
+	Filter       map[string]string `json:"filter"`
+	Cameras      []string          `json:"cameras"`
+	Preset       string            `json:"preset"`
+	Text         string            `json:"text"`
+	Voice        string            `json:"voice"`
+	Loop         int               `json:"loop"`
+	Enabled      bool              `json:"enabled"`
+	SourceCamera string            `json:"source_camera,omitempty"`
+	Prompt       string            `json:"prompt,omitempty"`
 }
 
 // TTSPreset is a named TTS endpoint configuration (klipbord-style).

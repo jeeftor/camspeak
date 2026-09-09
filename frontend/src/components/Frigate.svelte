@@ -7,6 +7,8 @@
   import JsonCode from '$lib/components/JsonCode.svelte'
   import { apiClient } from '$lib/api'
 
+  let { cameras = [] } = $props()
+
   let rules = $state([])
   let voices = $state([])
   let loading = $state(true)
@@ -39,6 +41,8 @@
   let ruleVoice = $state('')
   let ruleEnabled = $state(true)
   let ruleLoop = $state(0)
+  let ruleSourceCamera = $state('')
+  let rulePrompt = $state('')
   let ruleStatus = $state('')
   let formOpen = $state(false)
 
@@ -320,6 +324,8 @@
         voice: ruleVoice,
         enabled: ruleEnabled,
         loop: ruleLoop,
+        source_camera: ruleSourceCamera || undefined,
+        prompt: rulePrompt || undefined,
       })
       ruleStatus = '✓ Saved'
       ruleTopic = 'frigate/events'; ruleFilter = ''; ruleCameras = ''
@@ -345,7 +351,13 @@
     }
     testStatus = { ...testStatus, ['rule_' + rule.id]: 'speaking...' }
     try {
-      if (rule.preset) {
+      if (rule.source_camera) {
+        await apiClient.announce({
+          source_camera: rule.source_camera,
+          target_camera: rule.cameras[0],
+          prompt: rule.prompt || undefined,
+        })
+      } else if (rule.preset) {
         await apiClient.play({ preset: rule.preset, camera: rule.cameras[0], gain: 3 })
       } else {
         await apiClient.speak({ text: rule.text || 'Test announcement', voice: rule.voice ?? '', camera: rule.cameras[0], gain: 3 })
@@ -550,10 +562,15 @@
             <div class="flex min-w-0 flex-1 flex-col gap-1">
               <code class="text-sm font-mono text-primary">{r.topic}</code>
               <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-                {#if r.cameras?.length}<span>→ {r.cameras.join(', ')}</span>{/if}
-                {#if r.preset}<span>preset: <span class="text-foreground/80">{r.preset}</span>{#if r.loop !== 0} <span class="text-primary">↻ {r.loop === -1 ? '∞' : `${r.loop + 1}x`}</span>{/if}</span>{/if}
-                {#if r.text}<span>says: <span class="italic text-foreground/80">"{r.text}"</span></span>{/if}
-                {#if r.voice}<span>voice: {r.voice}</span>{/if}
+                {#if r.source_camera}
+                  <span class="text-primary font-medium">announce: {r.source_camera} → {r.cameras?.join(', ')}</span>
+                  {#if r.prompt}<span>prompt: <span class="italic text-foreground/80">"{r.prompt}"</span></span>{/if}
+                {:else}
+                  {#if r.cameras?.length}<span>→ {r.cameras.join(', ')}</span>{/if}
+                  {#if r.preset}<span>preset: <span class="text-foreground/80">{r.preset}</span>{#if r.loop !== 0} <span class="text-primary">↻ {r.loop === -1 ? '∞' : `${r.loop + 1}x`}</span>{/if}</span>{/if}
+                  {#if r.text}<span>says: <span class="italic text-foreground/80">"{r.text}"</span></span>{/if}
+                  {#if r.voice}<span>voice: {r.voice}</span>{/if}
+                {/if}
                 {#if Object.keys(r.filter ?? {}).length}
                   <span>filter: <code class="bg-muted px-1 rounded">{JSON.stringify(r.filter)}</code></span>
                 {/if}
@@ -637,6 +654,35 @@
               {#each voices as v}<option>{v}</option>{/each}
             </Select>
           </label>
+        </div>
+
+        <!-- Announce rule fields (optional) -->
+        <div class="rounded-md border border-dashed p-3 flex flex-col gap-2">
+          <span class="text-xs font-semibold text-muted-foreground">
+            Announce (optional — capture from another camera, describe, play here)
+          </span>
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+              Source camera (capture + vision)
+              <select bind:value={ruleSourceCamera}
+                class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm">
+                <option value="">— none (standard rule) —</option>
+                {#each cameras as cam}
+                  <option value={cam.name}>{cam.name}</option>
+                {/each}
+              </select>
+            </label>
+            <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+              Prompt (optional)
+              <Input bind:value={rulePrompt} placeholder="Describe who is at the door" />
+            </label>
+          </div>
+          {#if ruleSourceCamera}
+            <span class="text-[11px] text-primary">
+              Announce mode: captures from {ruleSourceCamera} → vision → TTS → plays on the cameras above.
+              Text/preset fields are ignored.
+            </span>
+          {/if}
         </div>
 
         <!-- Filter quick-apply buttons -->
