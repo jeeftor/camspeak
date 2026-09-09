@@ -141,8 +141,44 @@ type BenchmarkResult struct {
 	VisionSec float64 `json:"vision_sec,omitempty"`
 	TotalSec  float64 `json:"total_sec,omitempty"`
 	Bytes     int     `json:"bytes"`
+	Width     int     `json:"width,omitempty"`
+	Height    int     `json:"height,omitempty"`
 	Preview   string  `json:"preview,omitempty"`
 	Error     string  `json:"error,omitempty"`
+}
+
+// decodeJPEGDimensions reads the SOF0/SOF2 marker from a JPEG to extract
+// width and height without fully decoding the image. This is called AFTER
+// timing is complete so it doesn't affect snap_sec or vision_sec.
+func decodeJPEGDimensions(data []byte) (w, h int) {
+	if len(data) < 4 || data[0] != 0xFF || data[1] != 0xD8 {
+		return 0, 0
+	}
+	// Scan markers starting at offset 2
+	i := 2
+	for i < len(data)-1 {
+		if data[i] != 0xFF {
+			i++
+			continue
+		}
+		marker := data[i+1]
+		// SOF0 (0xC0) through SOF15 (0xCF), excluding SOF4-SOF7 and SOF8-SOF11
+		if marker >= 0xC0 && marker <= 0xCF && marker != 0xC4 && marker != 0xC8 && marker != 0xCC {
+			if i+9 < len(data) {
+				h = int(data[i+5])<<8 | int(data[i+6])
+				w = int(data[i+7])<<8 | int(data[i+8])
+				return w, h
+			}
+		}
+		// Skip this marker's payload
+		if i+3 < len(data) {
+			segLen := int(data[i+2])<<8 | int(data[i+3])
+			i += 2 + segLen
+		} else {
+			break
+		}
+	}
+	return 0, 0
 }
 
 // runCameraBenchmark runs all available snapshot methods for a single camera
@@ -221,6 +257,8 @@ func (h *Handlers) runCameraBenchmark(
 				r.Preview = desc
 			}
 		}
+		// Decode JPEG dimensions AFTER timing so it doesn't affect measurements.
+		r.Width, r.Height = decodeJPEGDimensions(data)
 		results = append(results, r)
 		if onResult != nil {
 			onResult(r)

@@ -118,8 +118,14 @@
   }
 
   function fmtBytes(b: number): string {
+    if (b > 1024 * 1024) return `${(b / 1024 / 1024).toFixed(1)}MB`
     if (b > 1024) return `${(b / 1024).toFixed(0)}KB`
     return `${b}B`
+  }
+
+  function fmtRes(r: SnapshotBenchmarkResult): string {
+    if (!r.width || !r.height) return '—'
+    return `${r.width}×${r.height}`
   }
 
   // Find the fastest total time per camera+prompt
@@ -300,6 +306,7 @@
                       <th class="text-right py-1 pr-4">Vision</th>
                       <th class="text-right py-1 pr-4">Total</th>
                     {/if}
+                    <th class="text-right py-1 pr-4">Resolution</th>
                     <th class="text-right py-1 pr-4">Size</th>
                     <th class="text-left py-1">Status</th>
                   </tr>
@@ -321,6 +328,9 @@
                         </td>
                       {/if}
                       <td class="py-1.5 pr-4 text-right font-mono text-xs text-muted-foreground">
+                        {r.ok ? fmtRes(r) : '—'}
+                      </td>
+                      <td class="py-1.5 pr-4 text-right font-mono text-xs text-muted-foreground">
                         {r.ok ? fmtBytes(r.bytes) : '—'}
                       </td>
                       <td class="py-1.5 text-xs {r.ok ? 'text-green-600' : 'text-destructive'}">
@@ -329,7 +339,7 @@
                     </tr>
                     {#if withVision && r.ok && r.preview}
                       <tr class="border-b last:border-0">
-                        <td colspan={withVision ? 6 : 4} class="py-1 pr-4 text-xs text-muted-foreground italic">
+                        <td colspan={withVision ? 7 : 5} class="py-1 pr-4 text-xs text-muted-foreground italic">
                           {r.preview}
                         </td>
                       </tr>

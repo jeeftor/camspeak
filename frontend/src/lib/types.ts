@@ -338,6 +338,8 @@ export interface SnapshotBenchmarkResult {
   vision_sec?: number
   total_sec?: number
   bytes: number
+  width?: number
+  height?: number
   preview?: string
   error?: string
 }

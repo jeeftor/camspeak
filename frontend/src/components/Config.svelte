@@ -9,6 +9,7 @@
   import Modal from '$lib/components/Modal.svelte'
   import Frigate from './Frigate.svelte'
   import VisionTest from './VisionTest.svelte'
+  import CaptureBenchmark from './CaptureBenchmark.svelte'
   import Benchmark from './Benchmark.svelte'
   import { toast } from '$lib/components/ui/toast'
   import { apiClient } from '$lib/api'
@@ -620,8 +621,9 @@
     { id: 'cameras', label: 'Cameras' },
     { id: 'frigate', label: 'Frigate / MQTT' },
     { id: 'vision', label: 'Vision' },
-    { id: 'vision-test', label: 'Vision Playground' },
-    { id: 'benchmark', label: 'Benchmark' },
+    { id: 'vision-test', label: 'Playground' },
+    { id: 'capture-bench', label: 'Capture Benchmark' },
+    { id: 'benchmark', label: 'Full Matrix' },
     { id: 'overview', label: 'Overview' },
   ]
 </script>
@@ -1144,7 +1146,11 @@
     {:else if tab === 'vision-test'}
       <VisionTest cameras={cameras} globalPrompt={visionPrompt} onSavePrompt={async (p) => { visionPrompt = p; await saveVision(); }} />
 
-    <!-- Benchmark -->
+    <!-- Capture Benchmark -->
+    {:else if tab === 'capture-bench'}
+      <CaptureBenchmark cameras={cameras} />
+
+    <!-- Full Matrix Benchmark -->
     {:else if tab === 'benchmark'}
       <Benchmark cameras={cameras} />
 
