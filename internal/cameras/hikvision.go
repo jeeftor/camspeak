@@ -95,7 +95,13 @@ func (c *HikvisionClient) openChannel() (string, error) {
 				"camera authentication failed (HTTP 401) — check username/password in Config → Cameras",
 			)
 		}
-		return "", fmt.Errorf("no sessionId in response (HTTP %d): %s", resp.StatusCode, body)
+		// Truncate body in error — some cameras return full HTML error pages
+		// which would make the error message unreadable.
+		snippet := string(body)
+		if len(snippet) > 200 {
+			snippet = snippet[:200] + "…"
+		}
+		return "", fmt.Errorf("no sessionId in response (HTTP %d): %s", resp.StatusCode, snippet)
 	}
 
 	return result.SessionID, nil

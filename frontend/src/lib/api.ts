@@ -38,18 +38,33 @@ import type {
   VisionTestResult,
 } from './types'
 
+// truncateError limits error messages to a reasonable length so that
+// HTML error pages (from cameras, proxies, etc.) don't flood the UI.
+function truncateError(text: string): string {
+  // Try to extract JSON { "message": "..." } first
+  try {
+    const parsed = JSON.parse(text)
+    if (parsed.message) return String(parsed.message)
+    if (parsed.error) return String(parsed.error)
+  } catch { /* not JSON — fall through */ }
+  // Truncate raw text (could be HTML from a camera or proxy error page)
+  const trimmed = text.trim()
+  if (trimmed.length > 300) return trimmed.slice(0, 300) + '…'
+  return trimmed
+}
+
 async function api<T>(path: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     headers: { 'Content-Type': 'application/json', ...opts?.headers },
     ...opts,
   })
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw new Error(truncateError(await res.text()))
   return res.status === 204 ? (undefined as T) : await res.json()
 }
 
 async function apiRaw(path: string, opts?: RequestInit): Promise<Response> {
   const res = await fetch(path, opts)
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw new Error(truncateError(await res.text()))
   return res
 }
 
