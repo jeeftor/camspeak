@@ -24,8 +24,15 @@
   let busy = $state(false)
   let status = $state('')
   let statusType = $state('ok')
-  let results = $state([]) // history of { prompt, description, time }
+  let results = $state([]) // history of { prompt, description, time, model }
   let statusTimeout
+
+  // Model selection
+  let configuredModel = $state('')      // globally configured model from /api/config/vision
+  let selectedModel = $state('')       // model to use for this test (empty = use configured)
+  let availableModels = $state([])      // list of model IDs from the endpoint
+  let modelsLoading = $state(false)
+  let modelPickerOpen = $state(false)
 
   // Prompt presets
   let presets = $state([])
@@ -52,6 +59,55 @@
   }
 
   loadPresets()
+
+  // --- Model selection ---
+  async function loadConfiguredModel() {
+    try {
+      const cfg = await apiClient.getVisionConfig()
+      configuredModel = cfg.model || ''
+      if (!selectedModel) selectedModel = configuredModel
+    } catch (e) { /* ignore */ }
+  }
+
+  async function fetchModels() {
+    modelsLoading = true
+    try {
+      const cfg = await apiClient.getVisionConfig()
+      const res = await apiClient.testVisionConfig(cfg.url, cfg.api_key)
+      if (res.ok && res.data?.data) {
+        availableModels = res.data.data
+          .map(m => m.id)
+          .filter(m => isVisionCapableModel(m))
+          .sort()
+      }
+    } catch (e) {
+      setStatus('✗ Failed to fetch models: ' + e.message, 'err')
+    } finally {
+      modelsLoading = false
+    }
+  }
+
+  function isVisionCapableModel(id) {
+    const lower = id.toLowerCase()
+    return lower.includes('vision') ||
+      lower.includes('vl') ||
+      lower.includes('llava') ||
+      lower.includes('qwen') ||
+      lower.includes('intern') ||
+      lower.includes('pixtral') ||
+      lower.includes('gpt-4o') ||
+      lower.includes('claude-3') ||
+      lower.includes('gemini') ||
+      lower.includes('minicpm') ||
+      lower.includes('moondream') ||
+      lower.includes('phi-3') ||
+      lower.includes('florence') ||
+      lower.includes('cogvlm') ||
+      lower.includes('ovis') ||
+      lower.includes('idefics')
+  }
+
+  loadConfiguredModel()
 
   async function savePreset() {
     if (!presetName || !prompt) return
@@ -97,16 +153,20 @@
       setStatus('Analyzing uploaded image…')
       const fd = new FormData()
       fd.append('prompt', prompt)
+      if (selectedModel && selectedModel !== configuredModel) {
+        fd.append('model', selectedModel)
+      }
       fd.append('image', file)
       const res = await apiClient.visionTest(fd)
       const data = await res.json()
       image = data.image || ''
       description = data.description || ''
+      const usedModel = data.model || selectedModel || configuredModel
       visionTiming = formatTimings(data.timings)
       visionTimingsRaw = data.timings
       visionTotalMs = data.total_ms
       visionTtfsMs = data.ttfs_ms
-      results = [{ prompt, description, time: new Date().toLocaleTimeString() }, ...results].slice(0, 10)
+      results = [{ prompt, description, time: new Date().toLocaleTimeString(), model: usedModel }, ...results].slice(0, 10)
       setStatus('✓ Done')
     } catch (e) {
       setStatus('✗ ' + e.message, 'err')
@@ -126,6 +186,9 @@
     status = ''
     try {
       const body = { prompt }
+      if (selectedModel && selectedModel !== configuredModel) {
+        body.model = selectedModel
+      }
       if (capture || !image) {
         body.camera = selectedCamera
       } else {
@@ -136,11 +199,12 @@
       const data = await apiClient.visionTestJSON(body)
       image = data.image || image
       description = data.description || ''
+      const usedModel = data.model || selectedModel || configuredModel
       visionTiming = formatTimings(data.timings)
       visionTimingsRaw = data.timings
       visionTotalMs = data.total_ms
       visionTtfsMs = data.ttfs_ms
-      results = [{ prompt, description, time: new Date().toLocaleTimeString() }, ...results].slice(0, 10)
+      results = [{ prompt, description, time: new Date().toLocaleTimeString(), model: usedModel }, ...results].slice(0, 10)
       setStatus('✓ Done')
     } catch (e) {
       setStatus('✗ ' + e.message, 'err')
@@ -262,8 +326,8 @@
 
   let curlCommand = $derived(
     buildCurl('POST', '/api/vision/test', image
-      ? { camera: selectedCamera, prompt, image: '[base64 image data]' }
-      : { camera: selectedCamera, prompt })
+      ? { camera: selectedCamera, prompt, image: '[base64 image data]', ...(selectedModel && selectedModel !== configuredModel ? { model: selectedModel } : {}) }
+      : { camera: selectedCamera, prompt, ...(selectedModel && selectedModel !== configuredModel ? { model: selectedModel } : {}) })
   )
 </script>
 
@@ -288,6 +352,35 @@
           <option value={cam.name}>{cam.name}</option>
         {/each}
       </select>
+    </label>
+
+    <label class="flex flex-col gap-1 text-sm text-muted-foreground">
+      Model
+      <div class="flex items-center gap-1">
+        <select bind:value={selectedModel} disabled={busy}
+          class="rounded-md border border-input bg-transparent px-3 py-2 text-sm disabled:opacity-50 min-w-[180px] max-w-[280px]"
+          title={selectedModel || configuredModel ? (selectedModel || configuredModel) : 'No model configured — set one in Config → Vision'}>
+          {#if configuredModel && !availableModels.includes(configuredModel)}
+            <option value={configuredModel}>{configuredModel} (configured)</option>
+          {/if}
+          {#each availableModels as m}
+            <option value={m}>{m}</option>
+          {/each}
+          {#if availableModels.length === 0 && !configuredModel}
+            <option value="">— not configured —</option>
+          {/if}
+        </select>
+        <button onclick={(e) => { e.preventDefault(); if (!modelsLoading) { fetchModels(); modelPickerOpen = true } }}
+          disabled={busy || modelsLoading}
+          class="inline-flex items-center justify-center h-9 w-9 rounded-md border border-input bg-background hover:bg-accent disabled:opacity-50 shrink-0"
+          title="Fetch available models from the vision endpoint">
+          {#if modelsLoading}
+            <Loader2 class="h-4 w-4 animate-spin" />
+          {:else}
+            <RefreshCw class="h-4 w-4" />
+          {/if}
+        </button>
+      </div>
     </label>
 
     <Button onclick={captureAndRun} disabled={busy || !selectedCamera} title="Capture fresh snapshot and run vision">
@@ -443,9 +536,14 @@
           <div class="rounded-lg border bg-card p-3 flex flex-col gap-1.5">
             <div class="flex items-center justify-between gap-2">
               <span class="text-xs text-muted-foreground font-mono">{r.time}</span>
-              {#if i === 0}
-                <span class="text-xs text-primary font-medium">latest</span>
-              {/if}
+              <div class="flex items-center gap-2">
+                {#if r.model}
+                  <span class="text-xs text-muted-foreground font-mono truncate max-w-[200px]" title={r.model}>{r.model}</span>
+                {/if}
+                {#if i === 0}
+                  <span class="text-xs text-primary font-medium">latest</span>
+                {/if}
+              </div>
             </div>
             <p class="text-xs text-muted-foreground italic">"{r.prompt || '(empty — hardcoded default)'}"</p>
             <Markdown content={r.description} class="text-sm text-foreground" />

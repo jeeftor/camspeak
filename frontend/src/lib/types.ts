@@ -315,6 +315,7 @@ export interface DescribeResponse {
 export interface VisionTestResponse {
   description?: string
   image?: string
+  model?: string
   timings?: Timings
   ttfs_ms?: number
   total_ms?: number

@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+
+	"github.com/jeeftor/camspeak/internal/vision"
 )
 
 // Snapshot handles GET /api/snapshot/:camera — grabs a JPEG frame.
@@ -146,11 +148,22 @@ func (h *Handlers) VisionTest(c echo.Context) error {
 	t := NewStepTimings(2)
 
 	var camera, prompt, imageB64 string
+	var visionClient *vision.Client
 
 	contentType := c.Request().Header.Get("Content-Type")
 	if strings.HasPrefix(contentType, "multipart/form-data") {
 		// Multipart form upload
 		prompt = c.FormValue("prompt")
+		modelOverride := c.FormValue("model")
+		if modelOverride != "" {
+			h.cfgMu.Lock()
+			url := h.cfg.Vision.URL
+			apiKey := h.cfg.Vision.APIKey
+			h.cfgMu.Unlock()
+			if url != "" {
+				visionClient = vision.NewClient(url, modelOverride, apiKey)
+			}
+		}
 		file, err := c.FormFile("image")
 		if err == nil && file != nil {
 			src, err := file.Open()
@@ -174,6 +187,7 @@ func (h *Handlers) VisionTest(c echo.Context) error {
 			Camera string `json:"camera"`
 			Prompt string `json:"prompt"`
 			Image  string `json:"image"`
+			Model  string `json:"model"`
 		}
 		if err := c.Bind(&req); err != nil {
 			return echo.NewHTTPError(http.StatusBadRequest, "invalid request body")
@@ -181,11 +195,24 @@ func (h *Handlers) VisionTest(c echo.Context) error {
 		camera = req.Camera
 		prompt = req.Prompt
 		imageB64 = req.Image
+		// Use the per-request model override if provided; otherwise fall
+		// back to the globally configured model (handled by Describe below).
+		if req.Model != "" {
+			h.cfgMu.Lock()
+			url := h.cfg.Vision.URL
+			apiKey := h.cfg.Vision.APIKey
+			h.cfgMu.Unlock()
+			if url != "" {
+				visionClient = vision.NewClient(url, req.Model, apiKey)
+			}
+		}
 	}
 
 	h.cfgMu.Lock()
 	frigateURL := h.cfg.FrigateURL
-	visionClient := h.vision
+	if visionClient == nil {
+		visionClient = h.vision
+	}
 	h.cfgMu.Unlock()
 
 	if visionClient == nil {
@@ -250,6 +277,7 @@ func (h *Handlers) VisionTest(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{
 		"description": description,
 		"image":       imageDataURI,
+		"model":       visionClient.Model(),
 		"timings":     t.Ms(),
 		"ttfs_ms":     t.TTFS(),
 		"total_ms":    TotalMs(start),

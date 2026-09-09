@@ -244,7 +244,7 @@ export const apiClient = {
     api<DescribeResponse>('/api/describe', { method: 'POST', body: JSON.stringify(req) }),
   visionTest: (fd: FormData) =>
     apiRaw('/api/vision/test', { method: 'POST', body: fd }),
-  visionTestJSON: (req: { image?: string; camera?: string; prompt: string }) =>
+  visionTestJSON: (req: { image?: string; camera?: string; prompt: string; model?: string }) =>
     api<VisionTestResponse>('/api/vision/test', { method: 'POST', body: JSON.stringify(req) }),
   visionTestAll: (req: { image?: string; camera?: string; prompt: string }) =>
     api<VisionTestAllResponse>('/api/vision/test-all', { method: 'POST', body: JSON.stringify(req) }),

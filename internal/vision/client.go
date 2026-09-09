@@ -34,6 +34,9 @@ type Client struct {
 // URL returns the base endpoint URL of the client.
 func (c *Client) URL() string { return c.url }
 
+// Model returns the configured model name.
+func (c *Client) Model() string { return c.model }
+
 // APIKey returns the API key of the client.
 func (c *Client) APIKey() string { return c.apiKey }
 
