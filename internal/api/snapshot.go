@@ -133,6 +133,47 @@ func grabFrameViaFFmpeg(
 	return data, nil
 }
 
+// grabRTSPFrame captures a single JPEG frame from a direct RTSP URL using ffmpeg.
+// This is used for Hikvision main/sub streams where the ISAPI /picture endpoint
+// may return the wrong resolution (some cameras always return the main stream
+// resolution regardless of the channel number). The RTSP stream delivers the
+// actual configured resolution for each channel.
+func grabRTSPFrame(rtspURL string, timeout time.Duration) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	tmpFile, err := os.CreateTemp("", "camspeak-rtsp-*.jpg")
+	if err != nil {
+		return nil, fmt.Errorf("creating temp file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+	tmpFile.Close()
+
+	args := []string{
+		"-y",
+		"-rtsp_transport", "tcp",
+		"-i", rtspURL,
+		"-frames:v", "1",
+		"-update", "1",
+		tmpPath,
+	}
+
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("ffmpeg rtsp frame grab failed: %w (output: %s)", err, string(output))
+	}
+
+	data, err := os.ReadFile(tmpPath)
+	if err != nil {
+		return nil, fmt.Errorf("reading captured frame: %w", err)
+	}
+	if len(data) == 0 {
+		return nil, fmt.Errorf("ffmpeg produced empty output")
+	}
+	return data, nil
+}
+
 // BenchmarkResult is a single method's benchmark result.
 type BenchmarkResult struct {
 	Method    string  `json:"method"`
@@ -276,6 +317,23 @@ func (h *Handlers) runCameraBenchmark(
 			})
 			tryMethod("isapi_sub", func() ([]byte, error) {
 				return hikCam.Snapshot("sub")
+			})
+			// RTSP frame grab — some Hikvision cameras return the main stream
+			// resolution from the ISAPI /picture endpoint regardless of channel.
+			// RTSP delivers the actual configured resolution per channel.
+			rtspMain := fmt.Sprintf(
+				"rtsp://%s:%s@%s:554/Streaming/channels/%d01",
+				cam.User, cam.Pass, cam.IP, cam.Channel,
+			)
+			rtspSub := fmt.Sprintf(
+				"rtsp://%s:%s@%s:554/Streaming/channels/%d02",
+				cam.User, cam.Pass, cam.IP, cam.Channel,
+			)
+			tryMethod("rtsp_main", func() ([]byte, error) {
+				return grabRTSPFrame(rtspMain, 10*time.Second)
+			})
+			tryMethod("rtsp_sub", func() ([]byte, error) {
+				return grabRTSPFrame(rtspSub, 10*time.Second)
 			})
 		case "reolink":
 			reoCam := cameras.NewReolinkClient(cam.IP, cam.User, cam.Pass)
@@ -682,6 +740,16 @@ func (h *Handlers) captureAllMethods(
 			hikCam := cameras.NewHikvisionClient(cam.IP, cam.User, cam.Pass, cam.Channel, camera)
 			doCapture("isapi_main", func() ([]byte, error) { return hikCam.Snapshot("main") })
 			doCapture("isapi_sub", func() ([]byte, error) { return hikCam.Snapshot("sub") })
+			rtspMain := fmt.Sprintf(
+				"rtsp://%s:%s@%s:554/Streaming/channels/%d01",
+				cam.User, cam.Pass, cam.IP, cam.Channel,
+			)
+			rtspSub := fmt.Sprintf(
+				"rtsp://%s:%s@%s:554/Streaming/channels/%d02",
+				cam.User, cam.Pass, cam.IP, cam.Channel,
+			)
+			doCapture("rtsp_main", func() ([]byte, error) { return grabRTSPFrame(rtspMain, 10*time.Second) })
+			doCapture("rtsp_sub", func() ([]byte, error) { return grabRTSPFrame(rtspSub, 10*time.Second) })
 		case "reolink":
 			reoCam := cameras.NewReolinkClient(cam.IP, cam.User, cam.Pass)
 			doCapture("reolink_main", func() ([]byte, error) { return reoCam.Snapshot("main") })
