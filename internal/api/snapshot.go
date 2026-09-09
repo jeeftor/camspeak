@@ -134,47 +134,6 @@ func grabFrameViaFFmpeg(
 	return data, nil
 }
 
-// grabRTSPFrame captures a single JPEG frame from a direct RTSP URL using ffmpeg.
-// This is used for Hikvision main/sub streams where the ISAPI /picture endpoint
-// may return the wrong resolution (some cameras always return the main stream
-// resolution regardless of the channel number). The RTSP stream delivers the
-// actual configured resolution for each channel.
-func grabRTSPFrame(rtspURL string, timeout time.Duration) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	tmpFile, err := os.CreateTemp("", "camspeak-rtsp-*.jpg")
-	if err != nil {
-		return nil, fmt.Errorf("creating temp file: %w", err)
-	}
-	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
-	tmpFile.Close()
-
-	args := []string{
-		"-y",
-		"-rtsp_transport", "tcp",
-		"-i", rtspURL,
-		"-frames:v", "1",
-		"-update", "1",
-		tmpPath,
-	}
-
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("ffmpeg rtsp frame grab failed: %w (output: %s)", err, string(output))
-	}
-
-	data, err := os.ReadFile(tmpPath)
-	if err != nil {
-		return nil, fmt.Errorf("reading captured frame: %w", err)
-	}
-	if len(data) == 0 {
-		return nil, fmt.Errorf("ffmpeg produced empty output")
-	}
-	return data, nil
-}
-
 // BenchmarkResult is a single method's benchmark result.
 type BenchmarkResult struct {
 	Method    string  `json:"method"`
@@ -319,60 +278,15 @@ func (h *Handlers) runCameraBenchmark(
 			tryMethod("isapi_main", func() ([]byte, error) {
 				return hikCam.Snapshot("main")
 			})
-			tryMethod("isapi_sub", func() ([]byte, error) {
-				return hikCam.Snapshot("sub")
-			})
-			// RTSP frame grab — some Hikvision cameras return the main stream
-			// resolution from the ISAPI /picture endpoint regardless of channel.
-			// RTSP delivers the actual configured resolution per channel.
-			rtspMain := fmt.Sprintf(
-				"rtsp://%s:%s@%s:554/Streaming/channels/%d01",
-				cam.User, cam.Pass, cam.IP, cam.Channel,
-			)
-			rtspSub := fmt.Sprintf(
-				"rtsp://%s:%s@%s:554/Streaming/channels/%d02",
-				cam.User, cam.Pass, cam.IP, cam.Channel,
-			)
-			tryMethod("rtsp_main", func() ([]byte, error) {
-				return grabRTSPFrame(rtspMain, 10*time.Second)
-			})
-			tryMethod("rtsp_sub", func() ([]byte, error) {
-				return grabRTSPFrame(rtspSub, 10*time.Second)
-			})
 		case "reolink":
 			reoCam := cameras.NewReolinkClient(cam.IP, cam.User, cam.Pass)
 			tryMethod("reolink_main", func() ([]byte, error) {
 				return reoCam.Snapshot("main")
 			})
-			tryMethod("reolink_sub", func() ([]byte, error) {
-				return reoCam.Snapshot("sub")
-			})
 		}
 	}
 
-	// 2. go2rtc frame.jpeg (if vision_stream or go2rtc stream configured)
-	streamName := cam.VisionStream
-	if streamName == "" && cam.Stream != "" {
-		streamName = cam.Stream
-	}
-	if streamName != "" && go2rtcURL != "" {
-		tryMethod("go2rtc_frame", func() ([]byte, error) {
-			return grabFrameViaGo2rtcAPI(go2rtcURL, streamName, 10*time.Second)
-		})
-	}
-
-	// 3. go2rtc via ffmpeg (same stream, but ffmpeg path)
-	if streamName != "" && go2rtcURL != "" {
-		width := cam.VisionWidth
-		if width <= 0 {
-			width = 1280
-		}
-		tryMethod("go2rtc_ffmpeg", func() ([]byte, error) {
-			return grabFrameViaFFmpeg(go2rtcURL, streamName, width, 10*time.Second)
-		})
-	}
-
-	// 4. Frigate latest.jpg
+	// 2. Frigate latest.jpg
 	if frigateURL != "" {
 		tryMethod("frigate", func() ([]byte, error) {
 			snapURL := fmt.Sprintf("%s/api/%s/latest.jpg?h=720", frigateURL, camera)
@@ -744,47 +658,13 @@ func (h *Handlers) captureAllMethods(
 		case "hikvision":
 			hikCam := cameras.NewHikvisionClient(cam.IP, cam.User, cam.Pass, cam.Channel, camera)
 			doCapture("isapi_main", func() ([]byte, error) { return hikCam.Snapshot("main") })
-			doCapture("isapi_sub", func() ([]byte, error) { return hikCam.Snapshot("sub") })
-			rtspMain := fmt.Sprintf(
-				"rtsp://%s:%s@%s:554/Streaming/channels/%d01",
-				cam.User, cam.Pass, cam.IP, cam.Channel,
-			)
-			rtspSub := fmt.Sprintf(
-				"rtsp://%s:%s@%s:554/Streaming/channels/%d02",
-				cam.User, cam.Pass, cam.IP, cam.Channel,
-			)
-			doCapture("rtsp_main", func() ([]byte, error) { return grabRTSPFrame(rtspMain, 10*time.Second) })
-			doCapture("rtsp_sub", func() ([]byte, error) { return grabRTSPFrame(rtspSub, 10*time.Second) })
 		case "reolink":
 			reoCam := cameras.NewReolinkClient(cam.IP, cam.User, cam.Pass)
 			doCapture("reolink_main", func() ([]byte, error) { return reoCam.Snapshot("main") })
-			doCapture("reolink_sub", func() ([]byte, error) { return reoCam.Snapshot("sub") })
 		}
 	}
 
-	// 2. go2rtc frame.jpeg
-	streamName := cam.VisionStream
-	if streamName == "" && cam.Stream != "" {
-		streamName = cam.Stream
-	}
-	if streamName != "" && go2rtcURL != "" {
-		doCapture("go2rtc_frame", func() ([]byte, error) {
-			return grabFrameViaGo2rtcAPI(go2rtcURL, streamName, 10*time.Second)
-		})
-	}
-
-	// 3. go2rtc via ffmpeg
-	if streamName != "" && go2rtcURL != "" {
-		width := cam.VisionWidth
-		if width <= 0 {
-			width = 1280
-		}
-		doCapture("go2rtc_ffmpeg", func() ([]byte, error) {
-			return grabFrameViaFFmpeg(go2rtcURL, streamName, width, 10*time.Second)
-		})
-	}
-
-	// 4. Frigate
+	// 2. Frigate
 	if frigateURL != "" {
 		doCapture("frigate", func() ([]byte, error) {
 			snapURL := fmt.Sprintf("%s/api/%s/latest.jpg?h=720", frigateURL, camera)
