@@ -496,13 +496,13 @@
         </div>
       {:else if benchResults}
         {@const okResults = benchResults.filter(r => r.ok)}
-        {@const sortKey = benchWithVision ? 'total_ms' : 'snap_ms'}
-        {@const bestMs = okResults.length > 0 ? Math.min(...okResults.map(r => r[sortKey] || r.snap_ms)) : 0}
+        {@const sortKey = benchWithVision ? 'total_sec' : 'snap_sec'}
+        {@const bestSec = okResults.length > 0 ? Math.min(...okResults.map(r => r[sortKey] || r.snap_sec)) : 0}
         <table class="text-sm">
           <thead>
             <tr class="text-xs text-muted-foreground border-b">
               <th class="text-left py-1 pr-4">Method</th>
-              <th class="text-right py-1 pr-4">Snap</th>
+              <th class="text-right py-1 pr-4">Capture</th>
               {#if benchWithVision}
                 <th class="text-right py-1 pr-4">Vision</th>
                 <th class="text-right py-1 pr-4">Total</th>
@@ -512,18 +512,18 @@
             </tr>
           </thead>
           <tbody>
-            {#each [...benchResults].sort((a, b) => (a.ok ? (a[sortKey] || a.snap_ms) : 99999) - (b.ok ? (b[sortKey] || b.snap_ms) : 99999)) as r}
+            {#each [...benchResults].sort((a, b) => (a.ok ? (a[sortKey] || a.snap_sec) : 99999) - (b.ok ? (b[sortKey] || b.snap_sec) : 99999)) as r}
               <tr class="border-b last:border-0">
                 <td class="py-1.5 pr-4 font-mono text-xs">{r.method}</td>
                 <td class="py-1.5 pr-4 text-right font-mono text-xs {r.ok ? '' : 'text-muted-foreground'}">
-                  {r.ok ? `${r.snap_ms}ms` : '—'}
+                  {r.ok ? `${r.snap_sec.toFixed(2)}s` : '—'}
                 </td>
                 {#if benchWithVision}
                   <td class="py-1.5 pr-4 text-right font-mono text-xs {r.ok ? '' : 'text-muted-foreground'}">
-                    {r.ok && r.vision_ms ? `${r.vision_ms}ms` : '—'}
+                    {r.ok && r.vision_sec ? `${r.vision_sec.toFixed(2)}s` : '—'}
                   </td>
-                  <td class="py-1.5 pr-4 text-right font-mono text-xs {r.ok && (r.total_ms || r.snap_ms) === bestMs ? 'text-amber-500 font-semibold' : r.ok ? '' : 'text-muted-foreground'}">
-                    {r.ok ? `${r.total_ms || r.snap_ms}ms` : '—'}
+                  <td class="py-1.5 pr-4 text-right font-mono text-xs {r.ok && (r.total_sec || r.snap_sec) === bestSec ? 'text-amber-500 font-semibold' : r.ok ? '' : 'text-muted-foreground'}">
+                    {r.ok ? `${(r.total_sec || r.snap_sec).toFixed(2)}s` : '—'}
                   </td>
                 {/if}
                 <td class="py-1.5 pr-4 text-right font-mono text-xs text-muted-foreground">
@@ -545,7 +545,7 @@
         </table>
         <p class="text-xs text-muted-foreground">
           {#if benchWithVision}
-            Best total (snapshot + vision) highlighted in amber. Larger images may give better descriptions but take longer to process.
+            Model pre-warmed before benchmarking. Best total (snapshot + vision) highlighted in amber. Larger images may give better descriptions but take longer to process.
           {:else}
             Fastest snapshot highlighted in amber. Use "with vision" to see the full pipeline cost.
           {/if}

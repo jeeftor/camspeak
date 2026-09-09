@@ -160,27 +160,50 @@ func (h *Handlers) SnapshotBenchmark(c echo.Context) error {
 	}
 
 	type result struct {
-		Method   string `json:"method"`
-		OK       bool   `json:"ok"`
-		SnapMs   int64  `json:"snap_ms"`
-		VisionMs int64  `json:"vision_ms,omitempty"`
-		TotalMs  int64  `json:"total_ms,omitempty"`
-		Bytes    int    `json:"bytes"`
-		Preview  string `json:"preview,omitempty"`
-		Error    string `json:"error,omitempty"`
+		Method    string  `json:"method"`
+		OK        bool    `json:"ok"`
+		SnapSec   float64 `json:"snap_sec"`
+		VisionSec float64 `json:"vision_sec,omitempty"`
+		TotalSec  float64 `json:"total_sec,omitempty"`
+		Bytes     int     `json:"bytes"`
+		Preview   string  `json:"preview,omitempty"`
+		Error     string  `json:"error,omitempty"`
 	}
 
 	var results []result
+
+	// Warmup: when vision=true, do one untimed vision call first so the model
+	// is loaded into VRAM. Without this, the first method pays the cold-start
+	// penalty (model loading) and appears unfairly slow compared to the rest.
+	if withVision {
+		warmupStart := time.Now()
+		warmupData, wErr := grabFrameViaGo2rtcAPI(go2rtcURL, cam.VisionStream, 10*time.Second)
+		if wErr != nil && frigateURL != "" {
+			// Fallback: grab a Frigate frame for warmup
+			snapURL := fmt.Sprintf("%s/api/%s/latest.jpg?h=720", frigateURL, camera)
+			resp, err := (&http.Client{Timeout: 30 * time.Second}).Get(snapURL)
+			if err == nil {
+				warmupData, _ = io.ReadAll(resp.Body)
+				resp.Body.Close()
+			}
+		}
+		if len(warmupData) > 0 {
+			prompt := resolveVisionPrompt("", cam.VisionPrompt != "", cam.VisionPrompt, globalPrompt)
+			_, _ = visionClient.Describe(warmupData, "image/jpeg", prompt)
+			log.Info("snapshot: benchmark warmup (model loaded)",
+				"elapsed", time.Since(warmupStart).Seconds())
+		}
+	}
 
 	// Helper to time a snapshot method.
 	tryMethod := func(name string, fn func() ([]byte, error)) {
 		start := time.Now()
 		data, err := fn()
 		r := result{
-			Method: name,
-			OK:     err == nil,
-			SnapMs: time.Since(start).Milliseconds(),
-			Bytes:  len(data),
+			Method:  name,
+			OK:      err == nil,
+			SnapSec: time.Since(start).Seconds(),
+			Bytes:   len(data),
 		}
 		if err != nil {
 			r.Error = err.Error()
@@ -192,8 +215,8 @@ func (h *Handlers) SnapshotBenchmark(c echo.Context) error {
 			prompt := resolveVisionPrompt("", cam.VisionPrompt != "", cam.VisionPrompt, globalPrompt)
 			vStart := time.Now()
 			desc, vErr := visionClient.Describe(data, "image/jpeg", prompt)
-			r.VisionMs = time.Since(vStart).Milliseconds()
-			r.TotalMs = r.SnapMs + r.VisionMs
+			r.VisionSec = time.Since(vStart).Seconds()
+			r.TotalSec = r.SnapSec + r.VisionSec
 			if vErr != nil {
 				r.OK = false
 				r.Error = fmt.Sprintf("vision failed: %s", vErr)

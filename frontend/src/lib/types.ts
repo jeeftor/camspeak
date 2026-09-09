@@ -334,9 +334,9 @@ export interface VisionTestResponse {
 export interface SnapshotBenchmarkResult {
   method: string
   ok: boolean
-  snap_ms: number
-  vision_ms?: number
-  total_ms?: number
+  snap_sec: number
+  vision_sec?: number
+  total_sec?: number
   bytes: number
   preview?: string
   error?: string
