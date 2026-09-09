@@ -10,6 +10,7 @@
   import { isVisionCapableModel } from '$lib/models'
   import { Tooltip } from '$lib/components/ui/tooltip'
   import { formatTimings, timingTooltipContent, isMobile } from '$lib/utils'
+  import CameraSelect from '$lib/components/CameraSelect.svelte'
 
   let { cameras = [], globalPrompt = '', onSavePrompt } = $props()
 
@@ -279,13 +280,7 @@
   <div class="flex flex-wrap items-end gap-3">
     <label class="flex flex-col gap-1 text-sm text-muted-foreground">
       Camera
-      <select bind:value={selectedCamera} disabled={busy}
-        class="rounded-md border border-input bg-transparent px-3 py-2 text-sm disabled:opacity-50 min-w-[160px]">
-        <option value="">— select —</option>
-        {#each cameras as cam}
-          <option value={cam.name}>{cam.name}</option>
-        {/each}
-      </select>
+      <CameraSelect bind:value={selectedCamera} {cameras} disabled={busy} class="min-w-[160px]" />
     </label>
 
     {#if selectedCamera && (cameras.find(c => c.name === selectedCamera)?.type === 'hikvision' || cameras.find(c => c.name === selectedCamera)?.type === 'reolink')}

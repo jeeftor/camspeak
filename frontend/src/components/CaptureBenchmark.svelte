@@ -5,6 +5,8 @@
   import { apiClient } from '$lib/api'
   import type { SnapshotBenchmarkResult } from '$lib/types'
   import { timeUnit, toggleTimeUnit, fmtTime } from '$lib/timefmt.svelte'
+  import CameraSelect from '$lib/components/CameraSelect.svelte'
+  import HoverPreview from '$lib/components/HoverPreview.svelte'
 
   let { cameras = [] } = $props()
 
@@ -64,13 +66,7 @@
   <div class="flex flex-wrap items-end gap-3">
     <label class="flex flex-col gap-1 text-sm text-muted-foreground">
       Camera
-      <select bind:value={selectedCamera} disabled={running}
-        class="rounded-md border border-input bg-transparent px-3 py-2 text-sm disabled:opacity-50 min-w-[180px]">
-        <option value="">— select —</option>
-        {#each cameras as cam}
-          <option value={cam.name}>{cam.name}</option>
-        {/each}
-      </select>
+      <CameraSelect bind:value={selectedCamera} {cameras} disabled={running} class="min-w-[180px]" />
     </label>
 
     <label class="flex items-center gap-1.5 text-sm text-muted-foreground self-center pb-2" title="Run the vision model against each captured frame">
@@ -186,12 +182,5 @@
   {/if}
 
   <!-- Hover image preview -->
-  {#if hoveredImage}
-    <div
-      class="fixed z-50 pointer-events-none max-w-[480px] max-h-[360px] rounded-lg border-2 border-primary/50 shadow-xl bg-black/90 p-1"
-      style="left: {hoverX + 16}px; top: {hoverY + 16}px;"
-    >
-      <img src={hoveredImage} alt="captured frame" class="max-w-[464px] max-h-[348px] rounded object-contain" />
-    </div>
-  {/if}
+  <HoverPreview bind:hoveredImage bind:hoverX bind:hoverY />
 </div>

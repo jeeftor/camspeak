@@ -6,6 +6,7 @@
   import { apiClient } from '$lib/api'
   import type { AnnounceResponse } from '$lib/types'
   import Markdown from '$lib/components/Markdown.svelte'
+  import CameraSelect from '$lib/components/CameraSelect.svelte'
   import { formatTimings } from '$lib/utils'
 
   let { cameras = [] } = $props()
@@ -63,26 +64,14 @@
     <div class="flex flex-wrap items-end gap-3">
       <label class="flex flex-col gap-1 text-sm text-muted-foreground">
         Source (capture + vision)
-        <select bind:value={sourceCamera} disabled={busy}
-          class="rounded-md border border-input bg-transparent px-3 py-2 text-sm disabled:opacity-50 min-w-[160px]">
-          <option value="">— select —</option>
-          {#each cameras as cam}
-            <option value={cam.name}>{cam.name}</option>
-          {/each}
-        </select>
+        <CameraSelect bind:value={sourceCamera} {cameras} disabled={busy} class="min-w-[160px]" />
       </label>
 
       <ArrowRight class="h-5 w-5 text-muted-foreground self-center pb-2" />
 
       <label class="flex flex-col gap-1 text-sm text-muted-foreground">
         Target (speaker)
-        <select bind:value={targetCamera} disabled={busy}
-          class="rounded-md border border-input bg-transparent px-3 py-2 text-sm disabled:opacity-50 min-w-[160px]">
-          <option value="">— select —</option>
-          {#each cameras as cam}
-            <option value={cam.name}>{cam.name}</option>
-          {/each}
-        </select>
+        <CameraSelect bind:value={targetCamera} {cameras} disabled={busy} class="min-w-[160px]" />
       </label>
 
       <label class="flex flex-col gap-1 text-sm text-muted-foreground">

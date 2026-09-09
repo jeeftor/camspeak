@@ -5,6 +5,7 @@
   import { Input } from '$lib/components/ui/input'
   import { Select } from '$lib/components/ui/select'
   import JsonCode from '$lib/components/JsonCode.svelte'
+  import CameraSelect from '$lib/components/CameraSelect.svelte'
   import { apiClient } from '$lib/api'
 
   let { cameras = [] } = $props()
@@ -664,13 +665,7 @@
           <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label class="flex flex-col gap-1 text-xs text-muted-foreground">
               Source camera (capture + vision)
-              <select bind:value={ruleSourceCamera}
-                class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm">
-                <option value="">— none (standard rule) —</option>
-                {#each cameras as cam}
-                  <option value={cam.name}>{cam.name}</option>
-                {/each}
-              </select>
+              <CameraSelect bind:value={ruleSourceCamera} {cameras} placeholder="— none (standard rule) —" class="min-w-[200px]" />
             </label>
             <label class="flex flex-col gap-1 text-xs text-muted-foreground">
               Prompt (optional)
