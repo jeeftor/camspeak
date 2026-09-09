@@ -553,6 +553,7 @@ func (h *Handlers) Cameras(c echo.Context) error {
 			"vision_prompt":   cfg.VisionPrompt,
 			"vision_stream":   cfg.VisionStream,
 			"vision_width":    cfg.VisionWidth,
+			"snap_method":     cfg.SnapMethod,
 			"note":            cfg.Note,
 			"airplay_enabled": cfg.AirPlayEnabled,
 			"airplay_name":    cfg.AirPlayName,

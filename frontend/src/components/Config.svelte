@@ -61,6 +61,7 @@
   let camVisionPrompt = $state('')
   let camVisionStream = $state('')
   let camVisionWidth = $state(0)
+  let camSnapMethod = $state('')
   let camStatus = $state('')
   let availableStreams = $state([])
 
@@ -199,13 +200,14 @@
         vision_prompt: camVisionPrompt,
         vision_stream: camVisionStream,
         vision_width: camVisionWidth || 0,
+        snap_method: camSnapMethod,
         airplay_name: camAirPlayName,
         airplay_model: camAirPlayModel,
       })
       camStatus = '✓ Saved'
       toast.success(`Camera "${camName}" saved`)
       camFormOpen = false
-      camName = ''; camIP = ''; camUser = ''; camPass = ''; camChannel = 1; camStream = ''; camVisionPrompt = ''; camVisionStream = ''; camVisionWidth = 0; camAirPlayName = ''; camAirPlayModel = ''
+      camName = ''; camIP = ''; camUser = ''; camPass = ''; camChannel = 1; camStream = ''; camVisionPrompt = ''; camVisionStream = ''; camVisionWidth = 0; camSnapMethod = ''; camAirPlayName = ''; camAirPlayModel = ''
       loadConfig()
       onRefresh?.()
     } catch (e) {
@@ -250,7 +252,7 @@
   function openAddCamera() {
     camName = ''; camType = 'hikvision'; camIP = ''; camUser = ''; camPass = ''
     camChannel = 1; camStream = ''; camEnabled = false; camVisionPrompt = ''
-    camVisionStream = ''; camVisionWidth = 0
+    camVisionStream = ''; camVisionWidth = 0; camSnapMethod = ''
     camAirPlayName = ''; camAirPlayModel = ''
     camStatus = ''; testCamStatus = ''; detectCamStatus = ''
     camStreamCustom = false
@@ -271,6 +273,7 @@
     camVisionPrompt = cam.vision_prompt ?? ''
     camVisionStream = cam.vision_stream ?? ''
     camVisionWidth = cam.vision_width ?? 0
+    camSnapMethod = cam.snap_method ?? ''
     camAirPlayName = cam.airplay_name ?? ''
     camAirPlayModel = cam.airplay_model ?? airplayModel ?? 'RealityDevice14,1'
     camStatus = ''; testCamStatus = ''; detectCamStatus = ''
@@ -1007,6 +1010,20 @@
               <span class="text-[11px] opacity-60">0 = no resize. 1280 recommended for vision models.</span>
             </label>
           </div>
+          <label class="mt-3 flex flex-col gap-1 text-xs text-muted-foreground">
+            Snapshot method
+            <select
+              bind:value={camSnapMethod}
+              class="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm
+                     focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              <option value="">auto (ISAPI/Reolink → go2rtc → Frigate)</option>
+              <option value="isapi">direct camera API (ISAPI/Reolink)</option>
+              <option value="go2rtc">go2rtc</option>
+              <option value="frigate">frigate</option>
+            </select>
+            <span class="text-[11px] opacity-60">Which snapshot method to prefer for this camera. Use the Benchmark tool in Vision Playground to compare.</span>
+          </label>
         </div>
         <label class="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
           <input type="checkbox" bind:checked={camEnabled} class="h-4 w-4 cursor-pointer rounded border-input accent-primary" />

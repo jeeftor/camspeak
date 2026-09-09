@@ -25,6 +25,7 @@ export interface Camera {
   vision_prompt: string
   vision_stream: string
   vision_width: number
+  snap_method: string
   note: string
 }
 
@@ -191,6 +192,7 @@ export interface SaveCameraReq {
   vision_prompt: string
   vision_stream: string
   vision_width: number
+  snap_method: string
   airplay_name: string
   airplay_model: string
   gain?: number

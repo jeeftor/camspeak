@@ -37,6 +37,7 @@ func (h *Handlers) ListCamerasConfig(c echo.Context) error {
 			"vision_prompt":   sc.VisionPrompt,
 			"vision_stream":   sc.VisionStream,
 			"vision_width":    sc.VisionWidth,
+			"snap_method":     sc.SnapMethod,
 			"note":            sc.Note,
 		})
 	}
@@ -61,6 +62,7 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 		VisionPrompt string  `json:"vision_prompt"`
 		VisionStream string  `json:"vision_stream"`
 		VisionWidth  int     `json:"vision_width"`
+		SnapMethod   string  `json:"snap_method"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid JSON body")
@@ -152,6 +154,11 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 	if visionWidth == 0 && hasExisting {
 		visionWidth = existing.VisionWidth
 	}
+	// Preserve existing snap_method if not provided
+	snapMethod := req.SnapMethod
+	if snapMethod == "" && hasExisting {
+		snapMethod = existing.SnapMethod
+	}
 	// Auto-set limitation note for Reolink cameras (native audio not implemented).
 	note := ""
 	if camType == "reolink" {
@@ -176,6 +183,7 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 		VisionPrompt: visionPrompt,
 		VisionStream: visionStream,
 		VisionWidth:  visionWidth,
+		SnapMethod:   snapMethod,
 		Note:         note,
 	}
 	if err := config.SaveCamera(h.db, req.Name, cam); err != nil {

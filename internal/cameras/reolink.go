@@ -1,9 +1,12 @@
 package cameras
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 )
 
@@ -34,6 +37,120 @@ type ReolinkClient struct {
 // NewReolinkClient creates a Reolink client.
 func NewReolinkClient(ip, user, pass string) *ReolinkClient {
 	return &ReolinkClient{ip: ip, user: user, pass: pass}
+}
+
+// reolinkLoginResponse is the JSON response from the Reolink login API.
+type reolinkLoginResponse []struct {
+	Cmd   string `json:"cmd"`
+	Code  int    `json:"code"`
+	Value struct {
+		Token struct {
+			LeoneSoftToken string `json:"LeoneSoftToken"`
+		} `json:"Token"`
+	} `json:"value"`
+}
+
+// reolinkSnapResponse is the JSON error response (if any) from the Snap API.
+type reolinkSnapResponse []struct {
+	Cmd   string `json:"cmd"`
+	Code  int    `json:"code"`
+	Error struct {
+		Detail  string `json:"detail"`
+		RspCode int    `json:"rspCode"`
+	} `json:"error"`
+}
+
+// Snapshot captures a single JPEG frame from a Reolink camera.
+// streamType is "main" or "sub" (channel 0 or 1 in Reolink's API).
+// Uses the Reolink HTTP API: login to get a token, then /cgi-bin/api.cgi?cmd=Snap.
+func (c *ReolinkClient) Snapshot(streamType string) ([]byte, error) {
+	channel := 0
+	if streamType == "sub" {
+		channel = 1
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	baseURL := fmt.Sprintf("http://%s/cgi-bin/api.cgi", c.ip)
+
+	// Step 1: Login to get a token.
+	loginBody := fmt.Sprintf(
+		`[{"cmd":"Login","param":{"User":{"userName":"%s","password":"%s"}}}]`,
+		c.user, c.pass,
+	)
+	loginURL := baseURL + "?cmd=Login&source=null"
+	resp, err := client.Post(loginURL, "application/json", stringReader(loginBody))
+	if err != nil {
+		return nil, fmt.Errorf("reolink login: %w", err)
+	}
+	loginData, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("reolink login returned HTTP %d", resp.StatusCode)
+	}
+
+	var loginResp reolinkLoginResponse
+	if err := json.Unmarshal(loginData, &loginResp); err != nil {
+		return nil, fmt.Errorf("reolink login: invalid JSON response")
+	}
+	if len(loginResp) == 0 || loginResp[0].Code != 0 {
+		return nil, fmt.Errorf("reolink login failed (code=%d)", loginResp[0].Code)
+	}
+	token := loginResp[0].Value.Token.LeoneSoftToken
+	if token == "" {
+		return nil, fmt.Errorf("reolink login: empty token")
+	}
+
+	// Step 2: Capture snapshot using the token.
+	snapURL := fmt.Sprintf(
+		"%s?cmd=Snap&channel=%d&rs=%s&token=%s",
+		baseURL, channel, fmt.Sprintf("%d", time.Now().UnixNano()), url.QueryEscape(token),
+	)
+	resp, err = client.Get(snapURL)
+	if err != nil {
+		return nil, fmt.Errorf("reolink snap: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Reolink returns either a JPEG (image/jpeg) or a JSON error array.
+	ct := resp.Header.Get("Content-Type")
+	if strings.HasPrefix(ct, "image/") {
+		data, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("reolink snap: reading body: %w", err)
+		}
+		if len(data) < 100 {
+			return nil, fmt.Errorf("reolink snap: too little data (%d bytes)", len(data))
+		}
+		return data, nil
+	}
+
+	// JSON error response
+	errData, _ := io.ReadAll(resp.Body)
+	var snapErr reolinkSnapResponse
+	if json.Unmarshal(errData, &snapErr) == nil && len(snapErr) > 0 && snapErr[0].Code != 0 {
+		return nil, fmt.Errorf("reolink snap failed: %s (code=%d)",
+			snapErr[0].Error.Detail, snapErr[0].Error.RspCode)
+	}
+	return nil, fmt.Errorf("reolink snap: unexpected content-type %s", ct)
+}
+
+// stringReader wraps a string as an io.Reader.
+func stringReader(s string) io.Reader {
+	return &stringReaderImpl{s: s}
+}
+
+type stringReaderImpl struct {
+	s   string
+	pos int
+}
+
+func (r *stringReaderImpl) Read(p []byte) (int, error) {
+	if r.pos >= len(r.s) {
+		return 0, io.EOF
+	}
+	n := copy(p, r.s[r.pos:])
+	r.pos += n
+	return n, nil
 }
 
 // SendRaw attempts to play audio on the Reolink camera speaker.

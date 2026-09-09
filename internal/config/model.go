@@ -58,6 +58,7 @@ type CameraConfig struct {
 	VisionPrompt   string  `json:"vision_prompt"`   // default prompt for vision/describe; empty = generic
 	VisionStream   string  `json:"vision_stream"`   // go2rtc stream name for vision snapshots (e.g. "frontyard_sub"); empty = Frigate detect
 	VisionWidth    int     `json:"vision_width"`    // max width in px for vision snapshots (0 = no resize); e.g. 1280
+	SnapMethod     string  `json:"snap_method"`     // preferred snapshot method: "auto", "isapi", "go2rtc", "frigate"; empty = auto
 	Note           string  `json:"note"`            // limitation/warning shown in UI (e.g. "Limited — see docs")
 }
 

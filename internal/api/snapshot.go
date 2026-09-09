@@ -208,20 +208,26 @@ func (h *Handlers) SnapshotBenchmark(c echo.Context) error {
 		results = append(results, r)
 	}
 
-	// 1. ISAPI main stream (Hikvision only)
-	if cam.Type == "hikvision" && cam.IP != "" && cam.User != "" {
-		hikCam := cameras.NewHikvisionClient(cam.IP, cam.User, cam.Pass, cam.Channel, camera)
-		tryMethod("isapi_main", func() ([]byte, error) {
-			return hikCam.Snapshot("main")
-		})
-	}
-
-	// 2. ISAPI sub stream (Hikvision only)
-	if cam.Type == "hikvision" && cam.IP != "" && cam.User != "" {
-		hikCam := cameras.NewHikvisionClient(cam.IP, cam.User, cam.Pass, cam.Channel, camera)
-		tryMethod("isapi_sub", func() ([]byte, error) {
-			return hikCam.Snapshot("sub")
-		})
+	// 1. Direct camera API (ISAPI for Hikvision, HTTP API for Reolink)
+	if (cam.Type == "hikvision" || cam.Type == "reolink") && cam.IP != "" && cam.User != "" {
+		switch cam.Type {
+		case "hikvision":
+			hikCam := cameras.NewHikvisionClient(cam.IP, cam.User, cam.Pass, cam.Channel, camera)
+			tryMethod("isapi_main", func() ([]byte, error) {
+				return hikCam.Snapshot("main")
+			})
+			tryMethod("isapi_sub", func() ([]byte, error) {
+				return hikCam.Snapshot("sub")
+			})
+		case "reolink":
+			reoCam := cameras.NewReolinkClient(cam.IP, cam.User, cam.Pass)
+			tryMethod("reolink_main", func() ([]byte, error) {
+				return reoCam.Snapshot("main")
+			})
+			tryMethod("reolink_sub", func() ([]byte, error) {
+				return reoCam.Snapshot("sub")
+			})
+		}
 	}
 
 	// 3. go2rtc frame.jpeg (if vision_stream or go2rtc stream configured)
@@ -285,8 +291,10 @@ func (h *Handlers) SnapshotBenchmark(c echo.Context) error {
 // vision_stream if set (via ffmpeg from go2rtc), otherwise falls back to
 // Frigate's latest.jpg (detect stream). For Hikvision cameras, it tries the
 // direct ISAPI snapshot endpoint first (fastest, no intermediate service).
-// streamOverride, if non-empty, selects "main" or "sub" for ISAPI snapshots
-// or overrides the go2rtc stream name.
+// For Reolink cameras, it tries the direct Reolink HTTP API snapshot.
+// streamOverride, if non-empty, selects "main" or "sub" for ISAPI/Reolink
+// snapshots or overrides the go2rtc stream name.
+// cam.SnapMethod, if set to "isapi", "go2rtc", or "frigate", forces that method.
 func (h *Handlers) fetchSnapshot(
 	ctx context.Context,
 	cameraName string,
@@ -294,60 +302,114 @@ func (h *Handlers) fetchSnapshot(
 	frigateURL string,
 	streamOverride string,
 ) ([]byte, error) {
-	// For Hikvision cameras, try the direct ISAPI snapshot first.
-	// This bypasses go2rtc/Frigate entirely and is typically the fastest path.
-	if cam.Type == "hikvision" && cam.IP != "" && cam.User != "" {
+	method := cam.SnapMethod
+	if method == "" {
+		method = "auto"
+	}
+
+	// Helper: try direct camera API (ISAPI for Hikvision, HTTP API for Reolink).
+	tryCameraAPI := func() ([]byte, error) {
 		streamType := "sub"
 		if streamOverride == "main" {
 			streamType = "main"
 		}
-		hikCam := cameras.NewHikvisionClient(
-			cam.IP, cam.User, cam.Pass, cam.Channel, cameraName,
-		)
-		if data, err := hikCam.Snapshot(streamType); err == nil {
-			return data, nil
+		switch cam.Type {
+		case "hikvision":
+			if cam.IP == "" || cam.User == "" {
+				return nil, fmt.Errorf("hikvision credentials not configured")
+			}
+			hikCam := cameras.NewHikvisionClient(
+				cam.IP, cam.User, cam.Pass, cam.Channel, cameraName,
+			)
+			return hikCam.Snapshot(streamType)
+		case "reolink":
+			if cam.IP == "" || cam.User == "" {
+				return nil, fmt.Errorf("reolink credentials not configured")
+			}
+			reoCam := cameras.NewReolinkClient(cam.IP, cam.User, cam.Pass)
+			return reoCam.Snapshot(streamType)
+		default:
+			return nil, fmt.Errorf("no direct snapshot API for camera type %s", cam.Type)
 		}
-		// Fall through to go2rtc/Frigate on failure
 	}
 
-	// If the camera has a vision_stream configured, use ffmpeg to grab from go2rtc.
-	streamName := cam.VisionStream
-	if streamOverride != "" && streamOverride != "main" && streamOverride != "sub" {
-		streamName = streamOverride
-	}
-	if streamName != "" && h.cfg.Go2rtcURL != "" {
+	// Helper: try go2rtc.
+	tryGo2rtc := func() ([]byte, error) {
+		streamName := cam.VisionStream
+		if streamOverride != "" && streamOverride != "main" && streamOverride != "sub" {
+			streamName = streamOverride
+		}
+		if streamName == "" {
+			streamName = cam.Stream
+		}
+		if streamName == "" || h.cfg.Go2rtcURL == "" {
+			return nil, fmt.Errorf("no go2rtc stream configured for camera %s", cameraName)
+		}
 		width := cam.VisionWidth
 		if width <= 0 {
-			width = 1280 // sensible default for vision models
+			width = 1280
 		}
 		return grabFrameFromStream(h.cfg.Go2rtcURL, streamName, width, 10*time.Second)
 	}
 
-	// Fall back to Frigate detect stream.
-	if frigateURL == "" {
-		return nil, fmt.Errorf(
-			"frigate URL not configured and no vision_stream set for camera %s",
-			cameraName,
-		)
+	// Helper: try Frigate.
+	tryFrigate := func() ([]byte, error) {
+		if frigateURL == "" {
+			return nil, fmt.Errorf("frigate URL not configured")
+		}
+		snapURL := fmt.Sprintf("%s/api/%s/latest.jpg?h=720", frigateURL, cameraName)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, snapURL, nil)
+		if err != nil {
+			return nil, fmt.Errorf("building frigate request: %w", err)
+		}
+		resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("frigate snapshot: %w", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			return nil, fmt.Errorf("frigate returned HTTP %d", resp.StatusCode)
+		}
+		data, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("reading snapshot: %w", err)
+		}
+		return data, nil
 	}
 
-	snapURL := fmt.Sprintf("%s/api/%s/latest.jpg?h=720", frigateURL, cameraName)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, snapURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("building frigate request: %w", err)
-	}
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("frigate snapshot: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("frigate returned HTTP %d", resp.StatusCode)
-	}
+	// Order depends on snap_method.
+	switch method {
+	case "isapi":
+		if data, err := tryCameraAPI(); err == nil {
+			return data, nil
+		}
+		if data, err := tryGo2rtc(); err == nil {
+			return data, nil
+		}
+		return tryFrigate()
 
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("reading snapshot: %w", err)
+	case "go2rtc":
+		if data, err := tryGo2rtc(); err == nil {
+			return data, nil
+		}
+		if data, err := tryCameraAPI(); err == nil {
+			return data, nil
+		}
+		return tryFrigate()
+
+	case "frigate":
+		return tryFrigate()
+
+	default: // "auto"
+		// For camera types with direct API support, try that first (fastest).
+		if cam.Type == "hikvision" || cam.Type == "reolink" {
+			if data, err := tryCameraAPI(); err == nil {
+				return data, nil
+			}
+		}
+		if data, err := tryGo2rtc(); err == nil {
+			return data, nil
+		}
+		return tryFrigate()
 	}
-	return data, nil
 }

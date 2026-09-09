@@ -379,7 +379,7 @@
       </select>
     </label>
 
-    {#if selectedCamera && cameras.find(c => c.name === selectedCamera)?.type === 'hikvision'}
+    {#if selectedCamera && (cameras.find(c => c.name === selectedCamera)?.type === 'hikvision' || cameras.find(c => c.name === selectedCamera)?.type === 'reolink')}
       <label class="flex flex-col gap-1 text-sm text-muted-foreground">
         Stream
         <select bind:value={selectedStream} disabled={busy}
