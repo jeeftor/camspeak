@@ -4,6 +4,7 @@
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { apiClient } from '$lib/api'
+  import VoiceSelect from '$lib/components/VoiceSelect.svelte'
 
   let { voices = [], presets = [] } = $props()
 
@@ -48,12 +49,7 @@
   </select>
   {#if !preset}
     <Input bind:value={text} placeholder="Text to broadcast..." class="min-w-[200px] flex-1" onkeydown={e => e.key === 'Enter' && broadcast()} />
-    <select bind:value={voice} class="rounded-md border border-input bg-transparent px-3 py-1 text-sm">
-      <option value="">default voice</option>
-      {#each voices as v}
-        <option>{v}</option>
-      {/each}
-    </select>
+    <VoiceSelect bind:value={voice} {voices} disabled={busy} class="px-3 py-1 text-sm" />
   {/if}
   <div class="flex items-center gap-1.5">
     <Volume2 class="h-3.5 w-3.5 text-muted-foreground" />

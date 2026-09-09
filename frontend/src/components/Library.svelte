@@ -9,6 +9,7 @@
   import { apiClient } from '$lib/api'
   import { formatMs, formatTimingSummary, formatSeconds } from '$lib/utils'
   import MiniWaveform from './MiniWaveform.svelte'
+  import VoiceSelect from '$lib/components/VoiceSelect.svelte'
 
   let { presets = [], voices = [], onRefresh } = $props()
 
@@ -471,12 +472,7 @@
       </label>
       <label class="flex flex-col gap-1 text-sm text-muted-foreground">
         Voice
-        <Select bind:value={genVoice}>
-          <option value="">default</option>
-          {#each voices as v}
-            <option>{v}</option>
-          {/each}
-        </Select>
+        <VoiceSelect bind:value={genVoice} {voices} />
       </label>
       <div class="flex gap-2">
         <Button onclick={generate} disabled={genBusy || !genText}>

@@ -8,6 +8,7 @@
   import { Badge } from '$lib/components/ui/badge'
   import CopyButton from '$lib/components/CopyButton.svelte'
   import VoiceSelect from '$lib/components/VoiceSelect.svelte'
+  import PromptEditor from '$lib/components/PromptEditor.svelte'
   import GainSlider from '$lib/components/GainSlider.svelte'
   import CameraInfoModal from './CameraInfoModal.svelte'
   import { buildCurl } from '$lib/curl.svelte'
@@ -695,11 +696,9 @@
         Custom prompt for this camera's describe action. Overrides the global default.
         Leave empty to use the global vision prompt.
       </p>
-      <Textarea
+      <PromptEditor
         bind:value={visionPrompt}
-        rows="4"
         placeholder="e.g. How many people do you see? Describe any vehicles."
-        class="text-xs"
         disabled={busy}
       />
       <div class="flex gap-2 justify-end">

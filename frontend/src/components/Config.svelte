@@ -13,6 +13,7 @@
   import Benchmark from './Benchmark.svelte'
   import Announce from './Announce.svelte'
   import CaptureTest from '$lib/components/CaptureTest.svelte'
+  import VoiceSelect from '$lib/components/VoiceSelect.svelte'
   import { toast } from '$lib/components/ui/toast'
   import { apiClient } from '$lib/api'
   import { isVisionCapableModel } from '$lib/models'
@@ -778,10 +779,7 @@
           </label>
           <label class="flex flex-col gap-1 text-xs text-muted-foreground">
             Default Voice
-            <Select bind:value={ttsVoice}>
-              <option value="">default</option>
-              {#each voices as v}<option>{v}</option>{/each}
-            </Select>
+            <VoiceSelect bind:value={ttsVoice} {voices} />
           </label>
           <label class="flex flex-col gap-1 text-xs text-muted-foreground">
             API Key (optional)
@@ -978,14 +976,8 @@
         </div>
         <label class="mt-3 flex flex-col gap-1 text-xs text-muted-foreground">
           Vision Prompt (optional)
-          <textarea
-            bind:value={camVisionPrompt}
-            rows="2"
-            placeholder="Describe what you see. Focus on people, vehicles, and animals."
-            class="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm
-                   placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1
-                   focus-visible:ring-ring disabled:opacity-50 resize-none"
-          ></textarea>
+          <PromptEditor bind:value={camVisionPrompt}
+            placeholder="Describe what you see. Focus on people, vehicles, and animals." />
           <span class="text-[11px] opacity-60">Used when clicking Describe on this camera. Can be overridden per-session.</span>
         </label>
         <div class="mt-3 border-t pt-3">
@@ -1134,14 +1126,8 @@
         </div>
         <label class="flex flex-col gap-1 text-xs text-muted-foreground mt-3">
           Default Vision Prompt
-          <textarea
-            bind:value={visionPrompt}
-            rows="3"
-            placeholder="Describe what you see in one or two sentences. Be concise and factual."
-            class="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm
-                   placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1
-                   focus-visible:ring-ring disabled:opacity-50 resize-none"
-          ></textarea>
+          <PromptEditor bind:value={visionPrompt}
+            placeholder="Describe what you see in one or two sentences. Be concise and factual." />
           <span class="text-[11px] opacity-60">
             Fallback chain: request prompt → camera's vision_prompt → this global default → hardcoded default.
             Leave empty to use the hardcoded default.

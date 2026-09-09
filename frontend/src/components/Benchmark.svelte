@@ -1,12 +1,12 @@
 <script lang="ts">
   import { Loader2, Play, Plus, X, RefreshCw, ChevronDown, ChevronRight } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
-  import { Textarea } from '$lib/components/ui/textarea'
   import { apiClient } from '$lib/api'
   import { isVisionCapableModel } from '$lib/models'
   import type { SnapshotBenchmarkResult } from '$lib/types'
   import { timeUnit, toggleTimeUnit, fmtTime } from '$lib/timefmt.svelte'
   import HoverPreview from '$lib/components/HoverPreview.svelte'
+  import PromptEditor from '$lib/components/PromptEditor.svelte'
 
   let { cameras = [] } = $props()
 
@@ -358,7 +358,7 @@
       {#each prompts as p, i}
         <div class="flex gap-2 items-start">
           <span class="text-xs text-muted-foreground font-mono mt-2 shrink-0">#{i + 1}</span>
-          <Textarea bind:value={prompts[i]} disabled={running} rows={2} class="flex-1 text-sm"
+          <PromptEditor bind:value={prompts[i]} disabled={running} class="flex-1"
             placeholder="Enter a prompt…" />
           <Button variant="ghost" size="sm" onclick={() => removePrompt(i)} disabled={running || prompts.length <= 1}
             class="shrink-0 mt-1">

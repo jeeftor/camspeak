@@ -1,12 +1,12 @@
 <script lang="ts">
   import { Loader2, Camera, Timer } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
-  import { Textarea } from '$lib/components/ui/textarea'
   import { apiClient } from '$lib/api'
   import type { SnapshotBenchmarkResult } from '$lib/types'
   import { timeUnit, toggleTimeUnit, fmtTime } from '$lib/timefmt.svelte'
   import CameraSelect from '$lib/components/CameraSelect.svelte'
   import HoverPreview from '$lib/components/HoverPreview.svelte'
+  import PromptEditor from '$lib/components/PromptEditor.svelte'
 
   let { cameras = [] } = $props()
 
@@ -90,7 +90,7 @@
       <label class="text-xs font-semibold text-muted-foreground">
         Custom Prompt <span class="font-normal">(optional — overrides camera/global prompt)</span>
       </label>
-      <Textarea bind:value={customPrompt} rows={2} disabled={running} class="text-sm"
+      <PromptEditor bind:value={customPrompt} disabled={running}
         placeholder="Leave empty to use the camera's configured prompt" />
     </div>
   {/if}

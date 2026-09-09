@@ -1,12 +1,12 @@
 <script lang="ts">
   import { Loader2, Volume2, ArrowRight, Camera } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
-  import { Textarea } from '$lib/components/ui/textarea'
   import { Input } from '$lib/components/ui/input'
   import { apiClient } from '$lib/api'
   import type { AnnounceResponse } from '$lib/types'
   import Markdown from '$lib/components/Markdown.svelte'
   import CameraSelect from '$lib/components/CameraSelect.svelte'
+  import PromptEditor from '$lib/components/PromptEditor.svelte'
   import { formatTimings } from '$lib/utils'
 
   let { cameras = [] } = $props()
@@ -92,7 +92,7 @@
 
     <label class="flex flex-col gap-1 text-sm text-muted-foreground">
       Prompt <span class="font-normal text-xs">(optional — overrides camera/global prompt)</span>
-      <Textarea bind:value={prompt} rows={2} disabled={busy} class="text-sm"
+      <PromptEditor bind:value={prompt} disabled={busy}
         placeholder="Describe who is at the door in one sentence." />
     </label>
   </div>

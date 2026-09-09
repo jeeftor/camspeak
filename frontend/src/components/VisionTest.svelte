@@ -1,8 +1,6 @@
 <script lang="ts">
-  import { Camera, Loader2, RefreshCw, Save, Sparkles, Upload, Trash2, Bookmark } from 'lucide-svelte'
+  import { Camera, Loader2, RefreshCw, Sparkles, Upload } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
-  import { Input } from '$lib/components/ui/input'
-  import { Textarea } from '$lib/components/ui/textarea'
   import CopyButton from '$lib/components/CopyButton.svelte'
   import Markdown from '$lib/components/Markdown.svelte'
   import { buildCurl } from '$lib/curl.svelte'
@@ -11,6 +9,7 @@
   import { Tooltip } from '$lib/components/ui/tooltip'
   import { formatTimings, timingTooltipContent, isMobile } from '$lib/utils'
   import CameraSelect from '$lib/components/CameraSelect.svelte'
+  import PromptEditor from '$lib/components/PromptEditor.svelte'
 
   let { cameras = [], globalPrompt = '', onSavePrompt } = $props()
 
@@ -36,8 +35,6 @@
   let modelsLoading = $state(false)
 
   let presets = $state([])
-  let presetName = $state('')
-  let showSavePreset = $state(false)
 
   $effect(() => {
     if (!prompt && globalPrompt) prompt = globalPrompt
@@ -83,12 +80,10 @@
 
   loadConfiguredModel()
 
-  async function savePreset() {
-    if (!presetName || !prompt) return
+  async function savePreset(name, promptValue) {
+    if (!name || !promptValue) return
     try {
-      await apiClient.saveVisionPrompt({ name: presetName, prompt })
-      presetName = ''
-      showSavePreset = false
+      await apiClient.saveVisionPrompt({ name, prompt: promptValue })
       await loadPresets()
       setStatus('Preset saved')
     } catch (e) { setStatus(e.message, 'err') }
@@ -98,8 +93,6 @@
     try { await apiClient.deleteVisionPrompt(name); await loadPresets() }
     catch (e) { setStatus(e.message, 'err') }
   }
-
-  function loadPreset(p) { prompt = p.prompt }
 
   let fileInput = $state(null)
 
@@ -230,51 +223,18 @@
   </div>
 
   <!-- Prompt editor (always visible) -->
-  <div class="rounded-lg border p-4 flex flex-col gap-2">
-    <div class="flex items-center justify-between">
-      <label class="text-xs font-semibold text-muted-foreground">Prompt</label>
-      <div class="flex gap-1.5">
-        {#if globalPrompt && prompt !== globalPrompt}
-          <Button variant="ghost" size="sm" onclick={() => prompt = globalPrompt}>Reset to default</Button>
-        {/if}
-        <Button variant="ghost" size="sm" onclick={() => showSavePreset = !showSavePreset} disabled={busy || !prompt}>
-          <Bookmark class="h-3.5 w-3.5" />
-          Save as Preset
-        </Button>
-        <Button variant="ghost" size="sm" onclick={() => onSavePrompt?.(prompt)} disabled={busy || !prompt}>
-          <Save class="h-3.5 w-3.5" />
-          Set as Global Default
-        </Button>
-      </div>
-    </div>
-    <Textarea bind:value={prompt} rows={3} placeholder="e.g. Describe what you see in one or two sentences." disabled={busy} class="text-sm" />
-    {#if showSavePreset}
-      <div class="flex gap-2 items-center">
-        <Input bind:value={presetName} placeholder="Preset name…" class="max-w-[200px] text-sm" />
-        <Button size="sm" onclick={savePreset} disabled={!presetName || !prompt}>Save</Button>
-        <Button variant="ghost" size="sm" onclick={() => showSavePreset = false}>Cancel</Button>
-      </div>
-    {/if}
-  </div>
-
-  <!-- Prompt presets bar -->
-  {#if presets.length > 0}
-    <div class="flex flex-wrap items-center gap-2">
-      <span class="text-xs font-semibold text-muted-foreground">Presets:</span>
-      {#each presets as p (p.name)}
-        <div class="flex items-center gap-0.5 rounded-md border bg-card text-xs">
-          <button onclick={() => loadPreset(p)} disabled={busy}
-            class="px-2 py-1 hover:bg-accent rounded-l-md disabled:opacity-50" title={p.prompt}>
-            {p.name}
-          </button>
-          <button onclick={() => deletePreset(p.name)} disabled={busy}
-            class="px-1 py-1 hover:bg-destructive/10 rounded-r-md disabled:opacity-50">
-            <Trash2 class="h-3 w-3" />
-          </button>
-        </div>
-      {/each}
-    </div>
-  {/if}
+  <PromptEditor
+    bind:value={prompt}
+    {presets}
+    {globalPrompt}
+    showPresetButtons={true}
+    disabled={busy}
+    placeholder="e.g. Describe what you see in one or two sentences."
+    onSavePreset={savePreset}
+    onDeletePreset={deletePreset}
+    onSetGlobal={onSavePrompt}
+    onResetGlobal={() => (prompt = globalPrompt)}
+  />
 
   <!-- Controls row -->
   <div class="flex flex-wrap items-end gap-3">

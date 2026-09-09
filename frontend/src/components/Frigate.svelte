@@ -3,9 +3,10 @@
   import { Play, Loader2, Wifi, WifiOff, Radio, ChevronDown, ChevronUp, Trash2, ChevronRight } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
-  import { Select } from '$lib/components/ui/select'
   import JsonCode from '$lib/components/JsonCode.svelte'
   import CameraSelect from '$lib/components/CameraSelect.svelte'
+  import VoiceSelect from '$lib/components/VoiceSelect.svelte'
+  import PromptEditor from '$lib/components/PromptEditor.svelte'
   import { apiClient } from '$lib/api'
 
   let { cameras = [] } = $props()
@@ -650,10 +651,7 @@
           </label>
           <label class="flex flex-col gap-1 text-xs text-muted-foreground">
             Voice
-            <Select bind:value={ruleVoice}>
-              <option value="">default</option>
-              {#each voices as v}<option>{v}</option>{/each}
-            </Select>
+            <VoiceSelect bind:value={ruleVoice} {voices} />
           </label>
         </div>
 
@@ -669,7 +667,7 @@
             </label>
             <label class="flex flex-col gap-1 text-xs text-muted-foreground">
               Prompt (optional)
-              <Input bind:value={rulePrompt} placeholder="Describe who is at the door" />
+              <PromptEditor bind:value={rulePrompt} placeholder="Describe who is at the door" />
             </label>
           </div>
           {#if ruleSourceCamera}
