@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+
+	"github.com/jeeftor/camspeak/internal/util"
 )
 
 // ListLibrary handles GET /api/library.
@@ -294,4 +296,75 @@ func (h *Handlers) PreviewPreset(c echo.Context) error {
 	defer os.Remove(wav)
 
 	return c.File(wav)
+}
+
+// PresetPeaks handles GET /api/library/:category/:name/peaks — returns
+// pre-computed waveform peaks (200 max-amplitude values, 0.0-1.0) and
+// duration for fast waveform rendering without downloading the full audio.
+// Reads the raw G.711 µ-law file, decodes to PCM, and downsamples.
+func (h *Handlers) PresetPeaks(c echo.Context) error {
+	preset, err := h.store.Get(c.Param("category"), c.Param("name"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, err.Error())
+	}
+
+	if preset.IsStream() {
+		return echo.NewHTTPError(
+			http.StatusBadRequest,
+			"peaks not available for stream presets",
+		)
+	}
+
+	rawBytes, err := os.ReadFile(preset.RawPath)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "raw file not found")
+	}
+
+	const numPeaks = 200
+	peaks := make([]float64, numPeaks)
+	total := len(rawBytes)
+	if total == 0 {
+		return c.JSON(http.StatusOK, map[string]any{
+			"peaks":    peaks,
+			"duration": preset.Duration,
+		})
+	}
+
+	bucket := total / numPeaks
+	if bucket == 0 {
+		bucket = 1
+	}
+
+	for i := 0; i < numPeaks; i++ {
+		start := i * bucket
+		end := start + bucket
+		if start >= total {
+			peaks[i] = 0
+			continue
+		}
+		if end > total {
+			end = total
+		}
+		var maxAbs float64
+		for j := start; j < end; j++ {
+			pcm := float64(util.MulawDecode(rawBytes[j]))
+			abs := pcm
+			if abs < 0 {
+				abs = -abs
+			}
+			if abs > maxAbs {
+				maxAbs = abs
+			}
+		}
+		// Normalize to 0.0-1.0 (max int16 = 32124 for µ-law)
+		peaks[i] = maxAbs / 32124.0
+		if peaks[i] > 1.0 {
+			peaks[i] = 1.0
+		}
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"peaks":    peaks,
+		"duration": preset.Duration,
+	})
 }

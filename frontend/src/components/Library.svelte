@@ -8,6 +8,7 @@
   import { toast } from '$lib/components/ui/toast'
   import { apiClient } from '$lib/api'
   import { formatMs, formatTimingSummary, formatSeconds } from '$lib/utils'
+  import MiniWaveform from './MiniWaveform.svelte'
 
   let { presets = [], voices = [], onRefresh } = $props()
 
@@ -340,11 +341,13 @@
                     {#if isStream}
                       <span class="truncate text-xs text-muted-foreground font-mono">{p.url}</span>
                     {:else}
-                      <span class="text-xs text-muted-foreground whitespace-nowrap">{formatSeconds(p.duration)}</span>
                       {#if p.text}<span class="truncate text-sm italic text-muted-foreground">"{p.text}"</span>{/if}
                     {/if}
                   </div>
                   <div class="flex shrink-0 gap-1">
+                    {#if !isStream}
+                      <span class="text-xs text-muted-foreground whitespace-nowrap self-center mr-1">{formatSeconds(p.duration)}</span>
+                    {/if}
                     <Button variant="outline" size="icon" class="h-8 w-8" onclick={() => preview(p.category, p.name)} title="Preview" aria-label="Preview preset">
                       {#if playingKey === key}<Pause class="h-4 w-4" />{:else}<Play class="h-4 w-4" />{/if}
                     </Button>
@@ -356,6 +359,11 @@
                     </Button>
                   </div>
                 </div>
+                {#if !isStream}
+                  <div class="mt-1.5">
+                    <MiniWaveform category={p.category} name={p.name} duration={p.duration} />
+                  </div>
+                {/if}
                 {#if editingKey === key}
                   <div class="mt-2 flex flex-wrap items-end gap-2 border-t pt-2">
                     <label class="flex flex-col gap-0.5 text-xs text-muted-foreground">

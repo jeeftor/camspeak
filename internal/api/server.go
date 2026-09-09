@@ -162,6 +162,7 @@ func New(
 	api.DELETE("/library/:category/:name", h.DeletePreset)
 	api.PATCH("/library/:category/:name", h.RenamePreset)
 	api.GET("/library/:category/:name/preview", h.PreviewPreset)
+	api.GET("/library/:category/:name/peaks", h.PresetPeaks)
 	api.GET("/events", h.Events)
 	api.GET("/events/log", h.EventLog)
 	api.GET("/stream-levels", h.StreamLevels)
