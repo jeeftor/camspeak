@@ -69,6 +69,16 @@
   let camStatus = $state('')
   let availableStreams = $state([])
 
+  // Capture test widget state
+  let captureBusy = $state(false)
+  let captureImage = $state('')
+  let captureError = $state('')
+  let captureMs = $state(0)
+  let captureSize = $state(0)
+  let benchBusy = $state(false)
+  let benchResults = $state([])
+  let benchError = $state('')
+
   // Vision form
   let visionURL = $state('')
   let visionModel = $state('')
@@ -264,6 +274,7 @@
     camAirPlayName = ''; camAirPlayModel = ''; camAirPlayEnabled = true
     camStatus = ''; testCamStatus = ''; detectCamStatus = ''
     camStreamCustom = false
+    resetCaptureState()
     loadGo2rtcStreams()
     loadAvailableStreams()
     camFormOpen = true
@@ -287,6 +298,7 @@
     camAirPlayModel = cam.airplay_model ?? airplayModel ?? 'RealityDevice14,1'
     camStatus = ''; testCamStatus = ''; detectCamStatus = ''
     camStreamCustom = false
+    resetCaptureState()
     loadGo2rtcStreams()
     loadAvailableStreams()
     camFormOpen = true
@@ -314,6 +326,55 @@
     } finally {
       go2rtcStreamsLoading = false
     }
+  }
+
+  // --- Capture test widget ---
+  async function testCapture() {
+    if (!camName) return
+    captureBusy = true
+    captureError = ''
+    captureImage = ''
+    captureMs = 0
+    captureSize = 0
+    try {
+      const t0 = performance.now()
+      const resp = await apiClient.snapshot(camName, camVisionStream || undefined, camVisionWidth || undefined)
+      const elapsed = Math.round(performance.now() - t0)
+      const blob = await resp.blob()
+      captureMs = elapsed
+      captureSize = blob.size
+      captureImage = URL.createObjectURL(blob)
+    } catch (e) {
+      captureError = e.message || String(e)
+    } finally {
+      captureBusy = false
+    }
+  }
+
+  async function testBenchmarkAll() {
+    if (!camName) return
+    benchBusy = true
+    benchError = ''
+    benchResults = []
+    try {
+      const res = await apiClient.snapshotBenchmark(camName)
+      benchResults = res.results ?? []
+    } catch (e) {
+      benchError = e.message || String(e)
+    } finally {
+      benchBusy = false
+    }
+  }
+
+  function resetCaptureState() {
+    captureBusy = false
+    captureImage = ''
+    captureError = ''
+    captureMs = 0
+    captureSize = 0
+    benchBusy = false
+    benchResults = []
+    benchError = ''
   }
 
   async function pingCamera(name) {
@@ -1022,8 +1083,68 @@
               <option value="go2rtc">go2rtc</option>
               <option value="frigate">frigate</option>
             </select>
-            <span class="text-[11px] opacity-60">Which snapshot method to prefer for this camera. Use the Benchmark tool in Vision Playground to compare.</span>
+            <span class="text-[11px] opacity-60">Which snapshot method to prefer for this camera. Test it below or benchmark all methods.</span>
           </label>
+
+          <!-- Capture test widget -->
+          <div class="mt-3 rounded-lg border border-dashed p-3 flex flex-col gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-xs font-semibold text-muted-foreground">Capture test</span>
+              <Button size="sm" variant="outline" onclick={testCapture} disabled={captureBusy || !camName}>
+                {#if captureBusy}Capturing…{:else}Test capture{/if}
+              </Button>
+              <Button size="sm" variant="ghost" onclick={testBenchmarkAll} disabled={benchBusy || !camName}>
+                {#if benchBusy}Benchmarking…{:else}Benchmark all methods{/if}
+              </Button>
+              {#if captureMs > 0}
+                <span class="text-xs text-muted-foreground">
+                  {captureMs}ms · {(captureSize / 1024).toFixed(0)}KB
+                </span>
+              {/if}
+            </div>
+
+            {#if captureError}
+              <p class="text-xs text-destructive">{captureError}</p>
+            {/if}
+
+            {#if captureImage}
+              <div class="flex flex-col gap-1">
+                <img src={captureImage} alt="captured frame" class="rounded-md max-h-[240px] object-contain border" />
+                <span class="text-[11px] text-muted-foreground">
+                  Captured with: {camSnapMethod || 'auto'}{camVisionStream ? ', stream: ' + camVisionStream : ''}{camVisionWidth ? ', width: ' + camVisionWidth : ''}
+                </span>
+              </div>
+            {/if}
+
+            {#if benchError}
+              <p class="text-xs text-destructive">{benchError}</p>
+            {/if}
+
+            {#if benchResults.length > 0}
+              <div class="overflow-x-auto">
+                <table class="w-full text-xs">
+                  <thead>
+                    <tr class="text-left text-muted-foreground border-b">
+                      <th class="py-1 pr-3">Method</th>
+                      <th class="py-1 pr-3">Time</th>
+                      <th class="py-1 pr-3">Size</th>
+                      <th class="py-1">Resolution</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {#each benchResults as r}
+                      <tr class="border-b border-border/50 {!r.ok ? 'opacity-50' : ''}">
+                        <td class="py-1 pr-3 font-mono">{r.method}</td>
+                        <td class="py-1 pr-3">{r.ok ? (r.snap_sec * 1000).toFixed(0) + 'ms' : '✗'}</td>
+                        <td class="py-1 pr-3">{r.bytes ? (r.bytes / 1024).toFixed(0) + 'KB' : '—'}</td>
+                        <td class="py-1">{r.width && r.height ? r.width + '×' + r.height : '—'}</td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+            {/if}
+          </div>
         </div>
         <label class="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
           <input type="checkbox" bind:checked={camEnabled} class="h-4 w-4 cursor-pointer rounded border-input accent-primary" />
