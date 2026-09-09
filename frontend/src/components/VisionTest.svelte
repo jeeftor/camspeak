@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Camera, Eye, Loader2, RefreshCw, Save, Sparkles, Upload, Trash2, Bookmark } from 'lucide-svelte'
+  import { Camera, Loader2, RefreshCw, Save, Sparkles, Upload, Trash2, Bookmark } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Textarea } from '$lib/components/ui/textarea'
@@ -13,11 +13,11 @@
   let { cameras = [], globalPrompt = '', onSavePrompt } = $props()
 
   let selectedCamera = $state('')
-  let selectedStream = $state('') // '' = auto (ISAPI sub for Hikvision, vision_stream, or Frigate)
+  let selectedStream = $state('')
   let prompt = $state(globalPrompt)
-  let image = $state('') // base64 data URI
+  let image = $state('')
   let description = $state('')
-  let visionTiming = $state('') // compact timing breakdown from last vision run
+  let visionTiming = $state('')
   let visionTimingsRaw = $state(undefined)
   let visionTotalMs = $state(undefined)
   let visionTtfsMs = $state(undefined)
@@ -25,24 +25,18 @@
   let busy = $state(false)
   let status = $state('')
   let statusType = $state('ok')
-  let results = $state([]) // history of { prompt, description, time, model }
+  let results = $state([])
   let statusTimeout
 
-  // Model selection
-  let configuredModel = $state('')      // globally configured model from /api/config/vision
-  let selectedModel = $state('')       // model to use for this test (empty = use configured)
-  let availableModels = $state([])      // list of model IDs from the endpoint
+  let configuredModel = $state('')
+  let selectedModel = $state('')
+  let availableModels = $state([])
   let modelsLoading = $state(false)
-  let modelPickerOpen = $state(false)
 
-  // Snapshot benchmark state removed — now in dedicated Benchmark tab
-
-  // Prompt presets
   let presets = $state([])
   let presetName = $state('')
   let showSavePreset = $state(false)
 
-  // Update prompt when globalPrompt prop changes
   $effect(() => {
     if (!prompt && globalPrompt) prompt = globalPrompt
   })
@@ -54,22 +48,17 @@
     statusTimeout = setTimeout(() => (status = ''), 5000)
   }
 
-  // --- Prompt presets ---
   async function loadPresets() {
-    try {
-      presets = await apiClient.listVisionPrompts() ?? []
-    } catch (e) { /* ignore */ }
+    try { presets = await apiClient.listVisionPrompts() ?? [] } catch { /* ignore */ }
   }
-
   loadPresets()
 
-  // --- Model selection ---
   async function loadConfiguredModel() {
     try {
       const cfg = await apiClient.getVisionConfig()
       configuredModel = cfg.model || ''
       if (!selectedModel) selectedModel = configuredModel
-    } catch (e) { /* ignore */ }
+    } catch { /* ignore */ }
   }
 
   async function fetchModels() {
@@ -84,30 +73,20 @@
           .sort()
       }
     } catch (e) {
-      setStatus('✗ Failed to fetch models: ' + e.message, 'err')
+      setStatus('Failed to fetch models: ' + e.message, 'err')
     } finally {
       modelsLoading = false
     }
   }
 
   function isVisionCapableModel(id) {
-    const lower = id.toLowerCase()
-    return lower.includes('vision') ||
-      lower.includes('vl') ||
-      lower.includes('llava') ||
-      lower.includes('qwen') ||
-      lower.includes('intern') ||
-      lower.includes('pixtral') ||
-      lower.includes('gpt-4o') ||
-      lower.includes('claude-3') ||
-      lower.includes('gemini') ||
-      lower.includes('minicpm') ||
-      lower.includes('moondream') ||
-      lower.includes('phi-3') ||
-      lower.includes('florence') ||
-      lower.includes('cogvlm') ||
-      lower.includes('ovis') ||
-      lower.includes('idefics')
+    const l = id.toLowerCase()
+    return l.includes('vision') || l.includes('vl') || l.includes('llava') ||
+      l.includes('qwen') || l.includes('intern') || l.includes('pixtral') ||
+      l.includes('gpt-4o') || l.includes('claude-3') || l.includes('gemini') ||
+      l.includes('minicpm') || l.includes('moondream') || l.includes('phi-3') ||
+      l.includes('florence') || l.includes('cogvlm') || l.includes('ovis') ||
+      l.includes('idefics')
   }
 
   loadConfiguredModel()
@@ -119,173 +98,96 @@
       presetName = ''
       showSavePreset = false
       await loadPresets()
-      setStatus('✓ Prompt preset saved')
-    } catch (e) {
-      setStatus('✗ ' + e.message, 'err')
-    }
+      setStatus('Preset saved')
+    } catch (e) { setStatus(e.message, 'err') }
   }
 
   async function deletePreset(name) {
-    try {
-      await apiClient.deleteVisionPrompt(name)
-      await loadPresets()
-      setStatus('✓ Preset deleted')
-    } catch (e) {
-      setStatus('✗ ' + e.message, 'err')
-    }
+    try { await apiClient.deleteVisionPrompt(name); await loadPresets() }
+    catch (e) { setStatus(e.message, 'err') }
   }
 
-  function loadPreset(p) {
-    prompt = p.prompt
-    setStatus(`Loaded preset: ${p.name}`)
-  }
+  function loadPreset(p) { prompt = p.prompt }
 
-  // --- Image upload ---
   let fileInput = $state(null)
 
   async function onFileUpload(e) {
     const file = e.target.files?.[0]
-    if (!file) return
-    if (!file.type.startsWith('image/')) {
-      setStatus('Please upload an image file', 'err')
-      return
-    }
-    busy = true
-    status = ''
+    if (!file || !file.type.startsWith('image/')) return
+    busy = true; status = ''
     try {
-      setStatus('Analyzing uploaded image…')
       const fd = new FormData()
       fd.append('prompt', prompt)
-      if (selectedModel && selectedModel !== configuredModel) {
-        fd.append('model', selectedModel)
-      }
+      if (selectedModel && selectedModel !== configuredModel) fd.append('model', selectedModel)
       fd.append('image', file)
       const res = await apiClient.visionTest(fd)
       const data = await res.json()
       image = data.image || ''
       description = data.description || ''
-      const usedModel = data.model || selectedModel || configuredModel
       visionTiming = formatTimings(data.timings)
       visionTimingsRaw = data.timings
       visionTotalMs = data.total_ms
       visionTtfsMs = data.ttfs_ms
-      results = [{ prompt, description, time: new Date().toLocaleTimeString(), model: usedModel }, ...results].slice(0, 10)
-      setStatus('✓ Done')
-    } catch (e) {
-      setStatus('✗ ' + e.message, 'err')
-    } finally {
-      busy = false
-      if (fileInput) fileInput.value = ''
-    }
+      results = [{ prompt, description, time: new Date().toLocaleTimeString(), model: data.model || selectedModel || configuredModel }, ...results].slice(0, 10)
+    } catch (e) { setStatus(e.message, 'err') }
+    finally { busy = false; if (fileInput) fileInput.value = '' }
   }
 
-  // --- Vision execution ---
   async function runVision(capture = false) {
-    if (!selectedCamera && !image) {
-      setStatus('Select a camera first', 'err')
-      return
-    }
-    busy = true
-    status = ''
+    if (!selectedCamera && !image) { setStatus('Select a camera first', 'err'); return }
+    busy = true; status = ''
     try {
-      const body = { prompt }
-      if (selectedModel && selectedModel !== configuredModel) {
-        body.model = selectedModel
-      }
-      if (capture || !image) {
-        body.camera = selectedCamera
-        if (selectedStream) body.stream = selectedStream
-      } else {
-        body.image = image
-        body.camera = selectedCamera
-      }
-      setStatus(capture || !image ? 'Capturing + analyzing…' : 'Analyzing…')
+      const body: any = { prompt }
+      if (selectedModel && selectedModel !== configuredModel) body.model = selectedModel
+      if (capture || !image) { body.camera = selectedCamera; if (selectedStream) body.stream = selectedStream }
+      else { body.image = image; body.camera = selectedCamera }
+      setStatus(capture || !image ? 'Capturing…' : 'Analyzing…')
       const data = await apiClient.visionTestJSON(body)
       image = data.image || image
       description = data.description || ''
-      const usedModel = data.model || selectedModel || configuredModel
       visionTiming = formatTimings(data.timings)
       visionTimingsRaw = data.timings
       visionTotalMs = data.total_ms
       visionTtfsMs = data.ttfs_ms
-      results = [{ prompt, description, time: new Date().toLocaleTimeString(), model: usedModel }, ...results].slice(0, 10)
-      setStatus('✓ Done')
-    } catch (e) {
-      setStatus('✗ ' + e.message, 'err')
-    } finally {
-      busy = false
-    }
+      results = [{ prompt, description, time: new Date().toLocaleTimeString(), model: data.model || selectedModel || configuredModel }, ...results].slice(0, 10)
+      setStatus('Done')
+    } catch (e) { setStatus(e.message, 'err') }
+    finally { busy = false }
   }
 
   function captureAndRun() {
-    image = ''
-    description = ''
-    visionTiming = ''
-    visionTimingsRaw = undefined
-    visionTotalMs = undefined
-    visionTtfsMs = undefined
+    image = ''; description = ''; visionTiming = ''
+    visionTimingsRaw = undefined; visionTotalMs = undefined; visionTtfsMs = undefined
     runVision(true)
   }
 
-  function reRun() {
-    if (!image) {
-      runVision(true)
-      return
-    }
-    runVision(false)
-  }
-
-  function saveAsGlobal() {
-    if (!prompt || !onSavePrompt) return
-    onSavePrompt(prompt)
-    setStatus('✓ Saved as global default prompt')
-  }
-
   function clearAll() {
-    image = ''
-    description = ''
-    visionTiming = ''
-    visionTimingsRaw = undefined
-    visionTotalMs = undefined
-    visionTtfsMs = undefined
-    results = []
-    status = ''
+    image = ''; description = ''; visionTiming = ''
+    visionTimingsRaw = undefined; visionTotalMs = undefined; visionTtfsMs = undefined
+    results = []; status = ''
   }
 
   // --- Test All Models ---
-  let allResults = $state([])   // [{model, pending, description, error, ttfs_ms, gen_ms, total_ms}]
+  let allResults = $state([])
   let allBusy = $state(false)
   let allStatus = $state('')
   let allDoneCount = $state(0)
   let allModelCount = $state(0)
 
   async function runTestAll() {
-    if (!selectedCamera && !image) {
-      setStatus('Select a camera or capture an image first', 'err')
-      return
-    }
-    allBusy = true
-    allResults = []
-    allStatus = ''
-    allDoneCount = 0
-    allModelCount = 0
-
-    const body = { prompt, image: undefined, camera: undefined }
+    if (!selectedCamera && !image) { setStatus('Select a camera or capture an image first', 'err'); return }
+    allBusy = true; allResults = []; allStatus = ''; allDoneCount = 0; allModelCount = 0
+    const body: any = { prompt }
     if (image) { body.image = image; body.camera = selectedCamera }
     else { body.camera = selectedCamera; if (selectedStream) body.stream = selectedStream }
-
     try {
       const resp = await fetch('/api/vision/test-all/stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       })
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-
       const reader = resp.body.getReader()
       const dec = new TextDecoder()
       let buf = ''
-
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
@@ -296,31 +198,22 @@
           if (!line.startsWith('data:')) continue
           let ev
           try { ev = JSON.parse(line.slice(5).trim()) } catch { continue }
-
-          if (ev.type === 'image') {
-            if (!image && ev.image) image = ev.image
-          } else if (ev.type === 'models') {
+          if (ev.type === 'image') { if (!image && ev.image) image = ev.image }
+          else if (ev.type === 'models') {
             allModelCount = ev.models.length
             allResults = ev.models.map(m => ({ model: m, pending: true }))
           } else if (ev.type === 'result') {
             allDoneCount++
-            allResults = allResults.map(r =>
-              r.model === ev.model ? { ...ev, pending: false } : r
-            )
+            allResults = allResults.map(r => r.model === ev.model ? { ...ev, pending: false } : r)
           } else if (ev.type === 'done') {
-            allStatus = `Done — ${ev.count} model${ev.count === 1 ? '' : 's'} tested`
+            allStatus = `Done — ${ev.count} model${ev.count === 1 ? '' : 's'}`
           }
         }
       }
-    } catch (e) {
-      allStatus = '✗ ' + e.message
-    } finally {
-      allBusy = false
-    }
+    } catch (e) { allStatus = e.message }
+    finally { allBusy = false }
   }
 
-  // Format a millisecond duration into a human-readable string.
-  // < 1000ms → "432ms"   ≥ 1000ms → "1.33s" / "32.0s"
   function fmtMs(ms) {
     if (!ms || ms <= 0) return '0ms'
     if (ms < 1000) return `${ms}ms`
@@ -340,10 +233,56 @@
   <div>
     <h2 class="text-lg font-semibold text-primary mb-1">Vision Playground</h2>
     <p class="text-sm text-muted-foreground">
-      Capture a snapshot from a camera or upload an image, then test vision prompts against one model or all available models.
-      Save your favorite prompts as presets for later reuse.
+      Capture a snapshot or upload an image, then test vision prompts. Compare models side-by-side.
     </p>
   </div>
+
+  <!-- Prompt editor (always visible) -->
+  <div class="rounded-lg border p-4 flex flex-col gap-2">
+    <div class="flex items-center justify-between">
+      <label class="text-xs font-semibold text-muted-foreground">Prompt</label>
+      <div class="flex gap-1.5">
+        {#if globalPrompt && prompt !== globalPrompt}
+          <Button variant="ghost" size="sm" onclick={() => prompt = globalPrompt}>Reset to default</Button>
+        {/if}
+        <Button variant="ghost" size="sm" onclick={() => showSavePreset = !showSavePreset} disabled={busy || !prompt}>
+          <Bookmark class="h-3.5 w-3.5" />
+          Save as Preset
+        </Button>
+        <Button variant="ghost" size="sm" onclick={() => onSavePrompt?.(prompt)} disabled={busy || !prompt}>
+          <Save class="h-3.5 w-3.5" />
+          Set as Global Default
+        </Button>
+      </div>
+    </div>
+    <Textarea bind:value={prompt} rows={3} placeholder="e.g. Describe what you see in one or two sentences." disabled={busy} class="text-sm" />
+    {#if showSavePreset}
+      <div class="flex gap-2 items-center">
+        <Input bind:value={presetName} placeholder="Preset name…" class="max-w-[200px] text-sm" />
+        <Button size="sm" onclick={savePreset} disabled={!presetName || !prompt}>Save</Button>
+        <Button variant="ghost" size="sm" onclick={() => showSavePreset = false}>Cancel</Button>
+      </div>
+    {/if}
+  </div>
+
+  <!-- Prompt presets bar -->
+  {#if presets.length > 0}
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="text-xs font-semibold text-muted-foreground">Presets:</span>
+      {#each presets as p (p.name)}
+        <div class="flex items-center gap-0.5 rounded-md border bg-card text-xs">
+          <button onclick={() => loadPreset(p)} disabled={busy}
+            class="px-2 py-1 hover:bg-accent rounded-l-md disabled:opacity-50" title={p.prompt}>
+            {p.name}
+          </button>
+          <button onclick={() => deletePreset(p.name)} disabled={busy}
+            class="px-1 py-1 hover:bg-destructive/10 rounded-r-md disabled:opacity-50">
+            <Trash2 class="h-3 w-3" />
+          </button>
+        </div>
+      {/each}
+    </div>
+  {/if}
 
   <!-- Controls row -->
   <div class="flex flex-wrap items-end gap-3">
@@ -362,8 +301,7 @@
       <label class="flex flex-col gap-1 text-sm text-muted-foreground">
         Stream
         <select bind:value={selectedStream} disabled={busy}
-          class="rounded-md border border-input bg-transparent px-3 py-2 text-sm disabled:opacity-50 min-w-[100px]"
-          title="Which camera stream to capture from">
+          class="rounded-md border border-input bg-transparent px-3 py-2 text-sm disabled:opacity-50 min-w-[100px]">
           <option value="">sub (auto)</option>
           <option value="main">main</option>
           <option value="sub">sub</option>
@@ -376,7 +314,7 @@
       <div class="flex items-center gap-1">
         <select bind:value={selectedModel} disabled={busy}
           class="rounded-md border border-input bg-transparent px-3 py-2 text-sm disabled:opacity-50 min-w-[180px] max-w-[280px]"
-          title={selectedModel || configuredModel ? (selectedModel || configuredModel) : 'No model configured — set one in Config → Vision'}>
+          title={selectedModel || configuredModel || 'No model configured'}>
           {#if configuredModel && !availableModels.includes(configuredModel)}
             <option value={configuredModel}>{configuredModel} (configured)</option>
           {/if}
@@ -387,104 +325,47 @@
             <option value="">— not configured —</option>
           {/if}
         </select>
-        <button onclick={(e) => { e.preventDefault(); if (!modelsLoading) { fetchModels(); modelPickerOpen = true } }}
+        <button onclick={(e) => { e.preventDefault(); if (!modelsLoading) fetchModels() }}
           disabled={busy || modelsLoading}
           class="inline-flex items-center justify-center h-9 w-9 rounded-md border border-input bg-background hover:bg-accent disabled:opacity-50 shrink-0"
-          title="Fetch available models from the vision endpoint">
-          {#if modelsLoading}
-            <Loader2 class="h-4 w-4 animate-spin" />
-          {:else}
-            <RefreshCw class="h-4 w-4" />
-          {/if}
+          title="Fetch available models">
+          {#if modelsLoading}<Loader2 class="h-4 w-4 animate-spin" />{:else}<RefreshCw class="h-4 w-4" />{/if}
         </button>
       </div>
     </label>
 
-    <Button onclick={captureAndRun} disabled={busy || !selectedCamera} title="Capture fresh snapshot and run vision">
-      {#if busy && status.toLowerCase().includes('captur')}
-        <Loader2 class="h-4 w-4 animate-spin" />
-      {:else}
-        <Camera class="h-4 w-4" />
-      {/if}
+    <Button onclick={captureAndRun} disabled={busy || !selectedCamera}>
+      {#if busy && status.toLowerCase().includes('captur')}<Loader2 class="h-4 w-4 animate-spin" />{:else}<Camera class="h-4 w-4" />{/if}
       Capture & Analyze
     </Button>
 
-    <!-- Upload button -->
     <label class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium
-      transition-colors border border-input bg-background hover:bg-accent hover:text-accent-foreground
-      h-9 px-4 cursor-pointer disabled:opacity-50" title="Upload an image file to test against">
-      <Upload class="h-4 w-4" />
-      Upload Image
+      transition-colors border border-input bg-background hover:bg-accent h-9 px-4 cursor-pointer disabled:opacity-50">
+      <Upload class="h-4 w-4" /> Upload
       <input bind:this={fileInput} type="file" accept="image/*" class="hidden" onchange={onFileUpload} disabled={busy} />
     </label>
 
-    {#if image}
-      <Button variant="outline" onclick={reRun} disabled={busy} title="Re-run vision on the same image with current prompt">
-        {#if busy && !status.toLowerCase().includes('captur')}
-          <Loader2 class="h-4 w-4 animate-spin" />
-        {:else}
-          <RefreshCw class="h-4 w-4" />
-        {/if}
-        Re-run with new prompt
-      </Button>
-    {/if}
-
-    <Button variant="outline" onclick={runTestAll} disabled={allBusy || busy || (!selectedCamera && !image)}
-      title="Run the current prompt against every model on the vision endpoint and compare results">
-      {#if allBusy}
-        <Loader2 class="h-4 w-4 animate-spin" />
-      {:else}
-        <Sparkles class="h-4 w-4" />
-      {/if}
+    <Button variant="outline" onclick={runTestAll} disabled={allBusy || busy || (!selectedCamera && !image)}>
+      {#if allBusy}<Loader2 class="h-4 w-4 animate-spin" />{:else}<Sparkles class="h-4 w-4" />{/if}
       Test All Models
     </Button>
 
     {#if image}
-      <Button variant="ghost" onclick={clearAll} disabled={busy} title="Clear snapshot and results">
-        Clear
+      <Button variant="outline" onclick={() => runVision(false)} disabled={busy}>
+        <RefreshCw class="h-4 w-4" /> Re-run
       </Button>
+      <Button variant="ghost" onclick={clearAll} disabled={busy}>Clear</Button>
     {/if}
   </div>
 
-  <!-- Prompt presets bar -->
-  <div class="flex flex-wrap items-center gap-2">
-    <span class="text-xs font-semibold text-muted-foreground">Presets:</span>
-    {#if presets.length === 0}
-      <span class="text-xs text-muted-foreground italic">No saved presets yet</span>
-    {:else}
-      {#each presets as p (p.name)}
-        <div class="flex items-center gap-0.5 rounded-md border bg-card text-xs">
-          <button onclick={() => loadPreset(p)} disabled={busy}
-            class="px-2 py-1 hover:bg-accent rounded-l-md disabled:opacity-50" title={p.prompt}>
-            {p.name}
-          </button>
-          <button onclick={() => deletePreset(p.name)} disabled={busy}
-            class="px-1 py-1 hover:bg-destructive/10 rounded-r-md disabled:opacity-50" title="Delete preset">
-            <Trash2 class="h-3 w-3" />
-          </button>
-        </div>
-      {/each}
-    {/if}
-    <Button variant="ghost" size="sm" onclick={() => showSavePreset = !showSavePreset} disabled={busy || !prompt}
-      title="Save current prompt as a named preset">
-      <Bookmark class="h-3.5 w-3.5" />
-      Save as Preset
-    </Button>
-  </div>
-
-  <!-- Save preset inline form -->
-  {#if showSavePreset}
-    <div class="flex gap-2 items-center">
-      <Input bind:value={presetName} placeholder="Preset name…" class="max-w-[200px] text-sm" />
-      <Button size="sm" onclick={savePreset} disabled={!presetName || !prompt}>Save</Button>
-      <Button variant="ghost" size="sm" onclick={() => showSavePreset = false}>Cancel</Button>
-    </div>
+  <!-- Status -->
+  {#if status}
+    <div class="text-sm {statusType === 'err' ? 'text-destructive' : 'text-primary'}">{status}</div>
   {/if}
 
-  <!-- Snapshot + prompt side by side -->
+  <!-- Image + description -->
   {#if image || busy}
     <div class="flex gap-4 flex-col md:flex-row">
-      <!-- Snapshot -->
       <div class="flex-1 min-w-0">
         <p class="text-xs font-semibold text-muted-foreground mb-1.5">Image</p>
         <div class="relative rounded-lg border overflow-hidden">
@@ -497,96 +378,23 @@
           {/if}
         </div>
       </div>
-
-      <!-- Prompt editor -->
       <div class="flex-1 min-w-0 flex flex-col gap-2">
-        <div class="flex items-center justify-between">
-          <p class="text-xs font-semibold text-muted-foreground">Vision Prompt</p>
-          {#if globalPrompt && prompt !== globalPrompt}
-            <Button variant="ghost" size="sm" onclick={() => prompt = globalPrompt} title="Reset to global default">
-              Reset
-            </Button>
+        <p class="text-xs font-semibold text-muted-foreground">Result</p>
+        {#if description}
+          <Markdown content={description} class="text-sm text-foreground" />
+          {#if visionTiming}
+            {#if desktop}
+              <Tooltip content={timingTooltipContent(visionTimingsRaw, visionTotalMs, visionTtfsMs)} multiline side="bottom" class="text-xs">
+                <p class="text-xs text-muted-foreground cursor-help w-fit">⏱ {visionTiming}</p>
+              </Tooltip>
+            {:else}
+              <p class="text-xs text-muted-foreground">⏱ {visionTiming}</p>
+            {/if}
           {/if}
-        </div>
-        <Textarea
-          bind:value={prompt}
-          rows="6"
-          placeholder="e.g. Describe what you see in one or two sentences. Be concise and factual."
-          disabled={busy}
-          class="text-sm"
-        />
-        <div class="flex gap-2 flex-wrap">
-          <Button variant="secondary" size="sm" onclick={reRun} disabled={busy || !image}
-            title="Run vision on the same image with this prompt">
-            <Sparkles class="h-3.5 w-3.5" />
-            Test Prompt
-          </Button>
-          <Button variant="outline" size="sm" onclick={saveAsGlobal} disabled={busy || !prompt}
-            title="Save this prompt as the global default">
-            <Save class="h-3.5 w-3.5" />
-            Save as Global Default
-          </Button>
-          <CopyButton
-            text={curlCommand}
-            label="Copy curl — vision test endpoint"
-            preview previewType="curl"
-            size="sm"
-          />
-        </div>
-      </div>
-    </div>
-  {/if}
-
-  <!-- Status -->
-  {#if status}
-    <div class="text-sm {statusType === 'err' ? 'text-destructive' : 'text-primary'}">
-      {status}
-    </div>
-  {/if}
-
-  <!-- Results history -->
-  {#if results.length > 0}
-    <div class="flex flex-col gap-2">
-      <h3 class="text-sm font-semibold text-foreground">Prompt History ({results.length})</h3>
-      <div class="flex flex-col gap-2">
-        {#each results as r, i (r.time + i)}
-          <div class="rounded-lg border bg-card p-3 flex flex-col gap-1.5">
-            <div class="flex items-center justify-between gap-2">
-              <span class="text-xs text-muted-foreground font-mono">{r.time}</span>
-              <div class="flex items-center gap-2">
-                {#if r.model}
-                  <span class="text-xs text-muted-foreground font-mono truncate max-w-[200px]" title={r.model}>{r.model}</span>
-                {/if}
-                {#if i === 0}
-                  <span class="text-xs text-primary font-medium">latest</span>
-                {/if}
-              </div>
-            </div>
-            <p class="text-xs text-muted-foreground italic">"{r.prompt || '(empty — hardcoded default)'}"</p>
-            <Markdown content={r.description} class="text-sm text-foreground" />
-            {#if i === 0 && visionTiming}
-              {#if desktop}
-                <Tooltip
-                  content={timingTooltipContent(visionTimingsRaw, visionTotalMs, visionTtfsMs)}
-                  multiline
-                  side="bottom"
-                  class="text-xs"
-                >
-                  <p class="text-xs text-muted-foreground cursor-help w-fit">⏱ {visionTiming}</p>
-                </Tooltip>
-              {:else}
-                <p class="text-xs text-muted-foreground">⏱ {visionTiming}</p>
-              {/if}
-            {/if}
-            {#if i === 0}
-              <div class="flex gap-1.5 mt-1">
-                <Button variant="ghost" size="sm" onclick={() => prompt = r.prompt} title="Load this prompt into the editor">
-                  Use this prompt
-                </Button>
-              </div>
-            {/if}
-          </div>
-        {/each}
+        {:else if busy}
+          <p class="text-sm text-muted-foreground">Analyzing…</p>
+        {/if}
+        <CopyButton text={curlCommand} label="Copy curl" preview previewType="curl" size="sm" />
       </div>
     </div>
   {/if}
@@ -598,69 +406,27 @@
         <h3 class="text-sm font-semibold text-foreground">
           Model Comparison
           {#if allBusy && allModelCount > 0}
-            <span class="ml-2 text-xs font-normal text-muted-foreground">
-              {allDoneCount}/{allModelCount}
-            </span>
+            <span class="ml-2 text-xs font-normal text-muted-foreground">{allDoneCount}/{allModelCount}</span>
           {/if}
         </h3>
-        {#if allStatus}
-          <span class="text-xs text-muted-foreground">{allStatus}</span>
-        {/if}
-      </div>
-
-      <!-- Prompt editor inline so user can tweak and re-run without scrolling -->
-      <div class="flex gap-2 items-end">
-        <div class="flex-1 min-w-0">
-          <label class="text-xs font-medium text-muted-foreground block mb-1">Prompt</label>
-          <Textarea
-            bind:value={prompt}
-            rows="2"
-            placeholder="Leave empty to use the default prompt"
-            disabled={allBusy}
-            class="text-sm"
-          />
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onclick={runTestAll}
-          disabled={allBusy || busy || (!selectedCamera && !image)}
-          class="shrink-0"
-          title="Re-run same image against all vision models with this prompt"
-        >
-          {#if allBusy}
-            <Loader2 class="h-3.5 w-3.5 animate-spin" />
-          {:else}
-            <Sparkles class="h-3.5 w-3.5" />
-          {/if}
-          Re-run All
-        </Button>
+        {#if allStatus}<span class="text-xs text-muted-foreground">{allStatus}</span>{/if}
       </div>
 
       {#if allResults.length > 0}
         <div class="grid gap-3 sm:grid-cols-2">
           {#each allResults as r (r.model)}
-            <div class="rounded-lg border bg-card p-3 flex flex-col gap-2
-              {r.pending ? 'opacity-60' : ''}">
-
-              <!-- Model name + status -->
+            <div class="rounded-lg border bg-card p-3 flex flex-col gap-2 {r.pending ? 'opacity-60' : ''}">
               <div class="flex items-center gap-2">
-                {#if r.pending}
-                  <Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
-                {:else if r.error}
-                  <span class="text-destructive text-xs shrink-0">✗</span>
-                {:else}
-                  <span class="text-primary text-xs shrink-0">✓</span>
-                {/if}
+                {#if r.pending}<Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+                {:else if r.error}<span class="text-destructive text-xs shrink-0">✗</span>
+                {:else}<span class="text-primary text-xs shrink-0">✓</span>{/if}
                 <span class="text-xs font-mono font-semibold text-foreground truncate" title={r.model}>{r.model}</span>
               </div>
-
               {#if r.pending}
                 <p class="text-xs text-muted-foreground italic">Waiting…</p>
               {:else if r.error}
                 <p class="text-xs text-destructive">{r.error}</p>
               {:else}
-                <!-- Timing bar -->
                 {#if r.total_ms > 0}
                   {@const prefillPct = Math.round((r.ttfs_ms / r.total_ms) * 100)}
                   {@const genPct = 100 - prefillPct}
@@ -670,13 +436,12 @@
                       <div class="bg-sky-500 h-full transition-all" style="width:{genPct}%"></div>
                     </div>
                     <div class="flex justify-between text-[10px]">
-                      <span class="text-amber-500" title="Load + image encode + prefill (time to first token)">⚙ {fmtMs(r.ttfs_ms)} setup</span>
-                      <span class="text-sky-500" title="Token generation time">✍ {fmtMs(r.gen_ms)} write</span>
-                      <span class="text-muted-foreground" title="Total wall-clock">⏱ {fmtMs(r.total_ms)}</span>
+                      <span class="text-amber-500">⚙ {fmtMs(r.ttfs_ms)} setup</span>
+                      <span class="text-sky-500">✍ {fmtMs(r.gen_ms)} write</span>
+                      <span class="text-muted-foreground">⏱ {fmtMs(r.total_ms)}</span>
                     </div>
                   </div>
                 {/if}
-                <!-- Description -->
                 <Markdown content={r.description ?? ''} class="text-sm text-foreground" />
               {/if}
             </div>
@@ -684,17 +449,39 @@
         </div>
       {:else if allBusy}
         <div class="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 class="h-4 w-4 animate-spin" />
-          Fetching model list…
+          <Loader2 class="h-4 w-4 animate-spin" /> Fetching model list…
         </div>
       {/if}
+    </div>
+  {/if}
+
+  <!-- History -->
+  {#if results.length > 0}
+    <div class="flex flex-col gap-2">
+      <h3 class="text-sm font-semibold text-foreground">History ({results.length})</h3>
+      {#each results as r, i (r.time + i)}
+        <div class="rounded-lg border bg-card p-3 flex flex-col gap-1.5">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-xs text-muted-foreground font-mono">{r.time}</span>
+            <div class="flex items-center gap-2">
+              {#if r.model}<span class="text-xs text-muted-foreground font-mono truncate max-w-[200px]" title={r.model}>{r.model}</span>{/if}
+              {#if i === 0}<span class="text-xs text-primary font-medium">latest</span>{/if}
+            </div>
+          </div>
+          <p class="text-xs text-muted-foreground italic">"{r.prompt || '(empty — default)'}"</p>
+          <Markdown content={r.description} class="text-sm text-foreground" />
+          {#if i === 0}
+            <Button variant="ghost" size="sm" onclick={() => prompt = r.prompt}>Use this prompt</Button>
+          {/if}
+        </div>
+      {/each}
     </div>
   {/if}
 
   {#if !image && !busy}
     <div class="rounded-lg border border-dashed p-8 text-center text-muted-foreground">
       <Camera class="h-8 w-8 mx-auto mb-2 opacity-50" />
-      <p>Select a camera and click "Capture & Analyze", or click "Upload Image" to start testing vision prompts.</p>
+      <p>Select a camera and click "Capture & Analyze", or click "Upload" to start.</p>
     </div>
   {/if}
 </div>

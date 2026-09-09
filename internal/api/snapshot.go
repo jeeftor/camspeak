@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/jeeftor/camspeak/internal/cameras"
 	"github.com/jeeftor/camspeak/internal/config"
+	"github.com/jeeftor/camspeak/internal/vision"
 )
 
 // grabFrameFromStream captures a single frame from a go2rtc stream.
@@ -131,48 +133,32 @@ func grabFrameViaFFmpeg(
 	return data, nil
 }
 
-// SnapshotBenchmark handles GET /api/snapshot/:camera/benchmark — tries all
-// available snapshot methods for the camera, times each one, and returns
-// results sorted by latency. With ?vision=true, also runs the vision model
-// against each captured frame to measure the full pipeline (snapshot + vision).
-func (h *Handlers) SnapshotBenchmark(c echo.Context) error {
-	log := h.logger(c)
-	camera := c.Param("camera")
-	if camera == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "camera required")
-	}
+// BenchmarkResult is a single method's benchmark result.
+type BenchmarkResult struct {
+	Method    string  `json:"method"`
+	OK        bool    `json:"ok"`
+	SnapSec   float64 `json:"snap_sec"`
+	VisionSec float64 `json:"vision_sec,omitempty"`
+	TotalSec  float64 `json:"total_sec,omitempty"`
+	Bytes     int     `json:"bytes"`
+	Preview   string  `json:"preview,omitempty"`
+	Error     string  `json:"error,omitempty"`
+}
 
-	withVision := c.QueryParam("vision") == "true"
-	promptOverride := c.QueryParam("prompt") // optional prompt to use instead of camera's configured one
-
-	h.cfgMu.Lock()
-	cam := h.cfg.Cameras[camera]
-	frigateURL := h.cfg.FrigateURL
-	go2rtcURL := h.cfg.Go2rtcURL
-	visionClient := h.vision
-	globalPrompt := h.cfg.Vision.Prompt
-	h.cfgMu.Unlock()
-
-	if withVision && visionClient == nil {
-		return echo.NewHTTPError(
-			http.StatusServiceUnavailable,
-			"vision model not configured (needed for ?vision=true)",
-		)
-	}
-
-	type result struct {
-		Method    string  `json:"method"`
-		OK        bool    `json:"ok"`
-		SnapSec   float64 `json:"snap_sec"`
-		VisionSec float64 `json:"vision_sec,omitempty"`
-		TotalSec  float64 `json:"total_sec,omitempty"`
-		Bytes     int     `json:"bytes"`
-		Preview   string  `json:"preview,omitempty"`
-		Error     string  `json:"error,omitempty"`
-	}
-
-	var results []result
-
+// runCameraBenchmark runs all available snapshot methods for a single camera
+// and returns results. If withVision is true, also runs the vision model.
+// promptOverride, if non-empty, replaces the camera's configured prompt.
+// onResult, if non-nil, is called after each method completes (for streaming).
+func (h *Handlers) runCameraBenchmark(
+	camera string,
+	cam config.CameraConfig,
+	frigateURL, go2rtcURL string,
+	visionClient *vision.Client,
+	globalPrompt string,
+	withVision bool,
+	promptOverride string,
+	onResult func(BenchmarkResult),
+) []BenchmarkResult {
 	// Resolve the prompt to use: query param override > camera prompt > global prompt.
 	resolvePrompt := func() string {
 		if promptOverride != "" {
@@ -185,10 +171,8 @@ func (h *Handlers) SnapshotBenchmark(c echo.Context) error {
 	// is loaded into VRAM. Without this, the first method pays the cold-start
 	// penalty (model loading) and appears unfairly slow compared to the rest.
 	if withVision {
-		warmupStart := time.Now()
 		warmupData, wErr := grabFrameViaGo2rtcAPI(go2rtcURL, cam.VisionStream, 10*time.Second)
 		if wErr != nil && frigateURL != "" {
-			// Fallback: grab a Frigate frame for warmup
 			snapURL := fmt.Sprintf("%s/api/%s/latest.jpg?h=720", frigateURL, camera)
 			resp, err := (&http.Client{Timeout: 30 * time.Second}).Get(snapURL)
 			if err == nil {
@@ -198,16 +182,16 @@ func (h *Handlers) SnapshotBenchmark(c echo.Context) error {
 		}
 		if len(warmupData) > 0 {
 			_, _ = visionClient.Describe(warmupData, "image/jpeg", resolvePrompt())
-			log.Info("snapshot: benchmark warmup (model loaded)",
-				"elapsed", time.Since(warmupStart).Seconds())
 		}
 	}
+
+	var results []BenchmarkResult
 
 	// Helper to time a snapshot method.
 	tryMethod := func(name string, fn func() ([]byte, error)) {
 		start := time.Now()
 		data, err := fn()
-		r := result{
+		r := BenchmarkResult{
 			Method:  name,
 			OK:      err == nil,
 			SnapSec: time.Since(start).Seconds(),
@@ -216,6 +200,9 @@ func (h *Handlers) SnapshotBenchmark(c echo.Context) error {
 		if err != nil {
 			r.Error = err.Error()
 			results = append(results, r)
+			if onResult != nil {
+				onResult(r)
+			}
 			return
 		}
 
@@ -228,7 +215,6 @@ func (h *Handlers) SnapshotBenchmark(c echo.Context) error {
 				r.OK = false
 				r.Error = fmt.Sprintf("vision failed: %s", vErr)
 			} else {
-				// Truncate preview for the table display
 				if len(desc) > 120 {
 					desc = desc[:120] + "…"
 				}
@@ -236,6 +222,9 @@ func (h *Handlers) SnapshotBenchmark(c echo.Context) error {
 			}
 		}
 		results = append(results, r)
+		if onResult != nil {
+			onResult(r)
+		}
 	}
 
 	// 1. Direct camera API (ISAPI for Hikvision, HTTP API for Reolink)
@@ -260,7 +249,7 @@ func (h *Handlers) SnapshotBenchmark(c echo.Context) error {
 		}
 	}
 
-	// 3. go2rtc frame.jpeg (if vision_stream or go2rtc stream configured)
+	// 2. go2rtc frame.jpeg (if vision_stream or go2rtc stream configured)
 	streamName := cam.VisionStream
 	if streamName == "" && cam.Stream != "" {
 		streamName = cam.Stream
@@ -271,7 +260,7 @@ func (h *Handlers) SnapshotBenchmark(c echo.Context) error {
 		})
 	}
 
-	// 4. go2rtc via ffmpeg (same stream, but ffmpeg path)
+	// 3. go2rtc via ffmpeg (same stream, but ffmpeg path)
 	if streamName != "" && go2rtcURL != "" {
 		width := cam.VisionWidth
 		if width <= 0 {
@@ -282,17 +271,11 @@ func (h *Handlers) SnapshotBenchmark(c echo.Context) error {
 		})
 	}
 
-	// 5. Frigate latest.jpg
+	// 4. Frigate latest.jpg
 	if frigateURL != "" {
 		tryMethod("frigate", func() ([]byte, error) {
 			snapURL := fmt.Sprintf("%s/api/%s/latest.jpg?h=720", frigateURL, camera)
-			ctx, cancel := context.WithTimeout(c.Request().Context(), 30*time.Second)
-			defer cancel()
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, snapURL, nil)
-			if err != nil {
-				return nil, err
-			}
-			resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+			resp, err := (&http.Client{Timeout: 30 * time.Second}).Get(snapURL)
 			if err != nil {
 				return nil, err
 			}
@@ -303,6 +286,43 @@ func (h *Handlers) SnapshotBenchmark(c echo.Context) error {
 			return io.ReadAll(resp.Body)
 		})
 	}
+
+	return results
+}
+
+// SnapshotBenchmark handles GET /api/snapshot/:camera/benchmark — tries all
+// available snapshot methods for the camera, times each one, and returns
+// results sorted by latency. With ?vision=true, also runs the vision model
+// against each captured frame to measure the full pipeline (snapshot + vision).
+func (h *Handlers) SnapshotBenchmark(c echo.Context) error {
+	log := h.logger(c)
+	camera := c.Param("camera")
+	if camera == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "camera required")
+	}
+
+	withVision := c.QueryParam("vision") == "true"
+	promptOverride := c.QueryParam("prompt")
+
+	h.cfgMu.Lock()
+	cam := h.cfg.Cameras[camera]
+	frigateURL := h.cfg.FrigateURL
+	go2rtcURL := h.cfg.Go2rtcURL
+	visionClient := h.vision
+	globalPrompt := h.cfg.Vision.Prompt
+	h.cfgMu.Unlock()
+
+	if withVision && visionClient == nil {
+		return echo.NewHTTPError(
+			http.StatusServiceUnavailable,
+			"vision model not configured (needed for ?vision=true)",
+		)
+	}
+
+	results := h.runCameraBenchmark(
+		camera, cam, frigateURL, go2rtcURL, visionClient, globalPrompt,
+		withVision, promptOverride, nil,
+	)
 
 	if len(results) == 0 {
 		return echo.NewHTTPError(http.StatusServiceUnavailable,
@@ -315,6 +335,99 @@ func (h *Handlers) SnapshotBenchmark(c echo.Context) error {
 		"vision":  withVision,
 		"results": results,
 	})
+}
+
+// BenchmarkStream handles POST /api/benchmark — runs all snapshot methods
+// across all enabled cameras and prompts, streaming results as SSE events
+// so the frontend can show progress in real-time.
+func (h *Handlers) BenchmarkStream(c echo.Context) error {
+	log := h.logger(c)
+
+	var req struct {
+		Prompts    []string `json:"prompts"`
+		WithVision bool     `json:"with_vision"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid JSON body")
+	}
+
+	h.cfgMu.Lock()
+	cameras := make(map[string]config.CameraConfig, len(h.cfg.Cameras))
+	for name, cam := range h.cfg.Cameras {
+		if cam.Enabled {
+			cameras[name] = cam
+		}
+	}
+	frigateURL := h.cfg.FrigateURL
+	go2rtcURL := h.cfg.Go2rtcURL
+	visionClient := h.vision
+	globalPrompt := h.cfg.Vision.Prompt
+	h.cfgMu.Unlock()
+
+	if req.WithVision && visionClient == nil {
+		return echo.NewHTTPError(
+			http.StatusServiceUnavailable,
+			"vision model not configured (needed for with_vision=true)",
+		)
+	}
+
+	// SSE streaming
+	c.Response().Header().Set("Content-Type", "text/event-stream")
+	c.Response().Header().Set("Cache-Control", "no-cache")
+	c.Response().Header().Set("Connection", "keep-alive")
+	c.Response().WriteHeader(http.StatusOK)
+
+	flusher, ok := c.Response().Writer.(http.Flusher)
+	if !ok {
+		return echo.NewHTTPError(http.StatusInternalServerError, "streaming not supported")
+	}
+
+	writeEvent := func(eventType string, data any) {
+		jsonData, _ := json.Marshal(data)
+		fmt.Fprintf(c.Response().Writer, "event: %s\ndata: %s\n\n", eventType, jsonData)
+		if ok {
+			flusher.Flush()
+		}
+	}
+
+	// Send the list of cameras and prompts that will be tested
+	writeEvent("start", map[string]any{
+		"cameras":     cameras,
+		"prompts":     req.Prompts,
+		"with_vision": req.WithVision,
+		"total_steps": len(cameras) * len(req.Prompts),
+	})
+
+	step := 0
+	for camName, cam := range cameras {
+		for _, prompt := range req.Prompts {
+			step++
+			writeEvent("progress", map[string]any{
+				"step":   step,
+				"total":  len(cameras) * len(req.Prompts),
+				"camera": camName,
+				"prompt": prompt,
+			})
+
+			results := h.runCameraBenchmark(
+				camName, cam, frigateURL, go2rtcURL, visionClient, globalPrompt,
+				req.WithVision, prompt, nil,
+			)
+
+			writeEvent("result", map[string]any{
+				"camera":  camName,
+				"prompt":  prompt,
+				"results": results,
+			})
+		}
+	}
+
+	writeEvent("done", map[string]any{
+		"total_steps": step,
+	})
+
+	log.Info("benchmark: stream complete", "cameras", len(cameras), "prompts", len(req.Prompts), "vision", req.WithVision)
+	return nil
 }
 
 // fetchSnapshot grabs a JPEG frame for a camera, using the camera's configured
