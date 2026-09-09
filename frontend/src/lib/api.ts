@@ -247,8 +247,8 @@ export const apiClient = {
     const qs = params.toString()
     return apiRaw(`/api/snapshot/${encodeURIComponent(camera)}${qs ? '?' + qs : ''}`)
   },
-  snapshotBenchmark: (camera: string) =>
-    api<SnapshotBenchmarkResponse>(`/api/snapshot/${encodeURIComponent(camera)}/benchmark`),
+  snapshotBenchmark: (camera: string, vision = false) =>
+    api<SnapshotBenchmarkResponse>(`/api/snapshot/${encodeURIComponent(camera)}/benchmark${vision ? '?vision=true' : ''}`),
   streams: () =>
     api<{ status: string; streams: StreamInfo[] }>('/api/streams'),
   describe: (req: { camera: string; prompt?: string; gain?: number }) =>

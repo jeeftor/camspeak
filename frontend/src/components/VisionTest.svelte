@@ -39,6 +39,7 @@
   // Snapshot benchmark
   let benchResults = $state<SnapshotBenchmarkResult[] | null>(null)
   let benchBusy = $state(false)
+  let benchWithVision = $state(false)
 
   // Prompt presets
   let presets = $state([])
@@ -263,7 +264,7 @@
     benchBusy = true
     benchResults = null
     try {
-      const data = await apiClient.snapshotBenchmark(selectedCamera)
+      const data = await apiClient.snapshotBenchmark(selectedCamera, benchWithVision)
       benchResults = data.results
     } catch (e) {
       setStatus('✗ Benchmark failed: ' + e.message, 'err')
@@ -469,6 +470,11 @@
       Benchmark
     </Button>
 
+    <label class="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap" title="Also run the vision model against each captured frame to measure full pipeline latency">
+      <input type="checkbox" bind:checked={benchWithVision} disabled={benchBusy} class="accent-amber-500" />
+      with vision
+    </label>
+
     {#if image}
       <Button variant="ghost" onclick={clearAll} disabled={busy} title="Clear snapshot and results">
         Clear
@@ -479,29 +485,47 @@
   <!-- Benchmark results -->
   {#if benchBusy || benchResults}
     <div class="rounded-lg border p-3 flex flex-col gap-2">
-      <h3 class="text-sm font-semibold text-foreground">Snapshot Benchmark {benchResults ? `· ${selectedCamera}` : ''}</h3>
+      <h3 class="text-sm font-semibold text-foreground">
+        Snapshot Benchmark {benchResults ? `· ${selectedCamera}` : ''}
+        {#if benchWithVision}<span class="text-xs font-normal text-muted-foreground ml-2">with vision</span>{/if}
+      </h3>
       {#if benchBusy}
         <div class="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 class="h-4 w-4 animate-spin" />
-          Testing all snapshot methods…
+          {benchWithVision ? 'Capturing + running vision on each method…' : 'Testing all snapshot methods…'}
         </div>
       {:else if benchResults}
+        {@const okResults = benchResults.filter(r => r.ok)}
+        {@const sortKey = benchWithVision ? 'total_ms' : 'snap_ms'}
+        {@const bestMs = okResults.length > 0 ? Math.min(...okResults.map(r => r[sortKey] || r.snap_ms)) : 0}
         <table class="text-sm">
           <thead>
             <tr class="text-xs text-muted-foreground border-b">
               <th class="text-left py-1 pr-4">Method</th>
-              <th class="text-right py-1 pr-4">Latency</th>
+              <th class="text-right py-1 pr-4">Snap</th>
+              {#if benchWithVision}
+                <th class="text-right py-1 pr-4">Vision</th>
+                <th class="text-right py-1 pr-4">Total</th>
+              {/if}
               <th class="text-right py-1 pr-4">Size</th>
               <th class="text-left py-1">Status</th>
             </tr>
           </thead>
           <tbody>
-            {#each [...benchResults].sort((a, b) => (a.ok ? a.ms : 99999) - (b.ok ? b.ms : 99999)) as r}
+            {#each [...benchResults].sort((a, b) => (a.ok ? (a[sortKey] || a.snap_ms) : 99999) - (b.ok ? (b[sortKey] || b.snap_ms) : 99999)) as r}
               <tr class="border-b last:border-0">
                 <td class="py-1.5 pr-4 font-mono text-xs">{r.method}</td>
-                <td class="py-1.5 pr-4 text-right font-mono text-xs {r.ok ? (r.ms === Math.min(...benchResults.filter(x => x.ok).map(x => x.ms)) ? 'text-amber-500 font-semibold' : '') : 'text-muted-foreground'}">
-                  {r.ok ? `${r.ms}ms` : '—'}
+                <td class="py-1.5 pr-4 text-right font-mono text-xs {r.ok ? '' : 'text-muted-foreground'}">
+                  {r.ok ? `${r.snap_ms}ms` : '—'}
                 </td>
+                {#if benchWithVision}
+                  <td class="py-1.5 pr-4 text-right font-mono text-xs {r.ok ? '' : 'text-muted-foreground'}">
+                    {r.ok && r.vision_ms ? `${r.vision_ms}ms` : '—'}
+                  </td>
+                  <td class="py-1.5 pr-4 text-right font-mono text-xs {r.ok && (r.total_ms || r.snap_ms) === bestMs ? 'text-amber-500 font-semibold' : r.ok ? '' : 'text-muted-foreground'}">
+                    {r.ok ? `${r.total_ms || r.snap_ms}ms` : '—'}
+                  </td>
+                {/if}
                 <td class="py-1.5 pr-4 text-right font-mono text-xs text-muted-foreground">
                   {r.ok ? (r.bytes > 1024 ? `${(r.bytes / 1024).toFixed(0)}KB` : `${r.bytes}B`) : '—'}
                 </td>
@@ -509,11 +533,22 @@
                   {r.ok ? '✓' : `✗ ${r.error || 'failed'}`}
                 </td>
               </tr>
+              {#if benchWithVision && r.ok && r.preview}
+                <tr class="border-b last:border-0">
+                  <td colspan={benchWithVision ? 6 : 4} class="py-1 pr-4 text-xs text-muted-foreground italic">
+                    {r.preview}
+                  </td>
+                </tr>
+              {/if}
             {/each}
           </tbody>
         </table>
         <p class="text-xs text-muted-foreground">
-          Fastest method highlighted in amber. Lower latency + larger size = better detail per ms.
+          {#if benchWithVision}
+            Best total (snapshot + vision) highlighted in amber. Larger images may give better descriptions but take longer to process.
+          {:else}
+            Fastest snapshot highlighted in amber. Use "with vision" to see the full pipeline cost.
+          {/if}
         </p>
       {/if}
     </div>

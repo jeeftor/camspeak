@@ -133,7 +133,8 @@ func grabFrameViaFFmpeg(
 
 // SnapshotBenchmark handles GET /api/snapshot/:camera/benchmark — tries all
 // available snapshot methods for the camera, times each one, and returns
-// results sorted by latency. Useful for picking the fastest method per camera.
+// results sorted by latency. With ?vision=true, also runs the vision model
+// against each captured frame to measure the full pipeline (snapshot + vision).
 func (h *Handlers) SnapshotBenchmark(c echo.Context) error {
 	log := h.logger(c)
 	camera := c.Param("camera")
@@ -141,34 +142,68 @@ func (h *Handlers) SnapshotBenchmark(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "camera required")
 	}
 
+	withVision := c.QueryParam("vision") == "true"
+
 	h.cfgMu.Lock()
 	cam := h.cfg.Cameras[camera]
 	frigateURL := h.cfg.FrigateURL
 	go2rtcURL := h.cfg.Go2rtcURL
+	visionClient := h.vision
+	globalPrompt := h.cfg.Vision.Prompt
 	h.cfgMu.Unlock()
 
+	if withVision && visionClient == nil {
+		return echo.NewHTTPError(
+			http.StatusServiceUnavailable,
+			"vision model not configured (needed for ?vision=true)",
+		)
+	}
+
 	type result struct {
-		Method string `json:"method"`
-		OK     bool   `json:"ok"`
-		Ms     int64  `json:"ms"`
-		Bytes  int    `json:"bytes"`
-		Error  string `json:"error,omitempty"`
+		Method   string `json:"method"`
+		OK       bool   `json:"ok"`
+		SnapMs   int64  `json:"snap_ms"`
+		VisionMs int64  `json:"vision_ms,omitempty"`
+		TotalMs  int64  `json:"total_ms,omitempty"`
+		Bytes    int    `json:"bytes"`
+		Preview  string `json:"preview,omitempty"`
+		Error    string `json:"error,omitempty"`
 	}
 
 	var results []result
 
-	// Helper to time a method.
+	// Helper to time a snapshot method.
 	tryMethod := func(name string, fn func() ([]byte, error)) {
 		start := time.Now()
 		data, err := fn()
 		r := result{
 			Method: name,
 			OK:     err == nil,
-			Ms:     time.Since(start).Milliseconds(),
+			SnapMs: time.Since(start).Milliseconds(),
 			Bytes:  len(data),
 		}
 		if err != nil {
 			r.Error = err.Error()
+			results = append(results, r)
+			return
+		}
+
+		if withVision {
+			prompt := resolveVisionPrompt("", cam.VisionPrompt != "", cam.VisionPrompt, globalPrompt)
+			vStart := time.Now()
+			desc, vErr := visionClient.Describe(data, "image/jpeg", prompt)
+			r.VisionMs = time.Since(vStart).Milliseconds()
+			r.TotalMs = r.SnapMs + r.VisionMs
+			if vErr != nil {
+				r.OK = false
+				r.Error = fmt.Sprintf("vision failed: %s", vErr)
+			} else {
+				// Truncate preview for the table display
+				if len(desc) > 120 {
+					desc = desc[:120] + "…"
+				}
+				r.Preview = desc
+			}
 		}
 		results = append(results, r)
 	}
@@ -238,9 +273,10 @@ func (h *Handlers) SnapshotBenchmark(c echo.Context) error {
 			"no snapshot methods available for this camera")
 	}
 
-	log.Info("snapshot: benchmark", "camera", camera, "methods", len(results))
+	log.Info("snapshot: benchmark", "camera", camera, "methods", len(results), "vision", withVision)
 	return c.JSON(http.StatusOK, map[string]any{
 		"camera":  camera,
+		"vision":  withVision,
 		"results": results,
 	})
 }
