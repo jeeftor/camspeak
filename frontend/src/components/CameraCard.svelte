@@ -115,11 +115,13 @@
   async function speak() {
     if (!text) return
     busy = true; status = ''
+    streaming = true; paused = false
     try {
       const data = await apiClient.speak({ camera: camera.name, text, voice, gain })
       const timing = formatTimingSummary(data.timings, data.total_ms, data.ttfs_ms)
       setStatus(timing ? `✓ sent (${timing})` : '✓ sent')
     } catch (e) {
+      streaming = false
       setStatus('✗ ' + e.message, 'err')
     } finally {
       busy = false
@@ -181,10 +183,12 @@
   async function playUrl() {
     if (!url) return
     busy = true; status = ''
+    streaming = true; paused = false
     try {
       await apiClient.playURL({ camera: camera.name, url, gain })
       setStatus('✓ playing')
     } catch (e) {
+      streaming = false
       setStatus('✗ ' + e.message, 'err')
     } finally {
       busy = false
@@ -254,10 +258,12 @@
 
   async function beep() {
     busy = true; status = ''
+    streaming = true; paused = false
     try {
       await apiClient.beep({ camera: camera.name })
       setStatus('✓ beep')
     } catch (e) {
+      streaming = false
       setStatus('✗ ' + e.message, 'err')
     } finally {
       busy = false
@@ -285,6 +291,7 @@
       snapshot = URL.createObjectURL(snapBlob)
 
       setStatus('Describing → speaking…')
+      streaming = true; paused = false
       const body = { camera: camera.name, gain }
       if (visionPrompt) body.prompt = visionPrompt
       const data = await apiClient.describe(body)
@@ -294,6 +301,7 @@
       describeTtfsMs = data.ttfs_ms
       describeTiming = formatTimingSummary(data.timings, data.total_ms, data.ttfs_ms)
     } catch (e) {
+      streaming = false
       setStatus('✗ ' + e.message, 'err')
     } finally {
       busy = false

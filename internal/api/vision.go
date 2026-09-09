@@ -381,11 +381,14 @@ func (h *Handlers) Describe(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
 
-	sendTiming, err := cam.SendRaw(rawPath, h.reg.GetGain(req.Camera))
+	setPlayback(req.Camera, "describe", "vision TTS")
+	sendTiming, err := sendRawWithLevel(req.Camera, cam, rawPath, h.reg.GetGain(req.Camera))
 	if err != nil {
+		clearPlayback(req.Camera)
 		log.Error("describe: send failed", "camera", req.Camera, "err", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+	clearPlayback(req.Camera)
 	t.steps["send_open_ms"] = time.Duration(sendTiming.OpenMs) * time.Millisecond
 	t.steps["send_playback_ms"] = time.Duration(sendTiming.PlaybackMs) * time.Millisecond
 	log.Debug(
@@ -511,7 +514,7 @@ func (h *Handlers) Announce(c echo.Context) error {
 	}
 
 	setPlayback(req.TargetCamera, "announce", description)
-	sendTiming, err := cam.SendRaw(rawPath, h.gainForCall(req.TargetCamera, req.Gain))
+	sendTiming, err := sendRawWithLevel(req.TargetCamera, cam, rawPath, h.gainForCall(req.TargetCamera, req.Gain))
 	if err != nil {
 		clearPlayback(req.TargetCamera)
 		log.Error("announce: send failed", "target", req.TargetCamera, "err", err)
@@ -604,7 +607,7 @@ func (h *Handlers) AnnounceForMQTT(sourceCamera string, targets []string, prompt
 				return
 			}
 			setPlayback(t, "announce", description)
-			_, err = cam.SendRaw(rawPath, h.reg.GetGain(t))
+			_, err = sendRawWithLevel(t, cam, rawPath, h.reg.GetGain(t))
 			if err != nil {
 				h.log.Error("announce: send failed", "target", t, "err", err)
 			} else {

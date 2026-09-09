@@ -290,7 +290,7 @@ func (h *Handlers) doPlayURL(log *clog.Logger, camera, rawURL string, gain float
 
 	log.Debug("play-url: sending to camera", "camera", camera, "url", redactedURL)
 	setPlayback(camera, "play-url", redactedURL)
-	if _, err := cam.SendRaw(rawName, h.gainForCall(camera, gain)); err != nil {
+	if _, err := sendRawWithLevel(camera, cam, rawName, h.gainForCall(camera, gain)); err != nil {
 		clearPlayback(camera)
 		log.Error(
 			"play-url: send failed",
@@ -515,7 +515,7 @@ func (h *Handlers) Beep(c echo.Context) error {
 	start := time.Now()
 
 	setPlayback(req.Camera, "beep", "800Hz test tone")
-	if _, err := cam.SendRaw(raw, h.reg.GetGain(req.Camera)); err != nil {
+	if _, err := sendRawWithLevel(req.Camera, cam, raw, h.reg.GetGain(req.Camera)); err != nil {
 		clearPlayback(req.Camera)
 		log.Error(
 			"beep: send failed",
