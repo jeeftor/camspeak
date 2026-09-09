@@ -120,6 +120,27 @@ func (h *Handlers) gainForCall(camera string, reqGain float64) *cameras.GainCont
 	return cameras.NewGainController(3.0)
 }
 
+// sendRawWithLevel wraps cam.SendRaw with a VU meter level sink so that
+// one-shot playback (speak, play, play-url, beep, describe, announce)
+// feeds real-time audio levels into the /api/stream-levels SSE endpoint.
+// The sink is attached to the GainController before SendRaw and cleared
+// after, along with the one-shot level entry.
+func sendRawWithLevel(
+	camera string,
+	cam cameras.Speaker,
+	rawFile string,
+	gc *cameras.GainController,
+) (cameras.SendTiming, error) {
+	if gc != nil {
+		gc.SetLevelSink(func(level float64) {
+			setOneShotLevel(camera, level)
+		})
+		defer gc.SetLevelSink(nil)
+		defer clearOneShotLevel(camera)
+	}
+	return cam.SendRaw(rawFile, gc)
+}
+
 // effectiveGain returns the numeric gain to use for ffmpeg-based paths (streams
 // and looped presets). If reqGain > 0 it wins; otherwise the camera's current
 // runtime gain is used.
@@ -179,7 +200,7 @@ func (h *Handlers) speakText(
 
 	log.Debug("speak: sending to camera", "camera", cameraName)
 	setPlayback(cameraName, "speak", text)
-	sendTiming, err := cam.SendRaw(rawPath, h.gainForCall(cameraName, gain))
+	sendTiming, err := sendRawWithLevel(cameraName, cam, rawPath, h.gainForCall(cameraName, gain))
 	if err != nil {
 		clearPlayback(cameraName)
 		return t, fmt.Errorf("sending to camera: %w", err)
@@ -303,7 +324,7 @@ func (h *Handlers) playPreset(
 	)
 
 	setPlayback(cameraName, "play", preset.Name)
-	sendTiming, err := cam.SendRaw(sendPath, h.gainForCall(cameraName, gain))
+	sendTiming, err := sendRawWithLevel(cameraName, cam, sendPath, h.gainForCall(cameraName, gain))
 	if err != nil {
 		clearPlayback(cameraName)
 		return t, fmt.Errorf("sending to camera: %w", err)

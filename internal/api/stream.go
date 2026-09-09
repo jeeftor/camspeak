@@ -19,6 +19,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/jeeftor/camspeak/internal/cameras"
+	"github.com/jeeftor/camspeak/internal/util"
 )
 
 // streamSession tracks a live ffmpeg → camera stream so it can be stopped or
@@ -61,7 +62,7 @@ type levelTapReader struct {
 func (t *levelTapReader) Read(p []byte) (int, error) {
 	n, err := t.r.Read(p)
 	if n > 0 {
-		level := computeLevel(p[:n])
+		level := util.ComputeLevel(p[:n])
 		atomic.StoreUint64(&t.session.levelBits, math.Float64bits(level))
 	}
 	return n, err
@@ -77,52 +78,34 @@ func (t *levelTapReader) SetReadDeadline(d time.Time) error {
 	return nil
 }
 
-// computeLevel computes a normalized audio level (0.0–1.0) from a buffer
-// of raw G.711 µ-law samples. µ-law bytes are 8-bit unsigned values
-// centered at 128. We compute the RMS of the linear-decoded samples and
-// normalize to [0, 1].
-func computeLevel(buf []byte) float64 {
-	if len(buf) == 0 {
-		return 0
-	}
-	var sumSq float64
-	for _, b := range buf {
-		// Decode µ-law to linear PCM (16-bit range: -32124 to +32256).
-		// The decode is a simplified version — we only need the magnitude.
-		linear := mulawDecode(b)
-		f := float64(linear)
-		sumSq += f * f
-	}
-	rms := math.Sqrt(sumSq / float64(len(buf)))
-	// Normalize: max linear value is ~32256. RMS of full-scale is ~32256.
-	// Apply a log-ish curve so quiet audio is still visible.
-	normalized := rms / 32256.0
-	if normalized < 0 {
-		normalized = 0
-	}
-	// Square root compression: makes quiet signals more visible.
-	return math.Sqrt(normalized)
+// oneShotLevels holds real-time audio levels for one-shot playback (speak,
+// play-url, beep, describe, announce) so the VU meter works for those too,
+// not just for live streams. Each entry is set by a level sink attached to
+// the GainController before SendRaw and cleared after SendRaw returns.
+var (
+	oneShotLevels   = make(map[string]float64)
+	oneShotLevelsMu sync.RWMutex
+)
+
+// setOneShotLevel records the current audio level for a one-shot playback.
+func setOneShotLevel(camera string, level float64) {
+	oneShotLevelsMu.Lock()
+	oneShotLevels[camera] = level
+	oneShotLevelsMu.Unlock()
 }
 
-// mulawDecode decodes a single G.711 µ-law byte to a 16-bit linear sample.
-func mulawDecode(b byte) int16 {
-	b = ^b
-	sign := (b & 0x80) >> 7
-	segment := (b & 0x70) >> 4
-	magnitude := b & 0x0F
-	val := int16((magnitude << 3) + 0x84)
-	val <<= segment
-	if sign == 0 {
-		val = -val
-	}
-	return val
+// clearOneShotLevel removes the one-shot level entry for a camera.
+func clearOneShotLevel(camera string) {
+	oneShotLevelsMu.Lock()
+	delete(oneShotLevels, camera)
+	oneShotLevelsMu.Unlock()
 }
 
 // getStreamLevels returns the current audio level (0.0–1.0) for each
-// camera that has an active stream. Safe for concurrent access.
+// camera that has an active stream or one-shot playback. Safe for
+// concurrent access.
 func getStreamLevels() map[string]float64 {
 	activeStreamsMu.Lock()
-	defer activeStreamsMu.Unlock()
 	out := make(map[string]float64, len(activeStreams))
 	for cam, s := range activeStreams {
 		if s.paused {
@@ -131,6 +114,14 @@ func getStreamLevels() map[string]float64 {
 			out[cam] = math.Float64frombits(atomic.LoadUint64(&s.levelBits))
 		}
 	}
+	activeStreamsMu.Unlock()
+
+	oneShotLevelsMu.RLock()
+	for cam, level := range oneShotLevels {
+		out[cam] = level
+	}
+	oneShotLevelsMu.RUnlock()
+
 	return out
 }
 

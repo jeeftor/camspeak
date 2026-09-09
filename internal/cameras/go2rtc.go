@@ -79,6 +79,37 @@ func (c *Go2rtcClient) SendRaw(rawFile string, gc *GainController) (SendTiming, 
 		}
 	}
 
+	// go2rtc fetches the entire audio buffer via HTTP at once, so there's
+	// no per-chunk loop to tap. Instead, start a background ticker that
+	// advances through the buffer at the µ-law playback rate (8000 bytes/s
+	// = 800 bytes per 100ms) and feeds VU meter levels. This simulates the
+	// real-time playback the camera is doing.
+	levelCtx, levelCancel := context.WithCancel(context.Background())
+	if gc != nil {
+		go func() {
+			ticker := time.NewTicker(100 * time.Millisecond)
+			defer ticker.Stop()
+			offset := 0
+			for {
+				select {
+				case <-levelCtx.Done():
+					return
+				case <-ticker.C:
+					if offset >= len(audioData) {
+						return
+					}
+					end := offset + 800
+					if end > len(audioData) {
+						end = len(audioData)
+					}
+					gc.RecordLevel(util.ComputeLevel(audioData[offset:end]))
+					offset = end
+				}
+			}
+		}()
+	}
+	defer levelCancel()
+
 	// Start a temporary HTTP server to serve the gain-adjusted audio
 	listener, err := net.Listen("tcp", ":0")
 	if err != nil {

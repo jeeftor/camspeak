@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/jeeftor/camspeak/internal/util"
 )
 
 func TestParseICYMetadata(t *testing.T) {
@@ -107,10 +109,10 @@ func TestMulawDecode(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v := mulawDecode(tc.b)
+			v := util.MulawDecode(tc.b)
 			// Silence codes decode to small values, not exactly 0.
 			if v > 200 || v < -200 {
-				t.Errorf("mulawDecode(0x%02X) = %d, expected small value (<200)", tc.b, v)
+				t.Errorf("MulawDecode(0x%02X) = %d, expected small value (<200)", tc.b, v)
 			}
 		})
 	}
@@ -121,23 +123,22 @@ func TestMulawDecodeSymmetry(t *testing.T) {
 	// (staticcheck SA4003: no int16 is < math.MinInt16 or > math.MaxInt16,
 	// so we just verify the decode doesn't panic for all 256 byte values.)
 	for b := 0; b < 256; b++ {
-		_ = mulawDecode(byte(b))
+		_ = util.MulawDecode(byte(b))
 	}
 }
 
 func TestComputeLevel(t *testing.T) {
 	// Empty buffer returns 0.
-	if level := computeLevel(nil); level != 0 {
-		t.Errorf("computeLevel(nil) = %f, want 0", level)
+	if level := util.ComputeLevel(nil); level != 0 {
+		t.Errorf("ComputeLevel(nil) = %f, want 0", level)
 	}
 
-	// Silence bytes (0xFF) produce the μ-law silence floor (~0.064),
-	// not exactly 0. This is expected — the decoded value of 0xFF is
-	// a small nonzero number due to μ-law's segment encoding.
+	// Silence bytes (0xFF) produce 0 — the µ-law silence code decodes to 0
+	// in the lookup table (more accurate than the old bit-manipulation version).
 	silence := []byte{0xFF, 0xFF, 0xFF, 0xFF}
-	level := computeLevel(silence)
-	if level < 0.05 || level > 0.08 {
-		t.Errorf("computeLevel(silence) = %f, expected ~0.064 (μ-law floor)", level)
+	level := util.ComputeLevel(silence)
+	if level != 0 {
+		t.Errorf("ComputeLevel(silence) = %f, expected 0", level)
 	}
 
 	// A buffer with varying non-silence bytes should produce a positive level.
@@ -145,12 +146,12 @@ func TestComputeLevel(t *testing.T) {
 	for i := range buf {
 		buf[i] = byte(i % 256)
 	}
-	level = computeLevel(buf)
+	level = util.ComputeLevel(buf)
 	if level <= 0 {
-		t.Errorf("computeLevel(varied) = %f, want > 0", level)
+		t.Errorf("ComputeLevel(varied) = %f, want > 0", level)
 	}
 	if level > 1.0 {
-		t.Errorf("computeLevel(varied) = %f, want <= 1.0", level)
+		t.Errorf("ComputeLevel(varied) = %f, want <= 1.0", level)
 	}
 }
 

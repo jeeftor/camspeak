@@ -6,6 +6,7 @@ import (
 	"net"
 	"os/exec"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	clog "github.com/charmbracelet/log"
@@ -40,9 +41,16 @@ type SendTiming struct {
 // runtime (via the volume API) and read by the audio send loop per-chunk.
 // gain=1.0 is unity (no change). The stored raw files are pre-boosted at
 // gain=3.0 during transcoding, so the runtime gain is relative to that.
+//
+// levelSink is an optional callback used by one-shot playback (speak,
+// play-url, beep, describe, announce) to feed real-time audio levels
+// into the VU meter. The api package attaches a sink before SendRaw
+// and clears it after. Stream/looped playback uses levelTapReader
+// directly and does not use this sink.
 type GainController struct {
-	mu   sync.RWMutex
-	gain float64
+	mu        sync.RWMutex
+	gain      float64
+	levelSink atomic.Pointer[func(float64)]
 }
 
 // NewGainController creates a GainController with the given initial gain.
@@ -63,6 +71,20 @@ func (g *GainController) Set(gain float64) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.gain = gain
+}
+
+// SetLevelSink attaches a callback that receives real-time audio levels
+// during one-shot playback. Pass nil to clear. Safe to call concurrently.
+func (g *GainController) SetLevelSink(sink func(float64)) {
+	g.levelSink.Store(&sink)
+}
+
+// RecordLevel sends the current audio level to the attached sink, if any.
+// Called per chunk by SendRaw implementations during one-shot playback.
+func (g *GainController) RecordLevel(level float64) {
+	if p := g.levelSink.Load(); p != nil && *p != nil {
+		(*p)(level)
+	}
 }
 
 // Speaker is the interface all camera types implement.

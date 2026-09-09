@@ -206,6 +206,11 @@ func (c *OnvifClient) SendRaw(rawFile string, gc *GainController) (SendTiming, e
 			return SendTiming{}, fmt.Errorf("encoding G.711: %w", err)
 		}
 
+		// Feed VU meter level for one-shot playback.
+		if gc != nil {
+			gc.RecordLevel(util.ComputeLevel(g711Samples))
+		}
+
 		// Generate RTP packets
 		pkts, err := rtpEnc.Encode(g711Samples)
 		if err != nil {

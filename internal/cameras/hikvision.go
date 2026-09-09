@@ -426,6 +426,8 @@ func (c *HikvisionClient) sendAudioWithAuth(
 			} else if gain != 1.0 {
 				util.ApplyGainMulaw(chunkBuf[:end-totalWritten], gain)
 			}
+			// Feed VU meter level for one-shot playback.
+			gc.RecordLevel(util.ComputeLevel(chunkBuf[:end-totalWritten]))
 		}
 		n, err := conn.Write(chunkBuf[:end-totalWritten])
 		if err != nil {
