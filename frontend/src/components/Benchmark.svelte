@@ -1,12 +1,13 @@
 <script lang="ts">
-  import { Loader2, Play, Plus, X } from 'lucide-svelte'
+  import { Loader2, Play, Plus, X, RefreshCw, ChevronDown, ChevronRight } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Textarea } from '$lib/components/ui/textarea'
+  import { apiClient } from '$lib/api'
   import type { SnapshotBenchmarkResult } from '$lib/types'
 
   let { cameras = [] } = $props()
 
-  // Default prompts to test across all cameras
+  // Default prompts
   const defaultPrompts = [
     'Describe what you see in this image.',
     'How many people are visible? If none, say "no people".',
@@ -18,41 +19,155 @@
   let withVision = $state(true)
   let running = $state(false)
 
+  // Model selection
+  let availableModels = $state<string[]>([])
+  let selectedModels = $state<Set<string>>(new Set())
+  let modelsLoading = $state(false)
+  let configuredModel = $state('')
+
+  // Camera selection
+  let selectedCameras = $state<Set<string>>(new Set())
+  let camerasExpanded = $state(true)
+  let modelsExpanded = $state(true)
+  let promptsExpanded = $state(true)
+
   // Streaming state
   let totalSteps = $state(0)
   let currentStep = $state(0)
   let currentCamera = $state('')
-  let currentPrompt = $state('')
+  let currentMethod = $state('')
+  let currentModel = $state('')
 
-  // Results: camera → prompt → results[]
-  type ResultMap = Record<string, Record<string, SnapshotBenchmarkResult[]>>
-  let results = $state<ResultMap>({})
+  // Live log feed
+  let logLines = $state<string[]>([])
 
-  function addPrompt() {
-    prompts = [...prompts, '']
+  // Results: flat list of all results
+  type MatrixRow = {
+    camera: string
+    prompt: string
+    method: string
+    model: string
+    result: SnapshotBenchmarkResult
+  }
+  let allRows = $state<MatrixRow[]>([])
+
+  // Collapsed groups in results
+  let collapsedCameras = $state<Set<string>>(new Set())
+
+  const enabledCameras = $derived(cameras.filter((c: any) => c.enabled))
+
+  // Initialize: select all cameras by default
+  $effect(() => {
+    if (selectedCameras.size === 0 && enabledCameras.length > 0) {
+      selectedCameras = new Set(enabledCameras.map((c: any) => c.name))
+    }
+  })
+
+  // Fetch available models
+  async function fetchModels() {
+    modelsLoading = true
+    try {
+      const cfg = await apiClient.getVisionConfig()
+      configuredModel = cfg.model || ''
+      const res = await apiClient.testVisionConfig(cfg.url, cfg.api_key)
+      if (res.ok && res.data?.data) {
+        availableModels = res.data.data
+          .map(m => m.id)
+          .filter(m => isVisionCapableModel(m))
+          .sort()
+        // Select all by default
+        selectedModels = new Set(availableModels)
+      }
+    } catch (e) {
+      logLines = [...logLines, `Error fetching models: ${e}`]
+    } finally {
+      modelsLoading = false
+    }
   }
 
+  function isVisionCapableModel(id: string): boolean {
+    const l = id.toLowerCase()
+    return l.includes('vision') || l.includes('vl') || l.includes('llava') ||
+      l.includes('qwen') || l.includes('intern') || l.includes('pixtral') ||
+      l.includes('gpt-4o') || l.includes('claude-3') || l.includes('gemini') ||
+      l.includes('minicpm') || l.includes('moondream') || l.includes('phi-3') ||
+      l.includes('florence') || l.includes('cogvlm') || l.includes('ovis') ||
+      l.includes('idefics')
+  }
+
+  // Auto-fetch models on mount
+  fetchModels()
+
+  function toggleCamera(name: string) {
+    const next = new Set(selectedCameras)
+    if (next.has(name)) next.delete(name)
+    else next.add(name)
+    selectedCameras = next
+  }
+
+  function toggleAllCameras() {
+    if (selectedCameras.size === enabledCameras.length) {
+      selectedCameras = new Set()
+    } else {
+      selectedCameras = new Set(enabledCameras.map((c: any) => c.name))
+    }
+  }
+
+  function toggleModel(name: string) {
+    const next = new Set(selectedModels)
+    if (next.has(name)) next.delete(name)
+    else next.add(name)
+    selectedModels = next
+  }
+
+  function toggleAllModels() {
+    if (selectedModels.size === availableModels.length) {
+      selectedModels = new Set()
+    } else {
+      selectedModels = new Set(availableModels)
+    }
+  }
+
+  function addPrompt() { prompts = [...prompts, ''] }
   function removePrompt(i: number) {
     if (prompts.length <= 1) return
     prompts = prompts.filter((_, idx) => idx !== i)
   }
 
-  async function runBenchmark() {
+  function toggleCameraCollapse(name: string) {
+    const next = new Set(collapsedCameras)
+    if (next.has(name)) next.delete(name)
+    else next.add(name)
+    collapsedCameras = next
+  }
+
+  async function runMatrix() {
     const activePrompts = prompts.filter(p => p.trim())
-    if (activePrompts.length === 0) return
+    const activeCameras = [...selectedCameras]
+    const activeModels = withVision ? [...selectedModels] : [configuredModel || 'default']
+
+    if (activeCameras.length === 0 || activePrompts.length === 0) return
+    if (withVision && activeModels.length === 0) {
+      logLines = [...logLines, 'No models selected']
+      return
+    }
 
     running = true
-    results = {}
+    allRows = []
+    logLines = []
     totalSteps = 0
     currentStep = 0
-    currentCamera = ''
-    currentPrompt = ''
 
     try {
       const resp = await fetch('/api/benchmark', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompts: activePrompts, with_vision: withVision }),
+        body: JSON.stringify({
+          cameras: activeCameras,
+          prompts: activePrompts,
+          models: withVision ? activeModels : [],
+          with_vision: withVision,
+        }),
       })
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
 
@@ -65,7 +180,6 @@
         if (done) break
         buf += dec.decode(value, { stream: true })
 
-        // Parse SSE events
         const events = buf.split('\n\n')
         buf = events.pop() || ''
 
@@ -82,11 +196,11 @@
           try {
             const ev = JSON.parse(eventData)
             handleEvent(eventType, ev)
-          } catch { /* skip malformed */ }
+          } catch { /* skip */ }
         }
       }
     } catch (e: any) {
-      console.error('benchmark stream error:', e)
+      logLines = [...logLines, `Error: ${e.message}`]
     } finally {
       running = false
     }
@@ -96,18 +210,32 @@
     switch (type) {
       case 'start':
         totalSteps = ev.total_steps
+        logLines = [...logLines, `Starting: ${ev.cameras} cameras × ${ev.prompts} prompts × ${ev.models?.length || 1} models = ${ev.total_steps} total tests`]
+        break
+      case 'log':
+        logLines = [...logLines, ev.msg]
+        // Keep last 50 lines
+        if (logLines.length > 50) logLines = logLines.slice(-50)
         break
       case 'progress':
         currentStep = ev.step
         currentCamera = ev.camera
-        currentPrompt = ev.prompt
+        currentMethod = ev.method
+        currentModel = ev.model
         break
       case 'result':
-        if (!results[ev.camera]) results[ev.camera] = {}
-        results[ev.camera] = { ...results[ev.camera], [ev.prompt]: ev.results }
-        results = { ...results } // trigger reactivity
+        for (const r of ev.results) {
+          allRows = [...allRows, {
+            camera: ev.camera,
+            prompt: ev.prompt,
+            method: r.method,
+            model: r.model || ev.model || '',
+            result: r,
+          }]
+        }
         break
       case 'done':
+        logLines = [...logLines, `Complete: ${ev.total_steps} results in ${ev.elapsed_sec?.toFixed(1)}s`]
         break
     }
   }
@@ -128,238 +256,253 @@
     return `${r.width}×${r.height}`
   }
 
-  // Find the fastest total time per camera+prompt
-  function bestTime(results: SnapshotBenchmarkResult[], withV: boolean): number {
-    const ok = results.filter(r => r.ok)
-    if (ok.length === 0) return Infinity
-    const key = withV ? 'total_sec' : 'snap_sec'
-    return Math.min(...ok.map(r => (r[key] as number) || r.snap_sec))
-  }
-
-  // Collect all unique method names across all results
-  function allMethods(): string[] {
-    const methods = new Set<string>()
-    for (const cam of Object.values(results)) {
-      for (const rs of Object.values(cam)) {
-        for (const r of rs) methods.add(r.method)
-      }
+  // Group results by camera
+  function groupedResults(): Record<string, MatrixRow[]> {
+    const groups: Record<string, MatrixRow[]> = {}
+    for (const row of allRows) {
+      if (!groups[row.camera]) groups[row.camera] = []
+      groups[row.camera].push(row)
     }
-    return [...methods].sort()
+    return groups
   }
 
-  // Get the best method for a camera+prompt
-  function bestMethod(results: SnapshotBenchmarkResult[], withV: boolean): string {
-    const ok = results.filter(r => r.ok)
-    if (ok.length === 0) return '—'
-    const key = withV ? 'total_sec' : 'snap_sec'
-    const best = Math.min(...ok.map(r => (r[key] as number) || r.snap_sec))
-    const winner = ok.find(r => ((r[key] as number) || r.snap_sec) === best)
-    return winner?.method || '—'
-  }
-
-  const enabledCameras = $derived(cameras.filter((c: any) => c.enabled))
   const progressPct = $derived(totalSteps > 0 ? Math.round((currentStep / totalSteps) * 100) : 0)
+  const activeModelCount = $derived(withVision ? selectedModels.size : 1)
+  const estimatedTests = $derived(selectedCameras.size * prompts.filter(p => p.trim()).length * activeModelCount)
 </script>
 
-<div class="flex flex-col gap-5 max-w-6xl">
+<div class="flex flex-col gap-5 max-w-7xl">
   <!-- Header -->
   <div>
-    <h2 class="text-lg font-semibold text-primary mb-1">Benchmark</h2>
+    <h2 class="text-lg font-semibold text-primary mb-1">Full Matrix Benchmark</h2>
     <p class="text-sm text-muted-foreground">
-      Test a set of prompts against all enabled cameras and capture methods.
-      Results stream in real-time. The model is pre-warmed before each camera to exclude cold-start loading time.
+      Test all combinations: cameras × prompts × capture methods × models.
+      Each capture method is run once, then the image is sent through all selected models.
+      Model warmup runs before each camera to exclude cold-start time.
     </p>
   </div>
 
-  <!-- Prompts editor -->
-  <div class="rounded-lg border p-4 flex flex-col gap-3">
-    <div class="flex items-center justify-between">
-      <h3 class="text-sm font-semibold text-foreground">Test Prompts ({prompts.length})</h3>
-      <Button variant="outline" size="sm" onclick={addPrompt} disabled={running}>
-        <Plus class="h-3.5 w-3.5" />
-        Add Prompt
-      </Button>
-    </div>
-    {#each prompts as p, i}
-      <div class="flex gap-2 items-start">
-        <span class="text-xs text-muted-foreground font-mono mt-2 shrink-0">#{i + 1}</span>
-        <Textarea
-          bind:value={prompts[i]}
-          disabled={running}
-          rows={2}
-          class="flex-1 text-sm"
-          placeholder="Enter a prompt to test…"
-        />
-        <Button variant="ghost" size="sm" onclick={() => removePrompt(i)} disabled={running || prompts.length <= 1}
-          class="shrink-0 mt-1">
-          <X class="h-3.5 w-3.5" />
+  <!-- Dimension selectors -->
+  <div class="grid gap-4 md:grid-cols-2">
+    <!-- Cameras -->
+    <div class="rounded-lg border p-4 flex flex-col gap-2">
+      <div class="flex items-center justify-between">
+        <button class="flex items-center gap-1 text-sm font-semibold text-foreground"
+          onclick={() => camerasExpanded = !camerasExpanded}>
+          {#if camerasExpanded}<ChevronDown class="h-4 w-4" />{:else}<ChevronRight class="h-4 w-4" />{/if}
+          Cameras ({selectedCameras.size}/{enabledCameras.length})
+        </button>
+        <Button variant="ghost" size="sm" onclick={toggleAllCameras} disabled={running}>
+          {selectedCameras.size === enabledCameras.length ? 'Deselect all' : 'Select all'}
         </Button>
       </div>
-    {/each}
+      {#if camerasExpanded}
+        <div class="flex flex-wrap gap-2">
+          {#each enabledCameras as cam}
+            <label class="flex items-center gap-1.5 text-xs rounded-md border px-2 py-1 cursor-pointer hover:bg-accent">
+              <input type="checkbox" checked={selectedCameras.has(cam.name)}
+                onchange={() => toggleCamera(cam.name)} disabled={running} class="accent-amber-500" />
+              {cam.name}
+            </label>
+          {/each}
+        </div>
+      {/if}
+    </div>
+
+    <!-- Models -->
+    <div class="rounded-lg border p-4 flex flex-col gap-2">
+      <div class="flex items-center justify-between">
+        <button class="flex items-center gap-1 text-sm font-semibold text-foreground"
+          onclick={() => modelsExpanded = !modelsExpanded}>
+          {#if modelsExpanded}<ChevronDown class="h-4 w-4" />{:else}<ChevronRight class="h-4 w-4" />{/if}
+          Models ({withVision ? `${selectedModels.size}/${availableModels.length}` : 'N/A (no vision)'})
+        </button>
+        <div class="flex gap-1">
+          <Button variant="ghost" size="sm" onclick={fetchModels} disabled={running || modelsLoading}>
+            {#if modelsLoading}<Loader2 class="h-3 w-3 animate-spin" />{:else}<RefreshCw class="h-3 w-3" />{/if}
+            Refresh
+          </Button>
+          {#if withVision}
+            <Button variant="ghost" size="sm" onclick={toggleAllModels} disabled={running}>
+              {selectedModels.size === availableModels.length ? 'Deselect all' : 'Select all'}
+            </Button>
+          {/if}
+        </div>
+      </div>
+      {#if modelsExpanded}
+        {#if !withVision}
+          <p class="text-xs text-muted-foreground italic">Models only tested when "with vision" is enabled.</p>
+        {:else if availableModels.length === 0}
+          <p class="text-xs text-muted-foreground italic">
+            {#if modelsLoading}Loading…{:else}No models found. Click Refresh to fetch from vision endpoint.{/if}
+          </p>
+        {:else}
+          <div class="flex flex-wrap gap-2">
+            {#each availableModels as m}
+              <label class="flex items-center gap-1.5 text-xs rounded-md border px-2 py-1 cursor-pointer hover:bg-accent max-w-[250px]">
+                <input type="checkbox" checked={selectedModels.has(m)}
+                  onchange={() => toggleModel(m)} disabled={running} class="accent-amber-500" />
+                <span class="truncate" title={m}>{m}</span>
+              </label>
+            {/each}
+          </div>
+        {/if}
+      {/if}
+    </div>
+  </div>
+
+  <!-- Prompts -->
+  <div class="rounded-lg border p-4 flex flex-col gap-3">
+    <div class="flex items-center justify-between">
+      <button class="flex items-center gap-1 text-sm font-semibold text-foreground"
+        onclick={() => promptsExpanded = !promptsExpanded}>
+        {#if promptsExpanded}<ChevronDown class="h-4 w-4" />{:else}<ChevronRight class="h-4 w-4" />{/if}
+        Prompts ({prompts.filter(p => p.trim()).length})
+      </button>
+      <Button variant="outline" size="sm" onclick={addPrompt} disabled={running}>
+        <Plus class="h-3.5 w-3.5" /> Add
+      </Button>
+    </div>
+    {#if promptsExpanded}
+      {#each prompts as p, i}
+        <div class="flex gap-2 items-start">
+          <span class="text-xs text-muted-foreground font-mono mt-2 shrink-0">#{i + 1}</span>
+          <Textarea bind:value={prompts[i]} disabled={running} rows={2} class="flex-1 text-sm"
+            placeholder="Enter a prompt…" />
+          <Button variant="ghost" size="sm" onclick={() => removePrompt(i)} disabled={running || prompts.length <= 1}
+            class="shrink-0 mt-1">
+            <X class="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      {/each}
+    {/if}
   </div>
 
   <!-- Controls -->
   <div class="flex flex-wrap items-center gap-3">
-    <label class="flex items-center gap-1.5 text-sm text-muted-foreground" title="Run the vision model against each captured frame to measure full pipeline latency">
+    <label class="flex items-center gap-1.5 text-sm text-muted-foreground">
       <input type="checkbox" bind:checked={withVision} disabled={running} class="accent-amber-500" />
       with vision
     </label>
 
-    <Button onclick={runBenchmark} disabled={running}>
+    <Button onclick={runMatrix} disabled={running || selectedCameras.size === 0 || prompts.filter(p => p.trim()).length === 0}>
       {#if running}
         <Loader2 class="h-4 w-4 animate-spin" />
       {:else}
         <Play class="h-4 w-4" />
       {/if}
-      Run Benchmark
+      Run Full Matrix
     </Button>
 
     <span class="text-sm text-muted-foreground">
-      {enabledCameras.length} camera{enabledCameras.length === 1 ? '' : 's'} × {prompts.filter(p => p.trim()).length} prompt{prompts.filter(p => p.trim()).length === 1 ? '' : 's'}
-      = {enabledCameras.length * prompts.filter(p => p.trim()).length} total tests
+      {selectedCameras.size} camera{selectedCameras.size === 1 ? '' : 's'} ×
+      {prompts.filter(p => p.trim()).length} prompt{prompts.filter(p => p.trim()).length === 1 ? '' : 's'} ×
+      {activeModelCount} model{activeModelCount === 1 ? '' : 's'}
+      ≈ {estimatedTests} tests
     </span>
   </div>
 
-  <!-- Progress bar -->
+  <!-- Progress + Log -->
   {#if running || currentStep > 0}
-    <div class="flex flex-col gap-1">
-      <div class="flex justify-between text-xs text-muted-foreground">
-        <span>
-          {#if running && currentCamera}
-            Testing <span class="font-semibold text-foreground">{currentCamera}</span>
-            with prompt "{currentPrompt.length > 50 ? currentPrompt.slice(0, 50) + '…' : currentPrompt}"
-          {:else if currentStep === totalSteps && totalSteps > 0}
-            Complete
-          {/if}
-        </span>
-        <span>{currentStep}/{totalSteps}</span>
-      </div>
-      <div class="h-2 w-full overflow-hidden rounded-full bg-muted">
-        <div class="h-full bg-primary transition-all" style="width:{progressPct}%"></div>
-      </div>
-    </div>
-  {/if}
-
-  <!-- Summary matrix -->
-  {#if Object.keys(results).length > 0}
     <div class="rounded-lg border p-4 flex flex-col gap-3">
-      <h3 class="text-sm font-semibold text-foreground">Summary — Best Method per Camera × Prompt</h3>
-      <table class="text-sm">
-        <thead>
-          <tr class="text-xs text-muted-foreground border-b">
-            <th class="text-left py-1.5 pr-4">Camera</th>
-            {#each prompts.filter(p => p.trim()) as p, i}
-              <th class="text-left py-1.5 px-2" title={p}>
-                Prompt #{i + 1}
-              </th>
-            {/each}
-          </tr>
-        </thead>
-        <tbody>
-          {#each Object.keys(results).sort() as camName}
-            <tr class="border-b last:border-0">
-              <td class="py-1.5 pr-4 font-medium text-xs">{camName}</td>
-              {#each prompts.filter(p => p.trim()) as p}
-                {@const rs = results[camName]?.[p] ?? []}
-                {@const best = bestMethod(rs, withVision)}
-                {@const bestT = bestTime(rs, withVision)}
-                <td class="py-1.5 px-2 text-xs">
-                  {#if rs.length === 0}
-                    <span class="text-muted-foreground">—</span>
-                  {:else if best === '—'}
-                    <span class="text-destructive">✗ all failed</span>
-                  {:else}
-                    <span class="font-mono text-amber-500 font-semibold">{best}</span>
-                    <span class="text-muted-foreground ml-1">
-                      {withVision ? fmtSec(rs.find(r => r.method === best)?.total_sec) : fmtSec(rs.find(r => r.method === best)?.snap_sec)}
-                    </span>
-                  {/if}
-                </td>
-              {/each}
-            </tr>
+      <!-- Progress bar -->
+      <div class="flex flex-col gap-1">
+        <div class="flex justify-between text-xs text-muted-foreground">
+          <span>
+            {#if running && currentCamera}
+              <span class="font-semibold text-foreground">{currentCamera}</span> ·
+              {currentMethod} ·
+              {currentModel}
+            {:else if currentStep === totalSteps && totalSteps > 0}
+              Complete
+            {/if}
+          </span>
+          <span>{currentStep}/{totalSteps} ({progressPct}%)</span>
+        </div>
+        <div class="h-2 w-full overflow-hidden rounded-full bg-muted">
+          <div class="h-full bg-primary transition-all" style="width:{progressPct}%"></div>
+        </div>
+      </div>
+
+      <!-- Live log feed -->
+      {#if logLines.length > 0}
+        <div class="bg-muted/50 rounded-md p-3 max-h-32 overflow-y-auto font-mono text-xs text-muted-foreground flex flex-col gap-0.5">
+          {#each logLines as line, i}
+            <div>{line}</div>
           {/each}
-        </tbody>
-      </table>
+        </div>
+      {/if}
     </div>
   {/if}
 
-  <!-- Detailed results per camera -->
-  {#if Object.keys(results).length > 0}
-    {#each Object.keys(results).sort() as camName}
-      <div class="rounded-lg border p-4 flex flex-col gap-4">
-        <h3 class="text-sm font-semibold text-primary">{camName}</h3>
+  <!-- Results -->
+  {#if allRows.length > 0}
+    {#each Object.entries(groupedResults()).sort() as [camName, rows]}
+      <div class="rounded-lg border p-4 flex flex-col gap-3">
+        <button class="flex items-center gap-1 text-sm font-semibold text-primary"
+          onclick={() => toggleCameraCollapse(camName)}>
+          {#if collapsedCameras.has(camName)}<ChevronRight class="h-4 w-4" />{:else}<ChevronDown class="h-4 w-4" />{/if}
+          {camName} ({rows.length} results)
+        </button>
 
-        {#each prompts.filter(p => p.trim()) as prompt}
-          {@const rs = results[camName]?.[prompt] ?? []}
-          {#if rs.length > 0}
-            {@const bTime = bestTime(rs, withVision)}
-            <div class="flex flex-col gap-1.5">
-              <div class="text-xs text-muted-foreground italic">
-                "{prompt.length > 80 ? prompt.slice(0, 80) + '…' : prompt}"
-              </div>
-              <table class="text-sm">
-                <thead>
-                  <tr class="text-xs text-muted-foreground border-b">
-                    <th class="text-left py-1 pr-4">Method</th>
-                    <th class="text-right py-1 pr-4">Capture</th>
-                    {#if withVision}
-                      <th class="text-right py-1 pr-4">Vision</th>
-                      <th class="text-right py-1 pr-4">Total</th>
-                    {/if}
-                    <th class="text-right py-1 pr-4">Resolution</th>
-                    <th class="text-right py-1 pr-4">Size</th>
-                    <th class="text-left py-1">Status</th>
+        {#if !collapsedCameras.has(camName)}
+          <table class="text-sm">
+            <thead>
+              <tr class="text-xs text-muted-foreground border-b">
+                <th class="text-left py-1.5 pr-3">Prompt</th>
+                <th class="text-left py-1.5 pr-3">Method</th>
+                <th class="text-left py-1.5 pr-3">Model</th>
+                <th class="text-right py-1.5 pr-3">Capture</th>
+                {#if withVision}
+                  <th class="text-right py-1.5 pr-3">Vision</th>
+                  <th class="text-right py-1.5 pr-3">Total</th>
+                {/if}
+                <th class="text-right py-1.5 pr-3">Res</th>
+                <th class="text-right py-1.5 pr-3">Size</th>
+                <th class="text-left py-1.5">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each rows as row}
+                <tr class="border-b last:border-0">
+                  <td class="py-1 pr-3 text-xs text-muted-foreground italic max-w-[150px] truncate" title={row.prompt}>
+                    {row.prompt.length > 30 ? row.prompt.slice(0, 30) + '…' : row.prompt}
+                  </td>
+                  <td class="py-1 pr-3 font-mono text-xs">{row.method}</td>
+                  <td class="py-1 pr-3 font-mono text-xs max-w-[150px] truncate" title={row.model}>{row.model}</td>
+                  <td class="py-1 pr-3 text-right font-mono text-xs {row.result.ok ? '' : 'text-muted-foreground'}">
+                    {row.result.ok ? fmtSec(row.result.snap_sec) : '—'}
+                  </td>
+                  {#if withVision}
+                    <td class="py-1 pr-3 text-right font-mono text-xs {row.result.ok ? '' : 'text-muted-foreground'}">
+                      {row.result.ok && row.result.vision_sec ? fmtSec(row.result.vision_sec) : '—'}
+                    </td>
+                    <td class="py-1 pr-3 text-right font-mono text-xs {row.result.ok ? '' : 'text-muted-foreground'}">
+                      {row.result.ok ? fmtSec(row.result.total_sec) : '—'}
+                    </td>
+                  {/if}
+                  <td class="py-1 pr-3 text-right font-mono text-xs text-muted-foreground">
+                    {row.result.ok ? fmtRes(row.result) : '—'}
+                  </td>
+                  <td class="py-1 pr-3 text-right font-mono text-xs text-muted-foreground">
+                    {row.result.ok ? fmtBytes(row.result.bytes) : '—'}
+                  </td>
+                  <td class="py-1 text-xs {row.result.ok ? 'text-green-600' : 'text-destructive'}">
+                    {row.result.ok ? '✓' : '✗'}
+                  </td>
+                </tr>
+                {#if withVision && row.result.ok && row.result.preview}
+                  <tr class="border-b last:border-0">
+                    <td colspan={withVision ? 9 : 7} class="py-1 pr-3 text-xs text-muted-foreground italic pl-8">
+                      {row.result.preview}
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {#each rs as r}
-                    {@const isBest = r.ok && (withVision ? r.total_sec : r.snap_sec) === bTime}
-                    <tr class="border-b last:border-0">
-                      <td class="py-1.5 pr-4 font-mono text-xs {isBest ? 'text-amber-500 font-semibold' : ''}">{r.method}</td>
-                      <td class="py-1.5 pr-4 text-right font-mono text-xs {r.ok ? '' : 'text-muted-foreground'}">
-                        {r.ok ? fmtSec(r.snap_sec) : '—'}
-                      </td>
-                      {#if withVision}
-                        <td class="py-1.5 pr-4 text-right font-mono text-xs {r.ok ? '' : 'text-muted-foreground'}">
-                          {r.ok && r.vision_sec ? fmtSec(r.vision_sec) : '—'}
-                        </td>
-                        <td class="py-1.5 pr-4 text-right font-mono text-xs {isBest ? 'text-amber-500 font-semibold' : r.ok ? '' : 'text-muted-foreground'}">
-                          {r.ok ? fmtSec(r.total_sec) : '—'}
-                        </td>
-                      {/if}
-                      <td class="py-1.5 pr-4 text-right font-mono text-xs text-muted-foreground">
-                        {r.ok ? fmtRes(r) : '—'}
-                      </td>
-                      <td class="py-1.5 pr-4 text-right font-mono text-xs text-muted-foreground">
-                        {r.ok ? fmtBytes(r.bytes) : '—'}
-                      </td>
-                      <td class="py-1.5 text-xs {r.ok ? 'text-green-600' : 'text-destructive'}">
-                        {r.ok ? '✓' : `✗ ${r.error || 'failed'}`}
-                      </td>
-                    </tr>
-                    {#if withVision && r.ok && r.preview}
-                      <tr class="border-b last:border-0">
-                        <td colspan={withVision ? 7 : 5} class="py-1 pr-4 text-xs text-muted-foreground italic">
-                          {r.preview}
-                        </td>
-                      </tr>
-                    {/if}
-                  {/each}
-                </tbody>
-              </table>
-            </div>
-          {/if}
-        {/each}
+                {/if}
+              {/each}
+            </tbody>
+          </table>
+        {/if}
       </div>
     {/each}
-
-    <p class="text-xs text-muted-foreground">
-      {#if withVision}
-        Model pre-warmed before each camera. Best total (capture + vision) per prompt highlighted in amber.
-        Larger images may give better descriptions but take longer to process.
-      {:else}
-        Fastest capture per prompt highlighted in amber. Enable "with vision" to see the full pipeline cost.
-      {/if}
-    </p>
   {/if}
 </div>
