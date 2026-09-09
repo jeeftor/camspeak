@@ -566,5 +566,12 @@ func (c *HikvisionClient) Snapshot(streamType string) ([]byte, error) {
 		return nil, fmt.Errorf("snapshot returned empty response")
 	}
 
+	// Some Hikvision cameras return HTTP 200 with an HTML error page
+	// instead of a JPEG. Validate that we actually got an image.
+	if data[0] != 0xFF || data[1] != 0xD8 {
+		return nil, fmt.Errorf("snapshot did not return a JPEG (got %d bytes, content starts with %02x %02x)",
+			len(data), data[0], data[1])
+	}
+
 	return data, nil
 }

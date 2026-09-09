@@ -70,6 +70,10 @@ func grabFrameViaGo2rtcAPI(go2rtcURL, streamName string, timeout time.Duration) 
 	if len(data) < 100 {
 		return nil, fmt.Errorf("go2rtc frame.jpeg returned too little data (%d bytes)", len(data))
 	}
+	if data[0] != 0xFF || data[1] != 0xD8 {
+		return nil, fmt.Errorf("go2rtc frame.jpeg did not return a JPEG (starts with %02x %02x)",
+			data[0], data[1])
+	}
 	return data, nil
 }
 
@@ -131,6 +135,10 @@ func grabFrameViaFFmpeg(
 	if len(data) == 0 {
 		return nil, fmt.Errorf("ffmpeg produced empty output")
 	}
+	if data[0] != 0xFF || data[1] != 0xD8 {
+		return nil, fmt.Errorf("ffmpeg did not produce a JPEG (starts with %02x %02x)",
+			data[0], data[1])
+	}
 	return data, nil
 }
 
@@ -148,6 +156,26 @@ type BenchmarkResult struct {
 	Preview   string  `json:"preview,omitempty"`
 	Image     string  `json:"image,omitempty"`
 	Error     string  `json:"error,omitempty"`
+}
+
+// isJPEG checks whether data starts with the JPEG magic bytes (0xFF 0xD8).
+// Hikvision ISAPI and some other camera APIs can return HTTP 200 with an HTML
+// error page instead of a real image; without this check, the benchmark would
+// report the method as "ok" and it would look artificially fast.
+func isJPEG(data []byte) bool {
+	return len(data) >= 4 && data[0] == 0xFF && data[1] == 0xD8
+}
+
+// validateJPEG returns an error if data is not a valid JPEG image.
+func validateJPEG(data []byte) error {
+	if len(data) == 0 {
+		return fmt.Errorf("empty response")
+	}
+	if !isJPEG(data) {
+		return fmt.Errorf("response is not a JPEG (got %d bytes, starts with %02x %02x)",
+			len(data), data[0], data[1])
+	}
+	return nil
 }
 
 // decodeJPEGDimensions reads the SOF0/SOF2 marker from a JPEG to extract
@@ -298,7 +326,14 @@ func (h *Handlers) runCameraBenchmark(
 			if resp.StatusCode != 200 {
 				return nil, fmt.Errorf("frigate returned HTTP %d", resp.StatusCode)
 			}
-			return io.ReadAll(resp.Body)
+			data, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, err
+			}
+			if err := validateJPEG(data); err != nil {
+				return nil, fmt.Errorf("frigate: %w", err)
+			}
+			return data, nil
 		})
 	}
 
@@ -676,7 +711,14 @@ func (h *Handlers) captureAllMethods(
 			if resp.StatusCode != 200 {
 				return nil, fmt.Errorf("frigate returned HTTP %d", resp.StatusCode)
 			}
-			return io.ReadAll(resp.Body)
+			data, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, err
+			}
+			if err := validateJPEG(data); err != nil {
+				return nil, fmt.Errorf("frigate: %w", err)
+			}
+			return data, nil
 		})
 	}
 
@@ -768,7 +810,10 @@ func (h *Handlers) fetchSnapshot(
 		}
 		data, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return nil, fmt.Errorf("reading snapshot: %w", err)
+			return nil, fmt.Errorf("frigate snapshot: reading body: %w", err)
+		}
+		if err := validateJPEG(data); err != nil {
+			return nil, fmt.Errorf("frigate snapshot: %w", err)
 		}
 		return data, nil
 	}
