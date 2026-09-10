@@ -11,6 +11,7 @@
   import PromptEditor from '$lib/components/PromptEditor.svelte'
   import GainSlider from '$lib/components/GainSlider.svelte'
   import CameraInfoModal from './CameraInfoModal.svelte'
+  import MiniWaveform from './MiniWaveform.svelte'
   import { buildCurl } from '$lib/curl.svelte'
   import { apiClient } from '$lib/api'
   import { Tooltip } from '$lib/components/ui/tooltip'
@@ -46,6 +47,49 @@
   let isDragOver = $state(false)
   let statusTimeout
 
+  // Waveform progress for the selected preset (0..1).
+  // Driven by a timer when playing to the camera — the actual audio
+  // plays on the camera speaker, not the browser, so we simulate progress
+  // based on the preset's known duration.
+  let waveformProgress = $state(-1) // -1 = not playing, 0..1 = playing
+  let waveformTimer = null
+  let waveformStartTime = 0
+  let waveformDuration = 0 // seconds
+
+  // Selected preset info for waveform
+  let selectedPreset = $derived(presets.find(x => x.name === preset))
+  let selectedPresetDuration = $derived(selectedPreset?.duration ?? 0)
+
+  function startWaveformProgress(durationSec) {
+    stopWaveformProgress()
+    if (durationSec <= 0) return
+    waveformDuration = durationSec
+    waveformStartTime = Date.now()
+    waveformProgress = 0
+    waveformTimer = setInterval(() => {
+      const elapsed = (Date.now() - waveformStartTime) / 1000
+      waveformProgress = Math.min(1, elapsed / durationSec)
+      if (waveformProgress >= 1) {
+        stopWaveformProgress()
+      }
+    }, 100)
+  }
+
+  function stopWaveformProgress() {
+    if (waveformTimer) {
+      clearInterval(waveformTimer)
+      waveformTimer = null
+    }
+    waveformProgress = -1
+  }
+
+  // Stop waveform when playback ends (detected via poll)
+  $effect(() => {
+    if (!streaming && waveformProgress >= 0) {
+      stopWaveformProgress()
+    }
+  })
+
   // VU meter: audio level (0.0–1.0) from SSE stream-levels endpoint
   let audioLevel = $state(0)
   let levelSSE = $state(null)
@@ -79,6 +123,7 @@
     if (snapshot) URL.revokeObjectURL(snapshot)
     clearTimeout(statusTimeout)
     if (levelSSE) levelSSE.close()
+    stopWaveformProgress()
   })
 
   // Poll the server for playback state so the UI stays in sync even when
@@ -142,6 +187,10 @@
     // Show immediate playback indicator — don't wait for the synchronous
     // API call to return (which blocks for the entire audio duration).
     playbackDetail = selected?.category ? `${selected.category}/${preset}` : preset
+    // Start waveform animation for non-stream presets
+    if (!isStream && selected?.duration > 0) {
+      startWaveformProgress(selected.duration)
+    }
     try {
       const data = await apiClient.play({ camera: camera.name, preset, gain, loop: isStream ? 0 : loopPreset })
       if (isStream) {
@@ -531,6 +580,17 @@
           class="flex-shrink-0"
         />
       </div>
+      {#if preset && !selectedPresetIsStream && selectedPresetDuration > 0}
+        <div class="mt-1">
+          <MiniWaveform
+            peaksUrl={`/api/library/${encodeURIComponent(selectedPreset.category)}/${encodeURIComponent(preset)}/peaks`}
+            audioUrl={`/api/library/${encodeURIComponent(selectedPreset.category)}/${encodeURIComponent(preset)}/preview`}
+            duration={selectedPresetDuration}
+            visualMode={true}
+            externalProgress={waveformProgress}
+          />
+        </div>
+      {/if}
     {/if}
 
     <!-- URL row -->

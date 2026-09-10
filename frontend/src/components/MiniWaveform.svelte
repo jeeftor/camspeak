@@ -24,11 +24,15 @@
     audioUrl,
     duration: initialDuration = 0,
     cacheKey = '',
+    visualMode = false,
+    externalProgress = -1,
   }: {
     peaksUrl: string
-    audioUrl: string
+    audioUrl?: string
     duration?: number
     cacheKey?: string
+    visualMode?: boolean
+    externalProgress?: number
   } = $props()
 
   // Cache key defaults to peaksUrl if not provided
@@ -114,6 +118,11 @@
     void peaks
     void progress
     void playing
+    void externalProgress
+    if (visualMode && externalProgress >= 0) {
+      progress = externalProgress
+      currentTime = progress * duration
+    }
     draw()
   })
 
@@ -253,25 +262,27 @@
 </script>
 
 <div class="flex items-center gap-2 w-full" bind:this={containerEl}>
-  <Button
-    variant="outline"
-    size="icon"
-    class="h-8 w-8 shrink-0"
-    onclick={togglePlay}
-    aria-label={playing ? 'Pause' : 'Play'}
-    title={playing ? 'Pause' : 'Play'}
-  >
-    {#if playing}
-      <Pause class="h-4 w-4" />
-    {:else}
-      <Play class="h-4 w-4" />
-    {/if}
-  </Button>
+  {#if !visualMode}
+    <Button
+      variant="outline"
+      size="icon"
+      class="h-8 w-8 shrink-0"
+      onclick={togglePlay}
+      aria-label={playing ? 'Pause' : 'Play'}
+      title={playing ? 'Pause' : 'Play'}
+    >
+      {#if playing}
+        <Pause class="h-4 w-4" />
+      {:else}
+        <Play class="h-4 w-4" />
+      {/if}
+    </Button>
+  {/if}
   <canvas
     bind:this={canvasEl}
-    onclick={seek}
-    class="flex-1 h-10 cursor-pointer block min-w-0 rounded"
-    title="Click to seek"
+    onclick={visualMode ? undefined : seek}
+    class="flex-1 h-10 cursor-pointer block min-w-0 rounded {visualMode ? 'cursor-default' : ''}"
+    title={visualMode ? '' : 'Click to seek'}
   ></canvas>
   <span class="text-xs text-muted-foreground font-mono whitespace-nowrap shrink-0 min-w-[60px] text-right">
     {timeLabel}
