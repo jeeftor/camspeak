@@ -5,6 +5,23 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.2.0] — 2026-09-10
+
+### Changed
+- Prioritized Describe, Speak, and Presets in a focused camera workspace, with compact desktop controls and secondary streams, files, and prompt options.
+- Placed the preview and Camera Output to the right on desktop; stacked them with the controls and device tools on phones and tablets.
+- Added mobile camera selection through previous/next buttons, a selector, and horizontal swipes on the camera header or preview. Volume gestures and vertical scrolling do not switch cameras.
+- Enabled previews by default while refreshing only the selected, visible camera. Per-camera drafts, preview preferences, and in-flight audio survive camera switches within the dashboard.
+- Kept the last action result and returned timing breakdown in Camera Output alongside volume, playback controls, available VU levels, and preset reference waveforms.
+- Replaced the preview-overlay menu with device information, speaker testing, and camera-specific settings controls below Camera Output.
+
+### Upgrade notes
+- No REST API changes; the companion Home Assistant integration does not require an update for this release.
+- Timing details describe completed requests. VU levels are available only when reported by the backend; they do not confirm physical speaker sound. Preset waveforms are references, not live playheads.
+- Frontend checks, Go race tests, and Playwright layout and touch checks passed at phone, tablet, and desktop widths. Browser checks used mocked camera APIs; physical phone and live camera audio acceptance still require verification on your deployment.
+
+---
+
 ## [v4.1.1] — 2026-09-10
 
 ### Fixed
