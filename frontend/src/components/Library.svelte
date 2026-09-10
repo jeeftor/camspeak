@@ -420,7 +420,11 @@
                 </div>
                 {#if !isStream}
                   <div class="mt-1.5">
-                    <MiniWaveform category={p.category} name={p.name} duration={p.duration} />
+                    <MiniWaveform
+                      peaksUrl={`/api/library/${encodeURIComponent(p.category)}/${encodeURIComponent(p.name)}/peaks`}
+                      audioUrl={`/api/library/${encodeURIComponent(p.category)}/${encodeURIComponent(p.name)}/preview`}
+                      duration={p.duration}
+                    />
                   </div>
                 {/if}
                 {#if gainEditKey === key}

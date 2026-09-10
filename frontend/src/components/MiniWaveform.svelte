@@ -1,13 +1,15 @@
 <script lang="ts">
   /**
-   * MiniWaveform — canvas-based audio waveform for library presets.
+   * MiniWaveform — generic canvas-based audio waveform player.
    *
-   * Renders a canvas waveform (peaks fetched lazily from
-   * /api/library/:category/:name/peaks — ~2KB JSON vs full WAV download),
-   * with a play/pause button, progress overlay, time display, and
-   * click-to-seek. Audio is streamed via the existing /preview endpoint.
+   * Renders a canvas waveform (peaks fetched lazily from a peaks URL
+   * — ~2KB JSON vs full audio download), with a play/pause button,
+   * progress overlay, time display, and click-to-seek. Audio is
+   * streamed via an HTML5 Audio element from an audio URL.
    *
-   * Adapted from musicgen's MiniWaveform.svelte.
+   * Shared component used by Camspeak (library presets) and Musicgen
+   * (generated audio output). Pass peaksUrl, audioUrl, and optionally
+   * initialDuration as props.
    */
 
   import { Play, Pause } from 'lucide-svelte'
@@ -18,18 +20,19 @@
   const peaksCache = new Map<string, { peaks: number[]; duration: number }>()
 
   let {
-    category,
-    name,
+    peaksUrl,
+    audioUrl,
     duration: initialDuration = 0,
+    cacheKey = '',
   }: {
-    category: string
-    name: string
+    peaksUrl: string
+    audioUrl: string
     duration?: number
+    cacheKey?: string
   } = $props()
 
-  const key = `${category}/${name}`
-  const previewUrl = `/api/library/${encodeURIComponent(category)}/${encodeURIComponent(name)}/preview`
-  const peaksUrl = `/api/library/${encodeURIComponent(category)}/${encodeURIComponent(name)}/peaks`
+  // Cache key defaults to peaksUrl if not provided
+  const key = cacheKey || peaksUrl
 
   // --- DOM refs ---
   let canvasEl: HTMLCanvasElement | null = $state(null)
@@ -117,7 +120,7 @@
   // --- Audio helpers ---
   function ensureAudio(): HTMLAudioElement {
     if (audio) return audio
-    audio = new Audio(previewUrl)
+    audio = new Audio(audioUrl)
     audio.preload = 'metadata'
     audio.addEventListener('loadedmetadata', () => {
       // Use the audio element's actual duration (more accurate than
