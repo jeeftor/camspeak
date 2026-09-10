@@ -5,6 +5,20 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.1.1] — 2026-09-10
+
+### Fixed
+- Restored inline Speak, Presets, and Streams controls on each camera card so your main audio tasks no longer require opening a modal.
+- Improved phone layouts with larger touch targets, navigation without horizontal scrolling, and nearby send controls when the visible screen shrinks.
+- Restored custom preset repeat counts and separated saved streams from finite audio presets while preserving your selections.
+- Kept Files, Describe, Preview, voice options, volume, playback controls, and automation tools available alongside your primary audio tasks.
+
+### Upgrade notes
+- No REST API changes; the companion Home Assistant integration remains at v0.15.0.
+- Automated tests and simulated mobile/desktop browser checks passed. Physical iPhone and live camera audio acceptance still require verification on your deployment.
+
+---
+
 ## [v4.1.0] — 2026-09-10
 
 ### Changed
