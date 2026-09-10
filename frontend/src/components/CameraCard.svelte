@@ -1,6 +1,6 @@
 <script>
   import { onDestroy } from 'svelte'
-  import { Eye, Bell, Play, Pause, Loader2, FileAudio, X, MessageSquare, Square, Info, Airplay } from 'lucide-svelte'
+  import { Eye, Bell, Play, Pause, Loader2, FileAudio, X, MessageSquare, Square, Info, Airplay, Video, VideoOff } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Textarea } from '$lib/components/ui/textarea'
@@ -46,6 +46,51 @@
   let showInfoModal = $state(false)
   let isDragOver = $state(false)
   let statusTimeout
+
+  // Live JPEG preview: fetches /api/snapshot/:camera every 2s
+  let livePreview = $state(false)
+  let livePreviewSrc = $state('')
+  let livePreviewTimer = null
+  let livePreviewLoading = $state(false)
+
+  async function fetchSnapshot() {
+    if (!camera.online) return
+    livePreviewLoading = true
+    try {
+      const res = await fetch(`/api/snapshot/${encodeURIComponent(camera.name)}`)
+      if (!res.ok) return
+      const blob = await res.blob()
+      if (livePreviewSrc) URL.revokeObjectURL(livePreviewSrc)
+      livePreviewSrc = URL.createObjectURL(blob)
+    } catch {
+      // keep last frame on error
+    } finally {
+      livePreviewLoading = false
+    }
+  }
+
+  function startLivePreview() {
+    livePreview = true
+    fetchSnapshot()
+    livePreviewTimer = setInterval(fetchSnapshot, 2000)
+  }
+
+  function stopLivePreview() {
+    livePreview = false
+    if (livePreviewTimer) {
+      clearInterval(livePreviewTimer)
+      livePreviewTimer = null
+    }
+    if (livePreviewSrc) {
+      URL.revokeObjectURL(livePreviewSrc)
+      livePreviewSrc = ''
+    }
+  }
+
+  function toggleLivePreview() {
+    if (livePreview) stopLivePreview()
+    else startLivePreview()
+  }
 
   // Waveform progress for the selected preset (0..1).
   // Driven by a timer when playing to the camera — the actual audio
@@ -124,6 +169,7 @@
     clearTimeout(statusTimeout)
     if (levelSSE) levelSSE.close()
     stopWaveformProgress()
+    stopLivePreview()
   })
 
   // Poll the server for playback state so the UI stays in sync even when
@@ -468,6 +514,21 @@
       </div>
       <div class="flex gap-1 flex-shrink-0">
         <Button
+          variant={livePreview ? 'default' : 'outline'} size="icon"
+          onclick={toggleLivePreview}
+          disabled={!camera.online}
+          title={livePreview ? 'Turn off live preview' : 'Turn on live preview (JPEG every 2s)'} aria-label="Live preview"
+          class="h-8 w-8"
+        >
+          {#if livePreviewLoading}
+            <Loader2 class="h-4 w-4 animate-spin" />
+          {:else if livePreview}
+            <Video class="h-4 w-4" />
+          {:else}
+            <VideoOff class="h-4 w-4" />
+          {/if}
+        </Button>
+        <Button
           variant="outline" size="icon"
           onclick={() => showInfoModal = true}
           title="Camera settings — device info, streams, codecs" aria-label="Camera info"
@@ -636,6 +697,14 @@
       <div class="flex items-center justify-center gap-2 rounded-lg border border-dashed border-primary py-3 text-sm text-primary">
         <FileAudio class="h-4 w-4" />
         Drop to play on {camera.name}
+      </div>
+    {/if}
+
+    <!-- Live preview -->
+    {#if livePreview && livePreviewSrc}
+      <div class="rounded-lg border border-primary/30 overflow-hidden relative">
+        <img src={livePreviewSrc} alt="Live preview of {camera.name}" class="w-full" />
+        <span class="absolute top-1.5 left-1.5 text-[10px] bg-background/80 backdrop-blur px-1.5 py-0.5 rounded text-primary font-mono">LIVE</span>
       </div>
     {/if}
 

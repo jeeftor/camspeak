@@ -427,6 +427,7 @@
                       title={p.name}
                       subtitle={p.category}
                       metadata={[formatSeconds(p.duration)]}
+                      vuOrientation="vertical"
                     />
                   </div>
                 {/if}
