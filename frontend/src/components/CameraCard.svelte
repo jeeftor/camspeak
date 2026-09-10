@@ -117,6 +117,7 @@
     if (!text) return
     busy = true; status = ''
     streaming = true; paused = false
+    playbackDetail = text.length > 40 ? text.slice(0, 40) + '…' : text
     try {
       const data = await apiClient.speak({ camera: camera.name, text, voice, gain })
       const timing = formatTimingSummary(data.timings, data.total_ms, data.ttfs_ms)
@@ -137,9 +138,10 @@
     const selected = presets.find(x => x.name === preset)
     const isStream = !!selected?.url
     busy = true; status = ''
-    if (isStream) {
-      streaming = true; paused = false
-    }
+    streaming = true; paused = false
+    // Show immediate playback indicator — don't wait for the synchronous
+    // API call to return (which blocks for the entire audio duration).
+    playbackDetail = selected?.category ? `${selected.category}/${preset}` : preset
     try {
       const data = await apiClient.play({ camera: camera.name, preset, gain, loop: isStream ? 0 : loopPreset })
       if (isStream) {
@@ -185,6 +187,7 @@
     if (!url) return
     busy = true; status = ''
     streaming = true; paused = false
+    playbackDetail = looksLikeStream(url) ? url : 'playing URL'
     try {
       await apiClient.playURL({ camera: camera.name, url, gain })
       setStatus('✓ playing')
@@ -199,6 +202,7 @@
   async function playStream() {
     if (!url) return
     streaming = true; paused = false; status = ''
+    playbackDetail = url
     try {
       await apiClient.playStream({ camera: camera.name, url, gain })
       setStatus('✓ streaming')
