@@ -653,20 +653,19 @@
         {/if}
         <span class="truncate">{playbackDetail}</span>
       </div>
-      <!-- VU meter: shows live audio level for streams and looped presets -->
-      {#if !paused}
-        <div class="flex items-center gap-1.5">
-          <div class="flex h-2 w-32 overflow-hidden rounded-full bg-muted gap-px" title="Audio level">
-            {#each Array(20) as _, i}
-              {@const lit = (i + 1) / 20 <= audioLevel}
-              {@const segClass = lit ? (i < 12 ? 'bg-green-500' : i < 17 ? 'bg-yellow-500' : 'bg-red-500') : 'bg-muted-foreground/20'}
-              <div class="flex-1 transition-colors duration-75 {segClass}"></div>
-            {/each}
-          </div>
-          <span class="text-[10px] tabular-nums text-muted-foreground">{Math.round(audioLevel * 100)}%</span>
-        </div>
-      {/if}
     {/if}
+
+    <!-- VU meter: always visible — flat when idle, live during playback -->
+    <div class="flex items-center gap-1.5">
+      <div class="flex h-2 w-32 overflow-hidden rounded-full bg-muted gap-px" title="Audio level">
+        {#each Array(20) as _, i}
+          {@const lit = (i + 1) / 20 <= audioLevel}
+          {@const segClass = lit ? (i < 12 ? 'bg-green-500' : i < 17 ? 'bg-yellow-500' : 'bg-red-500') : 'bg-muted-foreground/20'}
+          <div class="flex-1 transition-colors duration-75 {segClass}"></div>
+        {/each}
+      </div>
+      <span class="text-[10px] tabular-nums text-muted-foreground">{Math.round(audioLevel * 100)}%</span>
+    </div>
 
     <!-- Snapshot + description -->
     {#if snapshot}
