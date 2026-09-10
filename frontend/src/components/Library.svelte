@@ -8,7 +8,7 @@
   import { toast } from '$lib/components/ui/toast'
   import { apiClient } from '$lib/api'
   import { formatMs, formatTimingSummary, formatSeconds } from '$lib/utils'
-  import MiniWaveform from './MiniWaveform.svelte'
+  import AudioPlayer from './AudioPlayer.svelte'
   import VoiceSelect from '$lib/components/VoiceSelect.svelte'
 
   let { presets = [], voices = [], onRefresh } = $props()
@@ -420,10 +420,13 @@
                 </div>
                 {#if !isStream}
                   <div class="mt-1.5">
-                    <MiniWaveform
+                    <AudioPlayer
                       peaksUrl={`/api/library/${encodeURIComponent(p.category)}/${encodeURIComponent(p.name)}/peaks`}
                       audioUrl={`/api/library/${encodeURIComponent(p.category)}/${encodeURIComponent(p.name)}/preview`}
                       duration={p.duration}
+                      title={p.name}
+                      subtitle={p.category}
+                      metadata={[formatSeconds(p.duration)]}
                     />
                   </div>
                 {/if}
