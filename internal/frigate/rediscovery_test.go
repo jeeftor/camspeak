@@ -29,10 +29,13 @@ func TestRediscoveryPreservesCameraPreferences(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := loaded.Cameras["front"]
-	if got.IP != "new" || got.User != "new" || got.Channel != 2 || got.Gain != 0 || got.SortOrder != 7 ||
-		got.VisionPrompt != "keep" ||
-		got.AirPlayName != "Front" ||
-		got.Enabled {
-		t.Fatal("rediscovery lost preferences or failed to apply new connection details")
+	if got.IP != "new" || got.User != "new" || got.Channel != 2 {
+		t.Fatal("rediscovery failed to apply new connection details")
+	}
+	if got.Gain != 0 || got.SortOrder != 7 || got.VisionPrompt != "keep" {
+		t.Fatal("rediscovery lost playback or display preferences")
+	}
+	if got.AirPlayName != "Front" || got.Enabled {
+		t.Fatal("rediscovery lost AirPlay or enabled preferences")
 	}
 }
