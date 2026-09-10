@@ -28,6 +28,7 @@
    */
 
   import MiniWaveform from './MiniWaveform.svelte'
+  import VuMeter from './VuMeter.svelte'
 
   let {
     peaksUrl,
@@ -158,30 +159,7 @@
     </div>
 
     <!-- VU meter -->
-    {#if vuOrientation === 'vertical'}
-      <div class="flex flex-col items-center gap-1 flex-shrink-0">
-        <div class="flex flex-col h-12 w-3 overflow-hidden rounded-full bg-muted gap-px justify-end" title="Audio level">
-          {#each Array(20) as _, i}
-            {@const idx = 19 - i}
-            {@const lit = (idx + 1) / 20 <= effectiveLevel}
-            {@const segClass = lit ? (idx < 12 ? 'bg-green-500' : idx < 17 ? 'bg-yellow-500' : 'bg-red-500') : 'bg-muted-foreground/20'}
-            <div class="flex-1 transition-colors duration-75 {segClass}"></div>
-          {/each}
-        </div>
-        <span class="text-[9px] tabular-nums text-muted-foreground">{Math.round(effectiveLevel * 100)}</span>
-      </div>
-    {:else}
-      <div class="flex items-center gap-1.5 flex-shrink-0">
-        <div class="flex h-2 w-32 overflow-hidden rounded-full bg-muted gap-px" title="Audio level">
-          {#each Array(20) as _, i}
-            {@const lit = (i + 1) / 20 <= effectiveLevel}
-            {@const segClass = lit ? (i < 12 ? 'bg-green-500' : i < 17 ? 'bg-yellow-500' : 'bg-red-500') : 'bg-muted-foreground/20'}
-            <div class="flex-1 transition-colors duration-75 {segClass}"></div>
-          {/each}
-        </div>
-        <span class="text-[10px] tabular-nums text-muted-foreground">{Math.round(effectiveLevel * 100)}%</span>
-      </div>
-    {/if}
+    <VuMeter level={effectiveLevel} vertical={vuOrientation === 'vertical'} />
   </div>
 
   <!-- Metadata line -->

@@ -4,11 +4,12 @@
   import { apiClient } from '$lib/api'
   import type { PlaybackState } from '$lib/types'
 
-  let { cameraName, playback, preparing = false, level = 0, onRefresh }: {
+  let { cameraName, playback, preparing = false, level = 0, showLevel = true, onRefresh }: {
     cameraName: string
     playback?: PlaybackState
     preparing?: boolean
     level?: number
+    showLevel?: boolean
     onRefresh?: () => Promise<void>
   } = $props()
   let pending = $state(false)
@@ -46,7 +47,7 @@
         </Button>
       </div>
     </div>
-    {#if playback?.state === 'playing'}
+    {#if showLevel && playback?.state === 'playing'}
       <meter min="0" max="1" value={Math.max(0, Math.min(1, level))} aria-label={`${cameraName} audio level`} class="h-1.5 w-full accent-primary"></meter>
     {/if}
   </div>

@@ -14,7 +14,7 @@
   import { toast } from '$lib/components/ui/toast'
   import { apiClient } from '$lib/api'
 
-  let { onRefresh } = $props()
+  let { onRefresh, cameraToEdit = '', onCameraOpened } = $props()
 
   let tab = $state('settings')
   let config = $state(null)
@@ -98,6 +98,12 @@
       frigateURL = st.frigate_url ?? ''
       go2rtcURL = st.go2rtc_url ?? ''
       advertiseIP = st.advertise_ip ?? ''
+      if (cameraToEdit) {
+        tab = 'cameras'
+        const camera = cameras.find(camera => camera.name === cameraToEdit)
+        if (camera) editCamera(camera)
+        onCameraOpened?.()
+      }
     } catch (e) {
       console.error('loadConfig error:', e)
       configError = '✗ Failed to load config: ' + (e?.message ?? String(e))

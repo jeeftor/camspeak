@@ -133,13 +133,24 @@ and response data.
 
 ## Camera dashboard
 
-Camera cards keep **Speak**, **Presets**, and **Streams** directly on the main
-screen. Type a message and speak, select an audio preset, or choose a saved stream
-or paste its URL. **Files**, **Describe**, and **Preview** remain on each card.
+Select a camera to **Describe**, **Speak**, or play **Presets**. On desktop,
+the preview and **Camera Output** sit to the right of the compact action controls;
+device information, speaker testing, and camera settings sit below the output.
+On phones, the preview, actions, output, and tools stack vertically. Switch cameras
+with the selector, previous/next buttons, or a horizontal swipe on the header or
+preview. Swiping inputs and volume sliders does not switch cameras.
+
+The preview starts automatically; only the selected, visible camera refreshes.
+Your per-camera drafts, preview preference, and last result remain available while
+switching cameras or modes during the dashboard session. Camera Output retains
+returned timing details, descriptions, playback controls, and volume. Its VU meter
+uses reported audio levels, which are not available for every playback path and
+do not confirm physical speaker sound. Presets show a reference waveform, not a
+live playhead. Timings describe the completed request, not simulated live stages.
+
+**More audio** exposes streams, audio URLs, uploads, and vision prompt editing.
 Voice options, local audio preview, and custom repeat counts stay beside the
 relevant action; zero additional repeats plays once and -1 repeats until stopped.
-Your drafts stay available while you switch modes during the current dashboard
-session. Volume and supported playback controls remain available on the card.
 On phones, **More…** exposes the remaining pages and automation tools without
 horizontal navigation scrolling.
 

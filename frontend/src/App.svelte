@@ -15,6 +15,7 @@
   import { apiClient } from '$lib/api'
 
   let tab = $state('cameras')
+  let configCamera = $state('')
   let routeReady = $state(false)
   let cameras = $state([])
   let voices = $state([])
@@ -132,7 +133,7 @@
       </div>
 
       <!-- Desktop-only: inline tabs -->
-      <nav class="hidden md:flex gap-0.5 flex-1">
+      <nav class="hidden lg:flex gap-0.5 flex-1">
         {#each tabs as t}
           <button
             class="px-2.5 py-1.5 text-sm rounded-md font-medium whitespace-nowrap transition-colors
@@ -159,7 +160,7 @@
         </div>
       </nav>
 
-      <div class="flex-1 md:hidden"></div>
+      <div class="flex-1 lg:hidden"></div>
 
       <!-- STOP ALL button -->
       <button
@@ -226,7 +227,7 @@
     </div>
 
     <!-- Keep every mobile destination reachable without horizontal scrolling. -->
-    <nav aria-label="Mobile navigation" class="grid grid-cols-3 gap-1 px-4 pb-2 md:hidden">
+    <nav aria-label="Mobile navigation" class="grid grid-cols-3 gap-1 px-4 pb-2 lg:hidden">
       {#each tabs.slice(0, 2) as t}
         <button
           class="min-h-11 px-2 py-1.5 text-sm rounded-md font-medium transition-colors
@@ -304,7 +305,7 @@
         </div>
       {/if}
       {#if tab === 'cameras'}
-        <CameraGrid {cameras} {voices} {presets} onRefresh={loadAll} />
+        <CameraGrid {cameras} {voices} {presets} onRefresh={loadAll} onOpenSettings={name => { configCamera = name; tab = 'config' }} />
       {:else if tab === 'library'}
         <Library {presets} {voices} onRefresh={loadAll} />
       {:else if tab === 'events'}
@@ -316,7 +317,7 @@
       {:else if tab === 'ha'}
         <HomeAssistant />
       {:else if tab === 'config'}
-        <Config onRefresh={loadAll} />
+        <Config onRefresh={loadAll} cameraToEdit={configCamera} onCameraOpened={() => configCamera = ''} />
       {:else if tab === 'rest'}
         <RestDocs />
       {:else if tab === 'mcp'}

@@ -5,30 +5,32 @@
   import VoiceSelect from '$lib/components/VoiceSelect.svelte'
   import GainSlider from '$lib/components/GainSlider.svelte'
   import CopyButton from '$lib/components/CopyButton.svelte'
-  import Markdown from '$lib/components/Markdown.svelte'
   import PresetSelect from './PresetSelect.svelte'
-  import PlaybackStrip from './PlaybackStrip.svelte'
+  import CameraOutput from './CameraOutput.svelte'
   import AudioPlayer from './AudioPlayer.svelte'
   import { apiClient } from '$lib/api'
   import { saveCameraGain, uploadAudioToCamera } from '$lib/audio-actions'
   import { buildCurl } from '$lib/curl.svelte'
   import { formatTimingSummary } from '$lib/utils'
-  import type { CameraSummary, Preset, SpeakResponse } from '$lib/types'
+  import type { CameraSummary, Preset, DescribeResponse } from '$lib/types'
   import { isValidRepeat, type AudioDraft } from '$lib/audio-draft'
   import type { PlaybackMonitor } from '$lib/playback.svelte'
 
-  let { camera, voices = [], presets = [], draft = $bindable(), monitor, previewControl }: {
+  let { camera, voices = [], presets = [], draft = $bindable(), monitor, active = true, preview, tools }: {
     camera?: CameraSummary
     voices?: string[]
     presets?: Preset[]
     draft: AudioDraft
     monitor: PlaybackMonitor
-    previewControl?: Snippet
+    active?: boolean
+    preview?: Snippet
+    tools?: Snippet
   } = $props()
 
   let status = $state('')
   let failed = $state(false)
   let stopping = $state(false)
+  let editingPrompt = $state(false)
   let statusTimer: ReturnType<typeof setTimeout> | undefined
   let uploadController: AbortController | undefined
   const broadcast = $derived(!camera)
@@ -41,7 +43,7 @@
   const valid = $derived(camera?.capabilities?.speak !== false && (draft.mode === 'speak' ? !!draft.text.trim()
     : draft.mode === 'preset' ? !!selected && (!selected.url || canStream) && (broadcast || !!selected.url || (isValidRepeat(draft.loop) && (draft.loop === 0 || canStream)))
     : draft.mode === 'stream' ? canStream && (draft.streamPreset ? !!savedStream : /^https?:\/\//i.test(draft.url))
-    : draft.mode === 'url' ? /^https?:\/\//i.test(draft.url) && (!stream || canStream) : !!camera))
+    : draft.mode === 'url' ? /^https?:\/\//i.test(draft.url) && (!stream || canStream) : !!camera && camera.capabilities?.snapshot !== false))
 
   function looksLikeStream(url: string) {
     return /\.(pls|m3u8?)(?:[?#]|$)|liveatc\.net|\/play\/|shoutcast|icecast/i.test(url)
@@ -102,6 +104,10 @@
     clearTimeout(statusTimer)
     status = ''
     failed = false
+    const label = draft.mode === 'describe' ? 'Describe' : draft.mode === 'speak' ? 'Speak'
+      : draft.mode === 'preset' ? `Preset · ${selected?.name}` : draft.mode === 'stream' ? 'Stream' : 'Audio URL'
+    draft.pendingAction = label
+    draft.waveformPreset = draft.mode === 'preset' && selected && !selected.url ? selected : null
     try {
       let result
       if (broadcast) {
@@ -122,22 +128,19 @@
           ? await apiClient.play({ ...target, preset: savedStream.name, category: savedStream.category, loop: 0 })
           : await apiClient.playStream({ ...target, url: draft.url })
         if (draft.mode === 'describe') {
-          draft.description = ''
-          draft.image = ''
-          const described = await apiClient.describe({ ...target, prompt: draft.prompt })
-          draft.description = described.description ?? ''
           // This is the exact frame used for inference, not a second snapshot.
-          draft.image = described.image ?? ''
-          result = described
+          result = await apiClient.describe({ ...target, prompt: draft.prompt })
         }
       }
-      const response = result as SpeakResponse | undefined
+      const response = result as DescribeResponse | undefined
+      draft.lastResult = { ...response, label }
       const timing = response ? formatTimingSummary(response.timings, response.total_ms, response.ttfs_ms) : ''
       feedback(`${broadcast ? 'Broadcast completed' : 'Audio sent'}${timing ? ` (${timing})` : ''}`)
     } catch (cause) {
       feedback(cause instanceof Error ? cause.message : String(cause), true)
     } finally {
       draft.busy = false
+      draft.pendingAction = ''
       void monitor.refresh()
     }
   }
@@ -145,14 +148,17 @@
   async function upload(file?: File) {
     if (!file || !camera || draft.busy || camera.capabilities?.speak === false) return
     draft.busy = true
+    draft.pendingAction = 'Upload'
+    draft.waveformPreset = null
     clearTimeout(statusTimer)
     failed = false
     status = 'Uploading your audio…'
     uploadController = new AbortController()
     try {
-      await uploadAudioToCamera(camera.name, file, progress => {
+      const result = await uploadAudioToCamera(camera.name, file, progress => {
         status = `${progress.step} (${Math.round(progress.percent)}%)`
       }, uploadController.signal)
+      draft.lastResult = { ...result, label: `File · ${file.name}` }
       feedback(`Audio sent: ${file.name}`)
     } catch (cause) {
       if (!uploadController.signal.aborted) {
@@ -161,6 +167,7 @@
       }
     } finally {
       draft.busy = false
+      draft.pendingAction = ''
       void monitor.refresh()
     }
   }
@@ -179,15 +186,25 @@
   }
 
   async function replayDescription() {
-    if (!camera || draft.busy || !draft.description) return
+    const previous = draft.lastResult
+    if (!camera || draft.busy || draft.gainSaving || !previous?.description) return
     draft.busy = true
+    draft.pendingAction = 'Speak again'
+    draft.waveformPreset = null
     clearTimeout(statusTimer)
     status = ''
     try {
-      await apiClient.speak({ camera: camera.name, text: draft.description, voice: draft.voice })
+      const result = await apiClient.speak({ camera: camera.name, text: previous.description, voice: draft.voice })
+      draft.lastResult = { ...result, label: 'Speak again', description: previous.description, image: previous.image }
       feedback('Description sent')
     } catch (cause) { feedback(cause instanceof Error ? cause.message : String(cause), true) }
-    finally { draft.busy = false; void monitor.refresh() }
+    finally { draft.busy = false; draft.pendingAction = ''; void monitor.refresh() }
+  }
+
+  function describe() {
+    if (draft.busy || draft.gainSaving || camera?.capabilities?.snapshot === false) return
+    draft.mode = 'describe'
+    void submit()
   }
 
   onDestroy(() => {
@@ -196,9 +213,10 @@
   })
 </script>
 
-<div class="audio-composer flex min-w-0 flex-col gap-3">
+<div class="audio-composer {camera ? 'camera-workspace' : ''}">
+  {#if camera && active}<div class="workspace-preview min-w-0">{@render preview?.()}</div>{/if}
+  <div class="workspace-compose flex min-w-0 flex-col gap-3">
   {#if camera}
-    <PlaybackStrip cameraName={camera.name} playback={monitor.state.cameras[camera.name]} preparing={draft.busy} level={monitor.state.levels[camera.name]} onRefresh={monitor.refresh} />
     {#if camera.capabilities?.speak === false}<p class="text-sm text-muted-foreground">Audio playback is unavailable for this camera connection. Check its settings in Config.</p>{/if}
   {:else}
     <p class="text-sm text-muted-foreground">Send the same message or preset to all enabled cameras.</p>
@@ -208,10 +226,10 @@
   {/if}
 
   <div class="grid gap-1 rounded-lg bg-muted p-1 {broadcast ? 'grid-cols-2' : 'grid-cols-3'}" role="group" aria-label="Audio source">
-    {#each [{ key: 'speak', label: 'Speak' }, { key: 'preset', label: 'Presets' }, ...(!broadcast ? [{ key: 'stream', label: 'Streams' }] : [])] as mode}
+    {#each [...(!broadcast ? [{ key: 'describe', label: 'Describe' }] : []), { key: 'speak', label: 'Speak' }, { key: 'preset', label: 'Presets' }] as mode}
       <Button type="button" size="sm" variant={draft.mode === mode.key ? 'default' : 'ghost'}
-        aria-pressed={draft.mode === mode.key} disabled={draft.busy}
-        onclick={() => { draft.mode = mode.key as AudioDraft['mode']; status = '' }}>{mode.label}</Button>
+        aria-pressed={draft.mode === mode.key} disabled={draft.busy || (mode.key === 'describe' && (draft.gainSaving || camera?.capabilities?.snapshot === false || camera?.capabilities?.speak === false))}
+        onclick={() => { if (mode.key === 'describe') describe(); else { draft.mode = mode.key as AudioDraft['mode']; status = '' } }}>{mode.label}</Button>
     {/each}
   </div>
 
@@ -243,13 +261,16 @@
       </label>
     {:else}
       <p class="text-sm text-muted-foreground">Describe this camera's image and speak the result.</p>
-      <label class="flex flex-col gap-1.5 text-sm">Vision prompt
-        <textarea bind:value={draft.prompt} rows="3" placeholder="Use your configured default prompt" disabled={draft.busy} class="w-full resize-y rounded-md border border-input bg-transparent px-3 py-2"></textarea>
-      </label>
-      <Button type="button" size="sm" variant="ghost" disabled={draft.busy} onclick={() => draft.prompt = camera?.vision_prompt ?? ''}>Reset camera prompt</Button>
+      <details bind:open={editingPrompt} class="text-sm">
+        <summary class="cursor-pointer text-muted-foreground">Vision prompt · optional</summary>
+        <label class="mt-2 flex flex-col gap-1.5">Vision prompt
+          <textarea bind:value={draft.prompt} rows="3" placeholder="Use your configured default prompt" disabled={draft.busy} class="w-full resize-y rounded-md border border-input bg-transparent px-3 py-2"></textarea>
+        </label>
+        <Button type="button" size="sm" variant="ghost" disabled={draft.busy} onclick={() => draft.prompt = camera?.vision_prompt ?? ''}>Reset camera prompt</Button>
+      </details>
     {/if}
 
-    <Button data-primary-action type="submit" disabled={draft.busy || draft.gainSaving || !valid} class="w-full gap-2">
+    <Button data-primary-action size="sm" type="submit" disabled={draft.busy || draft.gainSaving || !valid} class="w-full gap-2">
       {#if draft.busy}<Loader2 class="h-4 w-4 animate-spin" /> Working…
       {:else if broadcast}<Radio class="h-4 w-4" /> Broadcast to all cameras
       {:else if draft.mode === 'describe'}<Eye class="h-4 w-4" /> Describe and speak
@@ -282,11 +303,11 @@
       <details class="text-sm">
         <summary class="cursor-pointer text-muted-foreground">Preview here · {selected.name}</summary>
         <div class="mt-2">
-          {#key draft.preset}
+          {#if active}{#key draft.preset}
             <AudioPlayer peaksUrl={`/api/library/${encodeURIComponent(selected.category)}/${encodeURIComponent(selected.name)}/peaks`}
               audioUrl={`/api/library/${encodeURIComponent(selected.category)}/${encodeURIComponent(selected.name)}/preview`}
-              duration={selected.duration} subtitle="Preview on this device" />
-          {/key}
+              duration={selected.duration} vuOrientation="vertical" subtitle="Preview on this device" />
+          {/key}{/if}
         </div>
       </details>
     {:else if draft.mode === 'url'}
@@ -303,34 +324,32 @@
       {/if}
     {/if}
 
-    <div>
+    {#if broadcast}<div>
       <GainSlider bind:value={draft.gain} disabled={draft.gainSaving} onchange={saveGain}
         aria-label={camera ? `${camera.name} volume` : 'Broadcast volume'} />
-    </div>
+    </div>{/if}
   </form>
 
-  {#if draft.mode === 'describe'}
-    {#if draft.image}<img src={draft.image} alt="Camera frame used for this description" class="w-full rounded-lg" />{/if}
-    {#if draft.description}
-      <Markdown content={draft.description} />
-      <div class="flex flex-wrap gap-2">
-        <Button type="button" size="sm" variant="outline" disabled={draft.busy} onclick={replayDescription}><Play class="h-4 w-4" /> Speak again</Button>
-        <Button type="button" size="sm" variant="ghost" disabled={draft.busy} onclick={() => { draft.description = ''; draft.image = '' }}>Clear result</Button>
-      </div>
-    {/if}
-  {/if}
-
   {#if !broadcast}
-    <div class="flex flex-wrap gap-2 border-t pt-2" role="group" aria-label="More camera tools">
+    <details class="border-t pt-2 text-xs text-muted-foreground">
+      <summary class="cursor-pointer">More audio · streams & files</summary>
+      <div class="mt-2 flex flex-wrap gap-2">
+      <Button type="button" size="sm" variant={draft.mode === 'stream' ? 'secondary' : 'ghost'} aria-pressed={draft.mode === 'stream'}
+        disabled={draft.busy} onclick={() => { draft.mode = 'stream'; status = '' }}><Radio class="h-4 w-4" /> Streams</Button>
       <Button type="button" size="sm" variant={draft.mode === 'url' ? 'secondary' : 'ghost'} aria-pressed={draft.mode === 'url'}
         disabled={draft.busy} onclick={() => { draft.mode = 'url'; status = '' }}><Upload class="mr-1.5 h-4 w-4" /> Files</Button>
-      <Button type="button" size="sm" variant={draft.mode === 'describe' ? 'secondary' : 'ghost'} aria-pressed={draft.mode === 'describe'}
-        disabled={draft.busy || camera?.capabilities?.snapshot === false} onclick={() => { draft.mode = 'describe'; status = '' }}><Eye class="mr-1.5 h-4 w-4" /> Describe</Button>
-      {@render previewControl?.()}
-    </div>
+      <Button type="button" size="sm" variant="ghost" disabled={draft.busy || camera?.capabilities?.snapshot === false}
+        onclick={() => { draft.mode = 'describe'; editingPrompt = true; status = '' }}>Edit vision prompt</Button>
+      </div>
+    </details>
   {/if}
   <details class="text-xs text-muted-foreground">
     <summary class="cursor-pointer">Automation tools</summary>
     <div class="mt-2"><CopyButton text={buildCurl('POST', endpoint, camera ? { ...request(), camera: camera.name } : request())} label="Copy curl command" /></div>
   </details>
+  </div>
+  {#if camera && active}
+    <div class="workspace-output min-w-0"><CameraOutput {camera} bind:draft {monitor} onGain={saveGain} onReplay={replayDescription} /></div>
+    <div class="workspace-tools min-w-0">{@render tools?.()}</div>
+  {/if}
 </div>

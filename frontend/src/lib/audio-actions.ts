@@ -37,7 +37,7 @@ export async function uploadAudioToCamera(
     const job = await apiClient.uploadAndWait(file, name, 'drops', onProgress, controller.signal)
     controller.signal.throwIfAborted()
     onProgress({ step: 'Sending your audio', percent: 100, label: 'Sending your audio' })
-    await apiClient.play({ camera, preset: job.name, category: job.category })
+    return await apiClient.play({ camera, preset: job.name, category: job.category })
   } finally {
     signal.removeEventListener('abort', abort)
     unregister()
