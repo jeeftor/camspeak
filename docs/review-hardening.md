@@ -67,7 +67,7 @@ are separate from the implementation checks recorded below.
 
 - Full uncached Go race suite: `go test -race -count=1 -timeout=90s ./...`.
 - `go vet ./...`; Go-compatible golangci-lint v2.12.2; frontend type/component
-  checks with zero errors/warnings; 10 frontend regression tests; production build.
+  checks with zero errors/warnings; 11 frontend regression tests; production build.
 - Native executable build and `--help`; plain `make` remains help-only.
 - 85 companion Home Assistant tests, plus Ruff checks, run by the integration
   reviewer against the sibling Home Assistant test environment.
