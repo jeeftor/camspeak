@@ -35,6 +35,7 @@ type streamSession struct {
 	url       string
 	started   time.Time
 	levelBits uint64
+	op        *playbackOperation
 }
 
 var (
@@ -57,11 +58,15 @@ var (
 type levelTapReader struct {
 	r       io.Reader
 	session *streamSession
+	gain    *cameras.GainController
 }
 
 func (t *levelTapReader) Read(p []byte) (int, error) {
 	n, err := t.r.Read(p)
 	if n > 0 {
+		if t.gain != nil {
+			util.ApplyGainMulaw(p[:n], t.gain.Get())
+		}
 		level := util.ComputeLevel(p[:n])
 		atomic.StoreUint64(&t.session.levelBits, math.Float64bits(level))
 	}
@@ -128,6 +133,10 @@ func getStreamLevels() map[string]float64 {
 // resolveStreamURL turns a playlist URL into the actual stream URL.
 // Supports .pls and .m3u/.m3u8 playlists.
 func resolveStreamURL(rawURL string) (string, error) {
+	return resolveStreamURLContext(context.Background(), rawURL)
+}
+
+func resolveStreamURLContext(ctx context.Context, rawURL string) (string, error) {
 	parsed, err := neturl.Parse(rawURL)
 	if err != nil {
 		return "", fmt.Errorf("invalid url: %w", err)
@@ -136,9 +145,9 @@ func resolveStreamURL(rawURL string) (string, error) {
 	path := strings.ToLower(parsed.Path)
 	switch {
 	case strings.HasSuffix(path, ".pls"):
-		return resolvePLS(rawURL)
+		return resolvePlaylist(ctx, rawURL, true)
 	case strings.HasSuffix(path, ".m3u"), strings.HasSuffix(path, ".m3u8"):
-		return resolveM3U(rawURL)
+		return resolvePlaylist(ctx, rawURL, false)
 	default:
 		return rawURL, nil
 	}
@@ -150,12 +159,20 @@ func resolveStreamURL(rawURL string) (string, error) {
 var playlistClient = &http.Client{Timeout: 10 * time.Second}
 
 func resolvePLS(rawURL string) (string, error) {
+	return resolvePlaylist(context.Background(), rawURL, true)
+}
+
+func resolvePlaylist(ctx context.Context, rawURL string, pls bool) (string, error) {
 	base, err := neturl.Parse(rawURL)
 	if err != nil {
 		return "", fmt.Errorf("invalid url: %w", err)
 	}
 
-	resp, err := playlistClient.Get(rawURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := playlistClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("fetching pls: %w", err)
 	}
@@ -166,6 +183,16 @@ func resolvePLS(rawURL string) (string, error) {
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
+		if !pls {
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			u, err := base.Parse(line)
+			if err != nil {
+				return "", err
+			}
+			return u.String(), nil
+		}
 		if strings.HasPrefix(strings.ToLower(line), "file1=") {
 			val := strings.TrimSpace(line[len("File1="):])
 			// Resolve relative URLs against the playlist base URL.
@@ -195,36 +222,7 @@ func resolvePLS(rawURL string) (string, error) {
 }
 
 func resolveM3U(rawURL string) (string, error) {
-	base, err := neturl.Parse(rawURL)
-	if err != nil {
-		return "", fmt.Errorf("invalid url: %w", err)
-	}
-
-	resp, err := playlistClient.Get(rawURL)
-	if err != nil {
-		return "", fmt.Errorf("fetching m3u: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("fetching m3u: HTTP %d", resp.StatusCode)
-	}
-
-	scanner := bufio.NewScanner(resp.Body)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		u, err := base.Parse(line)
-		if err != nil {
-			return line, nil
-		}
-		return u.String(), nil
-	}
-	if err := scanner.Err(); err != nil {
-		return "", fmt.Errorf("reading m3u: %w", err)
-	}
-	return "", fmt.Errorf("no stream entries found in M3U")
+	return resolvePlaylist(context.Background(), rawURL, false)
 }
 
 // PlayStream handles POST /api/play-stream — live audio stream → camera.
@@ -232,12 +230,15 @@ func (h *Handlers) PlayStream(c echo.Context) error {
 	log := h.logger(c)
 
 	var req struct {
-		Camera string  `json:"camera"`
-		URL    string  `json:"url"`
-		Gain   float64 `json:"gain"`
+		Camera string   `json:"camera"`
+		URL    string   `json:"url"`
+		Gain   *float64 `json:"gain"`
 	}
 	if err := c.Bind(&req); err != nil || req.Camera == "" || req.URL == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "camera and url required")
+	}
+	if err := validateRequestGain(req.Gain); err != nil {
+		return err
 	}
 
 	parsedURL, err := neturl.Parse(req.URL)
@@ -245,22 +246,53 @@ func (h *Handlers) PlayStream(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "url must be http or https")
 	}
 
-	cam, err := h.reg.Get(req.Camera)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, err.Error())
-	}
-
-	streamURL, err := resolveStreamURL(req.URL)
-	if err != nil {
-		log.Warn("stream: failed to resolve playlist", "url", req.URL, "err", err)
-		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
-	}
-
-	if err := h.startStreamToCamera(log, cam, req.Camera, streamURL, req.URL, req.Gain); err != nil {
+	if err := h.startURLStream(c.Request().Context(), log, req.Camera, req.URL, requestGain(req.Gain)); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{"status": "streaming"})
+}
+
+// startURLStream owns playlist preparation and detaches a successful live session
+// from the HTTP response while preserving Stop and replacement cancellation.
+func (h *Handlers) startURLStream(
+	ctx context.Context,
+	log *clog.Logger,
+	camera, rawURL string,
+	gain float64,
+) error {
+	parsed, err := neturl.Parse(rawURL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return fmt.Errorf("url must be http or https")
+	}
+	cam, err := h.reg.GetForPlayback(camera)
+	if err != nil {
+		return err
+	}
+	if !cameras.CanLiveStream(cam) {
+		return cameras.ErrLiveStreamUnsupported
+	}
+	op, err := h.beginPlaybackOperation(
+		context.WithoutCancel(ctx),
+		camera,
+		cam,
+		"stream",
+		util.RedactURLString(rawURL),
+	)
+	if err != nil {
+		return err
+	}
+	cancelPreparation := context.AfterFunc(ctx, op.cancel)
+	streamURL, err := resolveStreamURLContext(op.ctx, rawURL)
+	cancelPreparation()
+	if err != nil || ctx.Err() != nil || op.ctx.Err() != nil {
+		op.finish()
+		if err != nil {
+			return err
+		}
+		return context.Canceled
+	}
+	return h.startPreparedStream(log, op, streamURL, rawURL, gain)
 }
 
 // buildStreamFFmpegCmd creates and starts an ffmpeg process that reads a
@@ -295,8 +327,9 @@ func buildStreamFFmpegCmd(
 		ctx,
 		"ffmpeg",
 		"-nostdin",
-		"-loglevel", "info", // info level for ICY metadata
-		"-re", // read input at native frame rate for live streams
+		"-loglevel",
+		"info", // info level for ICY metadata
+		"-re",  // read input at native frame rate for live streams
 		"-user_agent",
 		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
 		"-i",
@@ -328,33 +361,25 @@ func buildStreamFFmpegCmd(
 	return cmd, stdout, stderr, nil
 }
 
-// startStreamToCamera starts an ffmpeg process reading a live stream URL and
-// piping transcoded G.711 µ-law to the camera speaker. It registers a
-// streamSession so the stream can be paused, resumed, and stopped. The
-// originalURL is used for logging and playback state (before playlist
-// resolution). This is shared by the /api/play-stream handler and the
-// stream-preset playback path in playPreset().
-//
-// A supervisor goroutine handles automatic reconnection with exponential
-// backoff if the stream drops (network blip, server restart). ICY metadata
-// from the stream is parsed and shown in the playback detail.
-func (h *Handlers) startStreamToCamera(
+func (h *Handlers) startPreparedStream(
 	log *clog.Logger,
-	cam cameras.Speaker,
-	cameraName, streamURL, originalURL string,
-	reqGain float64,
+	op *playbackOperation,
+	streamURL, originalURL string,
+	gain float64,
 ) error {
-	gain := h.effectiveGain(cameraName, reqGain)
-
-	// Stop any existing ffmpeg stream for this camera first.
-	stopStream(cameraName)
-
-	ctx, cancel := context.WithCancel(context.Background())
+	operationsMu.Lock()
+	defer operationsMu.Unlock()
+	if operations[op.camera] != op || op.ctx.Err() != nil {
+		return context.Canceled
+	}
+	cameraName, cam := op.camera, op.cam
+	ctx, cancel := context.WithCancel(op.ctx)
 
 	session := &streamSession{
 		cancel:  cancel,
 		url:     originalURL,
 		started: now(),
+		op:      op,
 	}
 
 	activeStreamsMu.Lock()
@@ -385,6 +410,7 @@ func (h *Handlers) streamSupervisor(
 	ctx context.Context,
 	session *streamSession,
 ) {
+	defer finishStream(cameraName, session)
 	backoff := 2 * time.Second
 	const maxBackoff = 32 * time.Second
 	const maxRetries = 5
@@ -395,35 +421,37 @@ func (h *Handlers) streamSupervisor(
 	for {
 		select {
 		case <-ctx.Done():
-			stopStream(cameraName)
 			return
 		default:
 		}
 
 		cmd, stdout, stderr, err := buildStreamFFmpegCmd(
-			ctx, streamURL, gain, h.cfg.PrimeSilenceMs,
+			ctx, streamURL, 1, h.configSnapshot().PrimeSilenceMs,
 		)
 		if err != nil {
 			log.Warn("stream: ffmpeg failed to start", "camera", cameraName, "err", err)
-			stopStream(cameraName)
 			return
 		}
 
 		// Update session with new cmd (for pause/resume/stop).
 		activeStreamsMu.Lock()
 		session.cmd = cmd
+		if session.paused && cmd.Process != nil {
+			_ = cmd.Process.Signal(syscall.SIGSTOP)
+		}
 		activeStreamsMu.Unlock()
 
 		// Wrap stdout with a level tap for VU meter sampling.
-		tap := &levelTapReader{r: stdout, session: session}
+		tap := &levelTapReader{r: stdout, session: session, gain: h.gainForCall(cameraName, gain)}
 
-		go logStderr(stderr, log, cameraName)
+		go logStreamStderr(stderr, log, cameraName, session)
 
 		// Start camera stream in a goroutine — interrupt AirPlay first.
 		camDone := make(chan struct{})
 		go func() {
-			_ = cam.Stop()
-			_ = cam.Stream(tap)
+			if ctx.Err() == nil {
+				_ = cameras.StreamContext(ctx, cam, tap)
+			}
 			close(camDone)
 		}()
 
@@ -444,7 +472,6 @@ func (h *Handlers) streamSupervisor(
 			}
 			<-ffmpegDone
 			<-camDone
-			stopStream(cameraName)
 			log.Info("stream: stopped", "camera", cameraName)
 			return
 		case ffmpegErr = <-ffmpegDone:
@@ -458,6 +485,9 @@ func (h *Handlers) streamSupervisor(
 			}
 			ffmpegErr = <-ffmpegDone
 		}
+		activeStreamsMu.Lock()
+		session.cmd = nil
+		activeStreamsMu.Unlock()
 
 		// If the stream ran long enough, reset the retry counter and
 		// backoff — this was a healthy session that dropped, not a
@@ -476,7 +506,6 @@ func (h *Handlers) streamSupervisor(
 			log.Warn("stream: reconnect attempts exhausted, stopping",
 				"camera", cameraName, "retries", retries,
 				"session_duration", time.Since(streamStart), "err", ffmpegErr)
-			stopStream(cameraName)
 			return
 		}
 		retries++
@@ -487,7 +516,6 @@ func (h *Handlers) streamSupervisor(
 
 		select {
 		case <-ctx.Done():
-			stopStream(cameraName)
 			return
 		case <-time.After(backoff):
 		}
@@ -499,7 +527,12 @@ func (h *Handlers) streamSupervisor(
 	}
 }
 
-func logStderr(stderr io.ReadCloser, log *clog.Logger, camera string) {
+func logStreamStderr(
+	stderr io.ReadCloser,
+	log *clog.Logger,
+	camera string,
+	session *streamSession,
+) {
 	defer stderr.Close()
 	scanner := bufio.NewScanner(stderr)
 	// Track the highest metadata priority seen so far so that
@@ -511,7 +544,11 @@ func logStderr(stderr io.ReadCloser, log *clog.Logger, camera string) {
 		// Parse ICY metadata from ffmpeg stderr (requires -loglevel info).
 		if title, kind := parseICYMetadata(line); kind != icyNone {
 			if kind >= bestKind {
-				updatePlaybackDetail(camera, title)
+				activeStreamsMu.Lock()
+				if session == nil || activeStreams[camera] == session {
+					updatePlaybackDetail(camera, title)
+				}
+				activeStreamsMu.Unlock()
 				bestKind = kind
 				log.Debug("stream: icy metadata", "camera", camera, "title", title)
 			}
@@ -569,21 +606,40 @@ const (
 	icyTitle               // StreamTitle: highest priority (ongoing updates)
 )
 
+// finishStream retires only its own session; older cleanup cannot stop a replacement.
+func finishStream(camera string, session *streamSession) {
+	activeStreamsMu.Lock()
+	if activeStreams[camera] == session {
+		delete(activeStreams, camera)
+		clearPlayback(camera)
+	}
+	if session.cancel != nil {
+		session.cancel()
+	}
+	if session.cmd != nil && session.cmd.Process != nil {
+		_ = session.cmd.Process.Kill()
+	}
+	activeStreamsMu.Unlock()
+	if session.op != nil {
+		session.op.finish()
+	}
+}
+
 // stopStream kills the active ffmpeg stream for camera, if any.
 func stopStream(camera string) {
 	activeStreamsMu.Lock()
 	sess := activeStreams[camera]
 	delete(activeStreams, camera)
 	if sess != nil {
-		sess.cancel()
+		if sess.cancel != nil {
+			sess.cancel()
+		}
 		if sess.cmd != nil && sess.cmd.Process != nil {
 			_ = sess.cmd.Process.Kill()
 		}
-	}
-	activeStreamsMu.Unlock()
-	if sess != nil {
 		clearPlayback(camera)
 	}
+	activeStreamsMu.Unlock()
 }
 
 // stopAllStreams kills every active ffmpeg stream.
@@ -595,7 +651,9 @@ func stopAllStreams() {
 	}
 	activeStreams = make(map[string]*streamSession)
 	for _, sess := range sessions {
-		sess.cancel()
+		if sess.cancel != nil {
+			sess.cancel()
+		}
 		if sess.cmd != nil && sess.cmd.Process != nil {
 			_ = sess.cmd.Process.Kill()
 		}

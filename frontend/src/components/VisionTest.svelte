@@ -10,37 +10,43 @@
   import { formatTimings, timingTooltipContent, isMobile } from '$lib/utils'
   import CameraSelect from '$lib/components/CameraSelect.svelte'
   import PromptEditor from '$lib/components/PromptEditor.svelte'
+  import type { CameraSummary, Timings, VisionPrompt } from '$lib/types'
+  import { onDestroy } from 'svelte'
 
-  let { cameras = [], globalPrompt = '', onSavePrompt } = $props()
+  let { cameras = [], globalPrompt = '', onSavePrompt }: {
+    cameras?: CameraSummary[]; globalPrompt?: string; onSavePrompt?: (prompt: string) => void
+  } = $props()
 
   let selectedCamera = $state('')
   let selectedStream = $state('')
-  let prompt = $state(globalPrompt)
+  let prompt = $state('')
   let image = $state('')
   let description = $state('')
   let visionTiming = $state('')
-  let visionTimingsRaw = $state(undefined)
-  let visionTotalMs = $state(undefined)
-  let visionTtfsMs = $state(undefined)
+  let visionTimingsRaw = $state<Timings | undefined>(undefined)
+  let visionTotalMs = $state<number | undefined>(undefined)
+  let visionTtfsMs = $state<number | undefined>(undefined)
   let desktop = $state(!isMobile())
   let busy = $state(false)
   let status = $state('')
   let statusType = $state('ok')
-  let results = $state([])
-  let statusTimeout
+  let results = $state<Array<{ prompt: string; description: string; time: string; model: string }>>([])
+  let statusTimeout: ReturnType<typeof setTimeout>
+  onDestroy(() => clearTimeout(statusTimeout))
+  const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error)
 
   let configuredModel = $state('')
   let selectedModel = $state('')
-  let availableModels = $state([])
+  let availableModels = $state<string[]>([])
   let modelsLoading = $state(false)
 
-  let presets = $state([])
+  let presets = $state<VisionPrompt[]>([])
 
   $effect(() => {
     if (!prompt && globalPrompt) prompt = globalPrompt
   })
 
-  function setStatus(msg, type = 'ok') {
+  function setStatus(msg: string, type = 'ok') {
     status = msg
     statusType = type
     clearTimeout(statusTimeout)
@@ -72,7 +78,7 @@
           .sort()
       }
     } catch (e) {
-      setStatus('Failed to fetch models: ' + e.message, 'err')
+      setStatus('Failed to fetch models: ' + errorMessage(e), 'err')
     } finally {
       modelsLoading = false
     }
@@ -80,24 +86,24 @@
 
   loadConfiguredModel()
 
-  async function savePreset(name, promptValue) {
+  async function savePreset(name: string, promptValue: string) {
     if (!name || !promptValue) return
     try {
-      await apiClient.saveVisionPrompt({ name, prompt: promptValue })
+      await apiClient.saveVisionPrompt({ name, prompt: promptValue, description: '' })
       await loadPresets()
       setStatus('Preset saved')
-    } catch (e) { setStatus(e.message, 'err') }
+    } catch (e) { setStatus(errorMessage(e), 'err') }
   }
 
-  async function deletePreset(name) {
+  async function deletePreset(name: string) {
     try { await apiClient.deleteVisionPrompt(name); await loadPresets() }
-    catch (e) { setStatus(e.message, 'err') }
+    catch (e) { setStatus(errorMessage(e), 'err') }
   }
 
-  let fileInput = $state(null)
+  let fileInput = $state<HTMLInputElement | null>(null)
 
-  async function onFileUpload(e) {
-    const file = e.target.files?.[0]
+  async function onFileUpload(e: Event) {
+    const file = (e.currentTarget as HTMLInputElement).files?.[0]
     if (!file || !file.type.startsWith('image/')) return
     busy = true; status = ''
     try {
@@ -114,7 +120,7 @@
       visionTotalMs = data.total_ms
       visionTtfsMs = data.ttfs_ms
       results = [{ prompt, description, time: new Date().toLocaleTimeString(), model: data.model || selectedModel || configuredModel }, ...results].slice(0, 10)
-    } catch (e) { setStatus(e.message, 'err') }
+    } catch (e) { setStatus(errorMessage(e), 'err') }
     finally { busy = false; if (fileInput) fileInput.value = '' }
   }
 
@@ -136,7 +142,7 @@
       visionTtfsMs = data.ttfs_ms
       results = [{ prompt, description, time: new Date().toLocaleTimeString(), model: data.model || selectedModel || configuredModel }, ...results].slice(0, 10)
       setStatus('Done')
-    } catch (e) { setStatus(e.message, 'err') }
+    } catch (e) { setStatus(errorMessage(e), 'err') }
     finally { busy = false }
   }
 
@@ -153,7 +159,7 @@
   }
 
   // --- Test All Models ---
-  let allResults = $state([])
+  let allResults = $state<Array<{ model: string; pending: boolean; error?: string; description?: string; total_ms?: number; ttfs_ms?: number; gen_ms?: number }>>([])
   let allBusy = $state(false)
   let allStatus = $state('')
   let allDoneCount = $state(0)
@@ -170,6 +176,7 @@
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       })
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+      if (!resp.body) throw new Error('The server returned no result stream')
       const reader = resp.body.getReader()
       const dec = new TextDecoder()
       let buf = ''
@@ -178,7 +185,7 @@
         if (done) break
         buf += dec.decode(value, { stream: true })
         const lines = buf.split('\n')
-        buf = lines.pop()
+        buf = lines.pop() ?? ''
         for (const line of lines) {
           if (!line.startsWith('data:')) continue
           let ev
@@ -186,7 +193,7 @@
           if (ev.type === 'image') { if (!image && ev.image) image = ev.image }
           else if (ev.type === 'models') {
             allModelCount = ev.models.length
-            allResults = ev.models.map(m => ({ model: m, pending: true }))
+            allResults = ev.models.map((m: string) => ({ model: m, pending: true }))
           } else if (ev.type === 'result') {
             allDoneCount++
             allResults = allResults.map(r => r.model === ev.model ? { ...ev, pending: false } : r)
@@ -195,11 +202,11 @@
           }
         }
       }
-    } catch (e) { allStatus = e.message }
+    } catch (e) { allStatus = errorMessage(e) }
     finally { allBusy = false }
   }
 
-  function fmtMs(ms) {
+  function fmtMs(ms?: number) {
     if (!ms || ms <= 0) return '0ms'
     if (ms < 1000) return `${ms}ms`
     const s = ms / 1000
@@ -316,7 +323,7 @@
         <p class="text-xs font-semibold text-muted-foreground mb-1.5">Image</p>
         <div class="relative rounded-lg border overflow-hidden">
           {#if image}
-            <img src={image} alt="Vision test image" class="w-full" />
+            <img src={image} alt="Camera capture used for vision analysis" class="w-full" />
           {:else}
             <div class="flex items-center justify-center h-48 bg-muted">
               <Loader2 class="h-6 w-6 animate-spin text-muted-foreground" />
@@ -373,8 +380,8 @@
               {:else if r.error}
                 <p class="text-xs text-destructive">{r.error}</p>
               {:else}
-                {#if r.total_ms > 0}
-                  {@const prefillPct = Math.round((r.ttfs_ms / r.total_ms) * 100)}
+                {#if r.total_ms && r.total_ms > 0}
+                  {@const prefillPct = Math.round(((r.ttfs_ms ?? 0) / r.total_ms) * 100)}
                   {@const genPct = 100 - prefillPct}
                   <div class="flex flex-col gap-0.5">
                     <div class="flex h-2.5 w-full overflow-hidden rounded-full bg-muted">

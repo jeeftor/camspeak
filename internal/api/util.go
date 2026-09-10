@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -29,6 +30,11 @@ func sanitizeFilename(name string) string {
 
 // GenerateBeep creates a temporary 800Hz 2s G.711ulaw raw file via ffmpeg.
 func GenerateBeep(tmpDir string) (string, error) {
+	return GenerateBeepContext(context.Background(), tmpDir)
+}
+
+// GenerateBeepContext generates a tone, canceling both transcoding processes with ctx.
+func GenerateBeepContext(ctx context.Context, tmpDir string) (string, error) {
 	wav, err := os.CreateTemp(tmpDir, "camspeak_beep_*.wav")
 	if err != nil {
 		return "", fmt.Errorf("creating temp file: %w", err)
@@ -48,7 +54,7 @@ func GenerateBeep(tmpDir string) (string, error) {
 	raw.Close()
 
 	// Generate sine wave → WAV
-	cmd := exec.Command("ffmpeg", "-y",
+	cmd := exec.CommandContext(ctx, "ffmpeg", "-y",
 		"-f", "lavfi", "-i", "sine=frequency=800:duration=2",
 		"-ar", "16000", "-ac", "1", "-f", "wav", wavName)
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -58,7 +64,7 @@ func GenerateBeep(tmpDir string) (string, error) {
 	}
 
 	// Transcode to G.711ulaw 8kHz raw
-	cmd = exec.Command("ffmpeg", "-y",
+	cmd = exec.CommandContext(ctx, "ffmpeg", "-y",
 		"-i", wavName,
 		"-ar", "8000", "-ac", "1",
 		"-c:a", "pcm_mulaw", "-f", "mulaw", rawName)
@@ -71,10 +77,11 @@ func GenerateBeep(tmpDir string) (string, error) {
 	return rawName, nil
 }
 
-// wavBytesToRawWithPrime writes WAV bytes to a temp file, transcodes to G.711ulaw raw,
+// wavBytesToRawWithPrimeContext writes WAV bytes to a temp file, transcodes to G.711ulaw raw,
 // and prepends primeMs of µ-law silence. gain controls the volume multiplier (1.0 = no boost).
 // Caller must os.Remove the returned path. primeMs <= 0 skips silence padding.
-func wavBytesToRawWithPrime(
+func wavBytesToRawWithPrimeContext(
+	ctx context.Context,
 	wavBytes []byte,
 	tmpDir string,
 	gain float64,
@@ -100,7 +107,7 @@ func wavBytesToRawWithPrime(
 	rawName := raw.Name()
 	raw.Close()
 
-	if err := transcodeFileToRawGainWithPrime(wavName, rawName, gain, primeMs); err != nil {
+	if err := transcodeFileToRawGainWithPrimeContext(ctx, wavName, rawName, gain, primeMs); err != nil {
 		os.Remove(rawName)
 		return "", err
 	}
@@ -131,13 +138,18 @@ func rawToWAV(rawFile, tmpDir string) (string, error) {
 	return wavName, nil
 }
 
-// transcodeFileToRawGainWithPrime converts any audio file to G.711ulaw 8kHz raw
+// transcodeFileToRawGainWithPrimeContext converts any audio file to G.711ulaw 8kHz raw
 // primeMs milliseconds of G.711 µ-law silence to the output file. This warms
 // the camera's audio engine so the first real audio isn't clipped/garbled.
 // primeMs <= 0 skips the silence padding.
-func transcodeFileToRawGainWithPrime(src, dst string, gain float64, primeMs int) error {
+func transcodeFileToRawGainWithPrimeContext(
+	ctx context.Context,
+	src, dst string,
+	gain float64,
+	primeMs int,
+) error {
 	af := fmt.Sprintf("volume=%.1f", gain)
-	cmd := exec.Command("ffmpeg", "-y",
+	cmd := exec.CommandContext(ctx, "ffmpeg", "-y",
 		"-i", src,
 		"-af", af,
 		"-ar", "8000",

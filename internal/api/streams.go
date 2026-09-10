@@ -29,11 +29,12 @@ type go2rtcStreamsResponse map[string]struct {
 // Streams handles GET /api/streams — lists all available go2rtc streams.
 func (h *Handlers) Streams(c echo.Context) error {
 	log := h.logger(c)
-	if h.cfg.Go2rtcURL == "" {
+	cfg := h.configSnapshot()
+	if cfg.Go2rtcURL == "" {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "go2rtc URL not configured")
 	}
 
-	listURL := strings.TrimSuffix(h.cfg.Go2rtcURL, "/") + "/api/streams"
+	listURL := strings.TrimSuffix(cfg.Go2rtcURL, "/") + "/api/streams"
 	req, err := http.NewRequestWithContext(c.Request().Context(), http.MethodGet, listURL, nil)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())

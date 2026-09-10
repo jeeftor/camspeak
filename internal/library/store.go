@@ -4,6 +4,8 @@ package library
 
 import (
 	"bufio"
+	"context"
+	"crypto/rand"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -14,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	clog "github.com/charmbracelet/log"
@@ -43,13 +46,15 @@ type Preset struct {
 	RawPath string `json:"-"`
 }
 
-var log = logging.New("library", clog.InfoLevel)
+var libraryLog = logging.New("library", clog.InfoLevel)
 
 // Store manages the preset library on disk + SQLite metadata.
 type Store struct {
 	dir    string
 	tmpDir string
 	db     *sql.DB
+	root   *os.Root
+	mu     sync.Mutex // serialize file/metadata mutations
 }
 
 // NewStore creates a Store rooted at dir (created if missing).
@@ -73,12 +78,17 @@ func NewStore(dir, tmpDir string) (*Store, error) {
 		return nil, fmt.Errorf("opening preset database: %w", err)
 	}
 
-	return &Store{dir: dir, tmpDir: tmpDir, db: database}, nil
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		_ = database.Close()
+		return nil, fmt.Errorf("opening library root: %w", err)
+	}
+	return &Store{dir: dir, tmpDir: tmpDir, db: database, root: root}, nil
 }
 
 // Close closes the underlying database connection.
 func (s *Store) Close() error {
-	return s.db.Close()
+	return errors.Join(s.db.Close(), s.root.Close())
 }
 
 // DB returns the underlying database connection (shared with event log).
@@ -93,9 +103,8 @@ func (s *Store) rawPath(category, name string) string {
 
 // Save writes WAV bytes → G.711ulaw 8kHz raw via ffmpeg, plus metadata in SQLite.
 func (s *Store) Save(category, name, text, voice string, wavData []byte) (*Preset, error) {
-	dir := filepath.Join(s.dir, category)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, fmt.Errorf("creating category dir: %w", err)
+	if err := ValidateIdentifier(category, name); err != nil {
+		return nil, err
 	}
 
 	// Write WAV to temp file
@@ -115,12 +124,16 @@ func (s *Store) Save(category, name, text, voice string, wavData []byte) (*Prese
 		return nil, fmt.Errorf("closing temp WAV: %w", err)
 	}
 
-	rawFile := s.rawPath(category, name)
-	if err := transcodeToRaw(tmp.Name(), rawFile, false); err != nil {
-		return nil, fmt.Errorf("transcoding to G.711ulaw: %w", err)
-	}
-
-	return s.saveMeta(category, name, text, voice, rawFile)
+	return s.saveTranscoded(
+		context.Background(),
+		category,
+		name,
+		text,
+		voice,
+		tmp.Name(),
+		false,
+		nil,
+	)
 }
 
 // SaveFile transcodes any audio file (WAV/MP3/etc) to a preset.
@@ -135,17 +148,23 @@ func (s *Store) SaveStream(category, name, url string) (*Preset, error) {
 	if category == "" {
 		category = "streams"
 	}
+	if err := ValidateIdentifier(category, name); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.saveMetaStream(category, name, url)
 }
 
 // saveMetaStream writes a stream preset's metadata to SQLite (no raw file).
 // If overwriting an existing audio preset, the old .raw file is removed.
 func (s *Store) saveMetaStream(category, name, url string) (*Preset, error) {
-	// Check if we're overwriting an audio preset and clean up its raw file.
-	if existing, err := s.Get(category, name); err == nil && existing.RawPath != "" {
-		if err := os.Remove(existing.RawPath); err != nil {
-			log.Warn("saveMetaStream: failed to remove orphaned raw file", "path", existing.RawPath, "err", err)
-		}
+	if err := s.checkPath(category, name); err != nil {
+		return nil, err
+	}
+	removeAudio := false
+	if existing, err := s.Get(category, name); err == nil {
+		removeAudio = existing.RawPath != ""
 	}
 
 	meta := Meta{
@@ -168,6 +187,20 @@ func (s *Store) saveMetaStream(category, name, url string) (*Preset, error) {
 	if err != nil {
 		return nil, fmt.Errorf("saving stream metadata: %w", err)
 	}
+	if removeAudio {
+		if err := s.root.Remove(filepath.Join(category, name+".raw")); err != nil &&
+			!errors.Is(err, os.ErrNotExist) {
+			libraryLog.Warn(
+				"failed to remove obsolete audio",
+				"category",
+				category,
+				"name",
+				name,
+				"err",
+				err,
+			)
+		}
+	}
 
 	return &Preset{Meta: meta}, nil
 }
@@ -179,24 +212,19 @@ func (s *Store) SaveFileWithProgress(
 	category, name, srcFile string,
 	progress func(percent float64),
 ) (*Preset, error) {
-	dir := filepath.Join(s.dir, category)
-	err := os.MkdirAll(dir, 0o755)
-	if err != nil {
-		return nil, fmt.Errorf("creating category dir: %w", err)
-	}
+	return s.SaveFileWithProgressContext(context.Background(), category, name, srcFile, progress)
+}
 
-	rawFile := s.rawPath(category, name)
-	err = transcodeToRawWithProgress(srcFile, rawFile, true, progress)
-	if err != nil {
-		return nil, fmt.Errorf("transcoding: %w", err)
-	}
-
-	return s.saveMeta(category, name, "", "", rawFile)
+// SaveFileWithProgressContext transcodes an upload with cancellation support.
+func (s *Store) SaveFileWithProgressContext(ctx context.Context, category, name, srcFile string,
+	progress func(float64),
+) (*Preset, error) {
+	return s.saveTranscoded(ctx, category, name, "", "", srcFile, true, progress)
 }
 
 // saveMeta writes preset metadata to SQLite and returns the Preset.
 func (s *Store) saveMeta(category, name, text, voice, rawFile string) (*Preset, error) {
-	info, err := os.Stat(rawFile)
+	info, err := s.root.Stat(filepath.Join(category, name+".raw"))
 	if err != nil {
 		return nil, fmt.Errorf("stat raw file: %w", err)
 	}
@@ -222,8 +250,16 @@ func (s *Store) saveMeta(category, name, text, voice, rawFile string) (*Preset, 
 		   text=excluded.text, voice=excluded.voice, url=excluded.url,
 		   duration=excluded.duration, size=excluded.size,
 		   raw_path=excluded.raw_path, gain=excluded.gain, created=excluded.created`,
-		meta.Name, meta.Category, meta.Text, meta.Voice, "",
-		meta.Duration, meta.Size, rawFile, meta.Gain, meta.Created,
+		meta.Name,
+		meta.Category,
+		meta.Text,
+		meta.Voice,
+		"",
+		meta.Duration,
+		meta.Size,
+		rawFile,
+		meta.Gain,
+		meta.Created,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("saving metadata: %w", err)
@@ -234,6 +270,9 @@ func (s *Store) saveMeta(category, name, text, voice, rawFile string) (*Preset, 
 
 // Get returns a preset by category/name.
 func (s *Store) Get(category, name string) (*Preset, error) {
+	if err := ValidateIdentifier(category, name); err != nil {
+		return nil, err
+	}
 	var p Preset
 
 	err := s.db.QueryRow(
@@ -250,11 +289,26 @@ func (s *Store) Get(category, name string) (*Preset, error) {
 		return nil, fmt.Errorf("querying preset: %w", err)
 	}
 
+	if err := s.validatePresetPath(&p); err != nil {
+		return nil, err
+	}
 	return &p, nil
 }
 
 // GetByName finds a preset by name alone (searches all categories).
 func (s *Store) GetByName(name string) (*Preset, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := ValidateIdentifier("default", name); err != nil {
+		return nil, err
+	}
+	var count int
+	if err := s.db.QueryRow(`SELECT count(*) FROM presets WHERE name = ?`, name).Scan(&count); err != nil {
+		return nil, fmt.Errorf("counting matching presets: %w", err)
+	}
+	if count > 1 {
+		return nil, fmt.Errorf("preset %q exists in multiple categories; specify a category", name)
+	}
 	var p Preset
 
 	err := s.db.QueryRow(
@@ -271,6 +325,9 @@ func (s *Store) GetByName(name string) (*Preset, error) {
 		return nil, fmt.Errorf("querying preset: %w", err)
 	}
 
+	if err := s.validatePresetPath(&p); err != nil {
+		return nil, err
+	}
 	return &p, nil
 }
 
@@ -303,23 +360,36 @@ func (s *Store) List() ([]Preset, error) {
 
 // Delete removes a preset and its raw audio file (if it has one).
 func (s *Store) Delete(category, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	preset, err := s.Get(category, name)
 	if err != nil {
 		return err
 	}
 
+	backup := ".delete-" + rand.Text()
+	raw := filepath.Join(category, name+".raw")
+	if preset.RawPath != "" {
+		if err := s.root.Rename(raw, backup); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("staging preset deletion: %w", err)
+		}
+	}
 	_, err = s.db.Exec(
 		`DELETE FROM presets WHERE category = ? AND name = ?`,
 		category, name,
 	)
 	if err != nil {
-		return fmt.Errorf("deleting preset metadata: %w", err)
+		var restoreErr error
+		if preset.RawPath != "" {
+			restoreErr = s.root.Rename(backup, raw)
+		}
+		return errors.Join(fmt.Errorf("deleting preset metadata: %w", err), restoreErr)
 	}
 
 	// Stream presets have no raw file on disk.
 	if preset.RawPath != "" {
-		if err := os.Remove(preset.RawPath); err != nil {
-			log.Warn("failed to remove raw file", "path", preset.RawPath, "err", err)
+		if err := s.root.Remove(backup); err != nil && !errors.Is(err, os.ErrNotExist) {
+			libraryLog.Warn("failed to remove raw file", "path", preset.RawPath, "err", err)
 		}
 	}
 
@@ -331,6 +401,8 @@ func (s *Store) Delete(category, name string) error {
 // updated. Returns an error if the source doesn't exist or the target already
 // exists.
 func (s *Store) Rename(oldCategory, oldName, newCategory, newName string) (*Preset, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	preset, err := s.Get(oldCategory, oldName)
 	if err != nil {
 		return nil, err
@@ -343,10 +415,21 @@ func (s *Store) Rename(oldCategory, oldName, newCategory, newName string) (*Pres
 	if newName == "" {
 		newName = oldName
 	}
+	if err := ValidateIdentifier(newCategory, newName); err != nil {
+		return nil, err
+	}
+	if err := s.checkPath(newCategory, newName); err != nil {
+		return nil, err
+	}
 
 	// No-op if nothing changed
 	if newCategory == oldCategory && newName == oldName {
 		return preset, nil
+	}
+	if _, err := s.root.Lstat(filepath.Join(newCategory, newName+".raw")); err == nil {
+		return nil, fmt.Errorf("audio file for %s/%s already exists", newCategory, newName)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("checking target audio: %w", err)
 	}
 
 	// Check that target doesn't already exist
@@ -357,13 +440,13 @@ func (s *Store) Rename(oldCategory, oldName, newCategory, newName string) (*Pres
 	// Move the raw file (stream presets have no raw file)
 	newRawPath := preset.RawPath
 	if preset.RawPath != "" {
-		newDir := filepath.Join(s.dir, newCategory)
-		if err := os.MkdirAll(newDir, 0o755); err != nil {
+		if err := s.root.MkdirAll(newCategory, 0o755); err != nil {
 			return nil, fmt.Errorf("creating target category dir: %w", err)
 		}
 
 		newRawPath = s.rawPath(newCategory, newName)
-		if err := os.Rename(preset.RawPath, newRawPath); err != nil {
+		// Link fails if the destination already exists, including orphan files.
+		if err := s.root.Link(filepath.Join(oldCategory, oldName+".raw"), filepath.Join(newCategory, newName+".raw")); err != nil {
 			return nil, fmt.Errorf("moving raw file: %w", err)
 		}
 	}
@@ -376,9 +459,24 @@ func (s *Store) Rename(oldCategory, oldName, newCategory, newName string) (*Pres
 	if err != nil {
 		// Try to move the file back on DB failure
 		if preset.RawPath != "" && newRawPath != preset.RawPath {
-			_ = os.Rename(newRawPath, preset.RawPath)
+			if removeErr := s.root.Remove(filepath.Join(newCategory, newName+".raw")); removeErr != nil {
+				return nil, errors.Join(fmt.Errorf("updating preset metadata: %w", err), removeErr)
+			}
 		}
 		return nil, fmt.Errorf("updating preset metadata: %w", err)
+	}
+	if preset.RawPath != "" {
+		if err := s.root.Remove(filepath.Join(oldCategory, oldName+".raw")); err != nil {
+			libraryLog.Warn(
+				"failed to remove old preset link",
+				"category",
+				oldCategory,
+				"name",
+				oldName,
+				"err",
+				err,
+			)
+		}
 	}
 
 	preset.Name = newName
@@ -394,6 +492,9 @@ func (p *Preset) GetRawPath() string {
 
 // SetGain updates the per-preset gain multiplier in the database.
 func (s *Store) SetGain(category, name string, gain float64) error {
+	if err := ValidateIdentifier(category, name); err != nil {
+		return err
+	}
 	_, err := s.db.Exec(
 		`UPDATE presets SET gain = ? WHERE category = ? AND name = ?`,
 		gain, category, name,
@@ -436,38 +537,11 @@ func (p *Preset) IsStream() bool {
 	return p.URL != ""
 }
 
-// transcodeToRaw converts any audio file to G.711ulaw 8kHz raw via ffmpeg.
-// When normalize is true, the uploaded audio is loudness-normalized so it
-// sits in the same volume range as TTS-generated clips. When false, a 3x
-// volume boost is applied (used for TTS output that is already consistent).
-func transcodeToRaw(src, dst string, normalize bool) error {
-	af := "volume=3.0"
-	if normalize {
-		af = "loudnorm=I=-16:TP=-1.5:LRA=11"
-	}
-	cmd := exec.Command("ffmpeg", "-y",
-		"-i", src,
-		"-af", af,
-		"-ar", "8000",
-		"-ac", "1",
-		"-c:a", "pcm_mulaw",
-		"-f", "mulaw",
-		dst,
-	)
-
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("ffmpeg: %w\n%s", err, out)
-	}
-
-	return nil
-}
-
 // probeDuration returns the duration of an audio file in seconds via ffprobe.
 // Returns 0 if ffprobe is unavailable or the duration can't be determined
 // (in which case progress reporting falls back to indeterminate).
-func probeDuration(src string) float64 {
-	cmd := exec.Command("ffprobe",
+func probeDuration(ctx context.Context, src string) float64 {
+	cmd := exec.CommandContext(ctx, "ffprobe",
 		"-v", "error",
 		"-show_entries", "format=duration",
 		"-of", "csv=p=0",
@@ -484,12 +558,12 @@ func probeDuration(src string) float64 {
 	return d
 }
 
-// transcodeToRawWithProgress is like transcodeToRaw but reports transcoding
+// transcodeToRawWithProgress converts audio to G.711ulaw and reports transcoding
 // progress via the callback (percent 0–100). If the input duration can't be
 // probed, the callback is called with -1 (indeterminate) once at the start.
 // A nil callback is safe.
 func transcodeToRawWithProgress(
-	src, dst string, normalize bool,
+	ctx context.Context, src, dst string, normalize bool,
 	progress func(percent float64),
 ) error {
 	af := "volume=3.0"
@@ -497,7 +571,7 @@ func transcodeToRawWithProgress(
 		af = "loudnorm=I=-16:TP=-1.5:LRA=11"
 	}
 
-	totalDuration := probeDuration(src)
+	totalDuration := probeDuration(ctx, src)
 	if progress != nil {
 		if totalDuration > 0 {
 			progress(0)
@@ -506,14 +580,28 @@ func transcodeToRawWithProgress(
 		}
 	}
 
-	cmd := exec.Command("ffmpeg", "-y",
-		"-i", src,
-		"-af", af,
-		"-ar", "8000",
-		"-ac", "1",
-		"-c:a", "pcm_mulaw",
-		"-f", "mulaw",
-		"-progress", "-", // progress key=value lines to stdout
+	cmd := exec.CommandContext(
+		ctx,
+		"ffmpeg",
+		"-y",
+		"-nostdin",
+		"-hide_banner",
+		"-loglevel",
+		"error",
+		"-i",
+		src,
+		"-af",
+		af,
+		"-ar",
+		"8000",
+		"-ac",
+		"1",
+		"-c:a",
+		"pcm_mulaw",
+		"-f",
+		"mulaw",
+		"-progress",
+		"-", // progress key=value lines to stdout
 		dst,
 	)
 
@@ -521,20 +609,12 @@ func transcodeToRawWithProgress(
 	if err != nil {
 		return fmt.Errorf("ffmpeg stdout pipe: %w", err)
 	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return fmt.Errorf("ffmpeg stderr pipe: %w", err)
-	}
+	var stderrBuf strings.Builder
+	cmd.Stderr = &stderrBuf
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("ffmpeg start: %w", err)
 	}
-
-	// Read progress from stdout, collect stderr for error reporting.
-	var stderrBuf strings.Builder
-	go func() {
-		_, _ = io.Copy(&stderrBuf, stderr)
-	}()
 
 	if progress != nil && totalDuration > 0 {
 		scanner := bufio.NewScanner(stdout)

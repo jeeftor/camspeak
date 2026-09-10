@@ -20,6 +20,7 @@ type PlaybackState struct {
 	StartedAt time.Time  `json:"started_at,omitempty"`
 	PausedAt  *time.Time `json:"paused_at,omitempty"`
 	Level     float64    `json:"level,omitempty"`
+	CanPause  bool       `json:"can_pause"`
 }
 
 var (
@@ -90,10 +91,15 @@ func clearAllPlayback() {
 // the current audio level is merged into the playback state for VU meter
 // display.
 func getAllPlayback(names []string) map[string]PlaybackState {
+	levels := getStreamLevels()
+	activeStreamsMu.Lock()
+	pausable := make(map[string]bool, len(activeStreams))
+	for camera, session := range activeStreams {
+		pausable[camera] = session.cmd != nil && session.cmd.Process != nil
+	}
+	activeStreamsMu.Unlock()
 	playbackStatesMu.RLock()
 	defer playbackStatesMu.RUnlock()
-
-	levels := getStreamLevels()
 
 	out := make(map[string]PlaybackState, len(names))
 	for _, name := range names {
@@ -102,6 +108,7 @@ func getAllPlayback(names []string) map[string]PlaybackState {
 			out[name] = PlaybackState{State: "idle"}
 		} else {
 			state := *ps
+			state.CanPause = pausable[name]
 			if level, ok := levels[name]; ok {
 				state.Level = level
 			}

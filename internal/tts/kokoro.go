@@ -3,6 +3,7 @@ package tts
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 
 	clog "github.com/charmbracelet/log"
 	"github.com/jeeftor/camspeak/internal/logging"
+	"github.com/jeeftor/camspeak/internal/util"
 )
 
 var log = logging.New("tts", clog.InfoLevel)
@@ -24,18 +26,23 @@ func SetLogLevel(level clog.Level) {
 type Client struct {
 	URL    string
 	Model  string
+	APIKey string
 	client *http.Client
 }
 
 // NewClient creates a TTS client.
-func NewClient(url, model string) *Client {
-	return &Client{
+func NewClient(url, model string, apiKey ...string) *Client {
+	c := &Client{
 		URL:   url,
 		Model: model,
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
 	}
+	if len(apiKey) > 0 {
+		c.APIKey = apiKey[0]
+	}
+	return c
 }
 
 type speechRequest struct {
@@ -48,11 +55,26 @@ type speechRequest struct {
 
 // Speak calls the TTS endpoint and returns WAV audio bytes.
 func (c *Client) Speak(text, voice string) ([]byte, error) {
+	return c.SpeakContext(context.Background(), text, voice)
+}
+
+// SpeakContext generates speech with cancellation and the configured authentication.
+func (c *Client) SpeakContext(ctx context.Context, text, voice string) ([]byte, error) {
 	if voice == "" {
 		voice = "af_sky"
 	}
 
-	log.Debug("TTS request", "url", c.URL, "model", c.Model, "voice", voice, "text_len", len(text))
+	log.Debug(
+		"TTS request",
+		"url",
+		util.RedactURLString(c.URL),
+		"model",
+		c.Model,
+		"voice",
+		voice,
+		"text_len",
+		len(text),
+	)
 
 	payload, err := json.Marshal(speechRequest{
 		Model:          c.Model,
@@ -65,7 +87,15 @@ func (c *Client) Speak(text, voice string) ([]byte, error) {
 	}
 
 	start := time.Now()
-	resp, err := c.client.Post(c.URL, "application/json", bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.URL, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("creating TTS request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	}
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("TTS request failed: %w", err)
 	}

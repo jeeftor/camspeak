@@ -5,13 +5,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"os/exec"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-
-	"github.com/jeeftor/camspeak/internal/config"
 )
 
 // buildMCPServer creates an MCP server exposing camspeak tools.
@@ -29,7 +27,7 @@ func buildMCPServer(h *Handlers) *mcp.Server {
 				Content: []mcp.Content{&mcp.TextContent{Text: "camera and text required"}},
 			}, SpeakOutput{}, nil
 		}
-		if _, err := h.speakText(h.log, in.Camera, in.Text, in.Voice, 3.0); err != nil {
+		if _, err := h.speakTextContext(ctx, h.log, in.Camera, in.Text, in.Voice, -1); err != nil {
 			return &mcp.CallToolResult{
 				IsError: true,
 				Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},
@@ -53,7 +51,7 @@ func buildMCPServer(h *Handlers) *mcp.Server {
 				Content: []mcp.Content{&mcp.TextContent{Text: "camera and preset required"}},
 			}, PlayPresetOutput{}, nil
 		}
-		if _, err := h.playPreset(h.log, in.Camera, in.Category, in.Preset, 3.0, in.Loop); err != nil {
+		if _, err := h.playPresetContext(ctx, h.log, in.Camera, in.Category, in.Preset, -1, in.Loop); err != nil {
 			return &mcp.CallToolResult{
 				IsError: true,
 				Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},
@@ -77,9 +75,16 @@ func buildMCPServer(h *Handlers) *mcp.Server {
 				Content: []mcp.Content{&mcp.TextContent{Text: "text or preset required"}},
 			}, BroadcastOutput{}, nil
 		}
-		h.BroadcastToCameras(h.reg.Names(), in.Text, in.Preset, in.Voice, 0)
+		result := h.broadcastToCameras(ctx, h.log, h.reg.Names(), broadcastReq{
+			Text: in.Text, Preset: in.Preset, Category: in.Category, Voice: in.Voice,
+		})
+		message := fmt.Sprintf("Broadcast sent to %d cameras", len(result.Succeeded))
+		if len(result.Errors) > 0 {
+			message += "; failures: " + strings.Join(result.Errors, "; ")
+		}
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: "Broadcast sent to all cameras"}},
+			IsError: len(result.Errors) > 0,
+			Content: []mcp.Content{&mcp.TextContent{Text: message}},
 		}, BroadcastOutput{}, nil
 	})
 
@@ -190,9 +195,9 @@ func buildMCPServer(h *Handlers) *mcp.Server {
 		}
 		voice := in.Voice
 		if voice == "" {
-			voice = h.cfg.TTS.DefaultVoice
+			voice = h.configSnapshot().TTS.DefaultVoice
 		}
-		wav, err := h.tts.Speak(in.Text, voice)
+		wav, err := h.ttsClient().SpeakContext(ctx, in.Text, voice)
 		if err != nil {
 			return &mcp.CallToolResult{
 				IsError: true,
@@ -231,21 +236,30 @@ func buildMCPServer(h *Handlers) *mcp.Server {
 				Content: []mcp.Content{&mcp.TextContent{Text: "camera required"}},
 			}, BeepOutput{}, nil
 		}
-		cam, err := h.reg.Get(in.Camera)
+		cam, err := h.reg.GetForPlayback(in.Camera)
 		if err != nil {
 			return &mcp.CallToolResult{
 				IsError: true,
 				Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},
 			}, BeepOutput{}, nil
 		}
-		raw, err := GenerateBeep(h.tmpDir)
+		op, err := h.beginPlaybackOperation(ctx, in.Camera, cam, "beep", "800Hz test tone")
 		if err != nil {
 			return &mcp.CallToolResult{
 				IsError: true,
 				Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},
 			}, BeepOutput{}, nil
 		}
-		if _, err := sendRawWithLevel(in.Camera, cam, raw, h.gainForCall(in.Camera, 0)); err != nil {
+		defer op.finish()
+		raw, err := GenerateBeepContext(op.ctx, h.tmpDir)
+		if err != nil {
+			return &mcp.CallToolResult{
+				IsError: true,
+				Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},
+			}, BeepOutput{}, nil
+		}
+		defer os.Remove(raw)
+		if _, err := op.send(raw, h.gainForCall(in.Camera, -1)); err != nil {
 			return &mcp.CallToolResult{
 				IsError: true,
 				Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},
@@ -267,70 +281,18 @@ func buildMCPServer(h *Handlers) *mcp.Server {
 				Content: []mcp.Content{&mcp.TextContent{Text: "camera and url required"}},
 			}, PlayStreamOutput{}, nil
 		}
-		cam, err := h.reg.Get(in.Camera)
-		if err != nil {
+		if err := validateRequestGain(in.Gain); err != nil {
 			return &mcp.CallToolResult{
 				IsError: true,
 				Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},
 			}, PlayStreamOutput{}, nil
 		}
-		gain := in.Gain
-		if gain == 0 {
-			gain = 3.0
-		}
-		streamURL, err := resolveStreamURL(in.URL)
-		if err != nil {
+		if err := h.startURLStream(ctx, h.log, in.Camera, in.URL, requestGain(in.Gain)); err != nil {
 			return &mcp.CallToolResult{
 				IsError: true,
 				Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},
 			}, PlayStreamOutput{}, nil
 		}
-		stopStream(in.Camera)
-		ctx2, cancel := context.WithCancel(context.Background())
-		cmd := exec.CommandContext(ctx2, "ffmpeg",
-			"-nostdin", "-loglevel", "error",
-			"-re",
-			"-user_agent", "Mozilla/5.0 (compatible; camspeak)",
-			"-i", streamURL,
-			"-af", fmt.Sprintf("volume=%.2f", gain),
-			"-acodec", "pcm_mulaw",
-			"-ar", "8000",
-			"-ac", "1",
-			"-f", "mulaw",
-			"-",
-		)
-		stdout, err := cmd.StdoutPipe()
-		if err != nil {
-			cancel()
-			return &mcp.CallToolResult{
-				IsError: true,
-				Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},
-			}, PlayStreamOutput{}, nil
-		}
-		if err := cmd.Start(); err != nil {
-			cancel()
-			return &mcp.CallToolResult{
-				IsError: true,
-				Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},
-			}, PlayStreamOutput{}, nil
-		}
-		activeStreamsMu.Lock()
-		activeStreams[in.Camera] = &streamSession{
-			cmd:     cmd,
-			cancel:  cancel,
-			url:     streamURL,
-			started: now(),
-		}
-		activeStreamsMu.Unlock()
-		setPlayback(in.Camera, "stream", streamURL)
-		go func() {
-			_ = cam.Stream(stdout)
-			stopStream(in.Camera)
-		}()
-		go func() {
-			_ = cmd.Wait()
-			stopStream(in.Camera)
-		}()
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
 				&mcp.TextContent{Text: fmt.Sprintf("Streaming %s to %s", in.URL, in.Camera)},
@@ -349,11 +311,13 @@ func buildMCPServer(h *Handlers) *mcp.Server {
 				Content: []mcp.Content{&mcp.TextContent{Text: "camera and url required"}},
 			}, PlayURLOutput{}, nil
 		}
-		gain := in.Gain
-		if gain == 0 {
-			gain = 3.0
+		if err := validateRequestGain(in.Gain); err != nil {
+			return &mcp.CallToolResult{
+				IsError: true,
+				Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},
+			}, PlayURLOutput{}, nil
 		}
-		if err := h.doPlayURL(h.log, in.Camera, in.URL, gain); err != nil {
+		if err := h.doPlayURLContext(ctx, h.log, in.Camera, in.URL, requestGain(in.Gain)); err != nil {
 			return &mcp.CallToolResult{
 				IsError: true,
 				Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},
@@ -372,21 +336,25 @@ func buildMCPServer(h *Handlers) *mcp.Server {
 		Description: "Stop all audio (TTS, streams, AirPlay) on a specific camera, or all cameras if camera is omitted. Tears down ffmpeg and closes the camera speaker connection.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in StopInput) (*mcp.CallToolResult, StopOutput, error) {
 		if in.Camera != "" {
+			stopOperation(in.Camera)
+			stopStream(in.Camera)
 			if err := h.reg.Stop(in.Camera); err != nil {
 				return &mcp.CallToolResult{
 					IsError: true,
 					Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},
 				}, StopOutput{}, nil
 			}
-			stopStream(in.Camera)
 			clearPlayback(in.Camera)
+			h.resetAirPlay(in.Camera, h.log)
 			return &mcp.CallToolResult{
 				Content: []mcp.Content{&mcp.TextContent{Text: "Stopped " + in.Camera}},
 			}, StopOutput{}, nil
 		}
-		h.reg.StopAll()
+		stopAllOperations()
 		stopAllStreams()
+		h.reg.StopAll()
 		clearAllPlayback()
+		h.resetAllAirPlay(h.log)
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: "Stopped all cameras"}},
 		}, StopOutput{}, nil
@@ -487,8 +455,9 @@ func buildMCPServer(h *Handlers) *mcp.Server {
 		Name:        "get_playback",
 		Description: "Query the current playback state of all cameras. Returns whether each camera is playing, paused, or idle, and what is playing (stream URL, TTS text, preset name, etc.).",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in GetPlaybackInput) (*mcp.CallToolResult, GetPlaybackOutput, error) {
-		names := make([]string, 0, len(h.cfg.Cameras))
-		for name, cfg := range h.cfg.Cameras {
+		config := h.configSnapshot()
+		names := make([]string, 0, len(config.Cameras))
+		for name, cfg := range config.Cameras {
 			if cfg.Enabled {
 				names = append(names, name)
 			}
@@ -513,7 +482,7 @@ func buildMCPServer(h *Handlers) *mcp.Server {
 		Name:        "list_voices",
 		Description: "List the available TTS voices for speak and generate_preset",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in ListVoicesInput) (*mcp.CallToolResult, ListVoicesOutput, error) {
-		voices := h.tts.Voices()
+		voices := h.ttsClient().Voices()
 		if len(voices) == 0 {
 			return &mcp.CallToolResult{
 				Content: []mcp.Content{&mcp.TextContent{Text: "No voices available"}},
@@ -537,10 +506,10 @@ func buildMCPServer(h *Handlers) *mcp.Server {
 		}
 		voice := in.Voice
 		if voice == "" {
-			voice = h.cfg.TTS.DefaultVoice
+			voice = h.configSnapshot().TTS.DefaultVoice
 		}
 		start := time.Now()
-		wav, err := h.tts.Speak(in.Text, voice)
+		wav, err := h.ttsClient().SpeakContext(ctx, in.Text, voice)
 		if err != nil {
 			return &mcp.CallToolResult{
 				IsError: true,
@@ -573,23 +542,12 @@ func buildMCPServer(h *Handlers) *mcp.Server {
 				Content: []mcp.Content{&mcp.TextContent{Text: "camera required"}},
 			}, SetVolumeOutput{}, nil
 		}
-		if in.Gain < 0 {
+		if err := h.setCameraGain(in.Camera, in.Gain); err != nil {
 			return &mcp.CallToolResult{
 				IsError: true,
-				Content: []mcp.Content{&mcp.TextContent{Text: "gain must be >= 0"}},
+				Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},
 			}, SetVolumeOutput{}, nil
 		}
-		h.reg.SetGain(in.Camera, in.Gain)
-		h.cfgMu.Lock()
-		cam, ok := h.cfg.Cameras[in.Camera]
-		if ok {
-			cam.Gain = in.Gain
-			h.cfg.Cameras[in.Camera] = cam
-			if err := config.SaveCamera(h.db, in.Camera, cam); err != nil {
-				h.log.Warn("volume: failed to persist gain", "camera", in.Camera, "err", err)
-			}
-		}
-		h.cfgMu.Unlock()
 		h.log.Info("volume: set", "camera", in.Camera, "gain", in.Gain)
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
@@ -760,9 +718,10 @@ type PlayPresetInput struct {
 type PlayPresetOutput struct{}
 
 type BroadcastInput struct {
-	Text   string `json:"text,omitempty"   jsonschema:"text to speak (if using TTS)"`
-	Preset string `json:"preset,omitempty" jsonschema:"preset name to play (if using a preset)"`
-	Voice  string `json:"voice,omitempty"  jsonschema:"optional TTS voice"`
+	Text     string `json:"text,omitempty"     jsonschema:"text to speak (if using TTS)"`
+	Preset   string `json:"preset,omitempty"   jsonschema:"preset name to play (if using a preset)"`
+	Voice    string `json:"voice,omitempty"    jsonschema:"optional TTS voice"`
+	Category string `json:"category,omitempty" jsonschema:"preset category; required when a name exists in more than one category"`
 }
 
 type BroadcastOutput struct{}
@@ -792,9 +751,9 @@ type BeepInput struct {
 type BeepOutput struct{}
 
 type PlayStreamInput struct {
-	Camera string  `json:"camera"         jsonschema:"the camera name,required"`
-	URL    string  `json:"url"            jsonschema:"the audio stream URL (http/https, can be .pls or .m3u playlist),required"`
-	Gain   float64 `json:"gain,omitempty" jsonschema:"optional volume gain (default 3.0)"`
+	Camera string   `json:"camera"         jsonschema:"the camera name,required"`
+	URL    string   `json:"url"            jsonschema:"the audio stream URL (http/https, can be .pls or .m3u playlist),required"`
+	Gain   *float64 `json:"gain,omitempty" jsonschema:"optional volume gain 0-10; omit to use camera volume, zero mutes"`
 }
 
 type PlayStreamOutput struct{}
@@ -829,9 +788,9 @@ type GetEventsInput struct {
 type GetEventsOutput struct{}
 
 type PlayURLInput struct {
-	Camera string  `json:"camera"         jsonschema:"the camera name,required"`
-	URL    string  `json:"url"            jsonschema:"the audio file URL (http/https),required"`
-	Gain   float64 `json:"gain,omitempty" jsonschema:"optional volume gain (default 3.0)"`
+	Camera string   `json:"camera"         jsonschema:"the camera name,required"`
+	URL    string   `json:"url"            jsonschema:"the audio file URL (http/https),required"`
+	Gain   *float64 `json:"gain,omitempty" jsonschema:"optional volume gain 0-10; omit to use camera volume, zero mutes"`
 }
 
 type PlayURLOutput struct{}

@@ -1,8 +1,9 @@
 <script>
-  import { Info, X, Loader2, Video, AudioLines, Wifi, Cpu, AlertCircle } from 'lucide-svelte'
+  import { Info, Loader2, Video, AudioLines, Wifi, Cpu, AlertCircle } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Badge } from '$lib/components/ui/badge'
   import { apiClient } from '$lib/api'
+  import Modal from '$lib/components/Modal.svelte'
 
   let { cameraName, cameraType, show, onClose } = $props()
 
@@ -43,38 +44,15 @@
   }
 </script>
 
-{#if show}
-  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-  <!-- Backdrop -->
-  <div class="fixed inset-0 z-[100] bg-black/60" onclick={onClose}></div>
-
-  <!-- Modal -->
-  <div class="fixed z-[101] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2
-    rounded-lg border border-border bg-card shadow-2xl flex flex-col
-    w-[640px] max-w-[calc(100vw-2rem)] max-h-[calc(100vh-4rem)]">
-    <!-- Header -->
-    <div class="flex items-center justify-between p-4 border-b border-border">
-      <div class="flex items-center gap-2">
-        <Info class="h-5 w-5 text-primary" />
-        <h3 class="text-sm font-semibold">{cameraName} — Device Info</h3>
-        <Badge variant="secondary" class="text-xs">{cameraType}</Badge>
-      </div>
-      <div class="flex items-center gap-1">
-        <Button variant="ghost" size="icon" class="h-7 w-7" onclick={loadInfo} disabled={loading} title="Refresh">
-          {#if loading}
-            <Loader2 class="h-4 w-4 animate-spin" />
-          {:else}
-            <Info class="h-4 w-4" />
-          {/if}
-        </Button>
-        <Button variant="ghost" size="icon" class="h-7 w-7" onclick={onClose} title="Close">
-          <X class="h-4 w-4" />
-        </Button>
-      </div>
+<Modal bind:open={() => show, value => { if (!value) onClose() }} title={`${cameraName} · Device information`}>
+  {#if show}
+    <div class="flex items-center justify-between gap-2">
+      <Badge variant="secondary" class="text-xs">{cameraType}</Badge>
+      <Button variant="outline" size="sm" onclick={loadInfo} disabled={loading}>
+        {#if loading}<Loader2 class="h-4 w-4 animate-spin" />{:else}<Info class="h-4 w-4" />{/if} Refresh
+      </Button>
     </div>
-
-    <!-- Body (scrollable) -->
-    <div class="overflow-y-auto p-4 flex flex-col gap-4">
+    <div class="mt-4 flex flex-col gap-4 break-words">
       {#if loading}
         <div class="flex items-center justify-center py-12 text-muted-foreground">
           <Loader2 class="h-6 w-6 animate-spin mr-2" />
@@ -108,7 +86,7 @@
             <div class="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
               <Cpu class="h-3.5 w-3.5" /> Device
             </div>
-            <div class="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+            <div class="grid grid-cols-1 gap-x-4 gap-y-1.5 text-sm">
               {#if info.device.manufacturer}
                 <div class="flex justify-between border-b border-border/50 pb-1">
                   <span class="text-muted-foreground">Manufacturer</span>
@@ -155,7 +133,7 @@
             <div class="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
               <Wifi class="h-3.5 w-3.5" /> Network
             </div>
-            <div class="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+            <div class="grid grid-cols-1 gap-x-4 gap-y-1.5 text-sm">
               {#if info.network.ip}
                 <div class="flex justify-between border-b border-border/50 pb-1">
                   <span class="text-muted-foreground">IP</span>
@@ -209,7 +187,7 @@
                 {#if stream.video}
                   <div class="flex items-start gap-2">
                     <Video class="h-3.5 w-3.5 text-muted-foreground mt-0.5 flex-shrink-0" />
-                    <div class="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs flex-1">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-0.5 text-xs flex-1 min-w-0">
                       <div class="flex justify-between">
                         <span class="text-muted-foreground">Codec</span>
                         <span class="font-medium">{stream.video.codec || '—'}</span>
@@ -252,7 +230,7 @@
                 {#if stream.audio}
                   <div class="flex items-start gap-2">
                     <AudioLines class="h-3.5 w-3.5 text-muted-foreground mt-0.5 flex-shrink-0" />
-                    <div class="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs flex-1">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-0.5 text-xs flex-1 min-w-0">
                       <div class="flex justify-between">
                         <span class="text-muted-foreground">Codec</span>
                         <span class="font-medium">{stream.audio.codec || '—'}</span>
@@ -293,5 +271,5 @@
         <div class="text-center py-8 text-muted-foreground text-sm">No data</div>
       {/if}
     </div>
-  </div>
-{/if}
+  {/if}
+</Modal>

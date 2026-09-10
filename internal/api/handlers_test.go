@@ -198,6 +198,7 @@ func TestPingCamera(t *testing.T) {
 		IP:      "127.0.0.1",
 		Enabled: true,
 	}
+	h.reg.UpdateConfig("front", h.cfg.Cameras["front"])
 
 	t.Run("nonexistent", func(t *testing.T) {
 		rec := doJSON(e, http.MethodPost, "/api/cameras/nonexistent/ping", "")

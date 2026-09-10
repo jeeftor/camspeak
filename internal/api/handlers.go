@@ -1,11 +1,13 @@
 package api
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	neturl "net/url"
 	"os"
@@ -29,17 +31,42 @@ import (
 
 // Handlers holds all route handler dependencies.
 type Handlers struct {
-	cfg        *config.Config
-	cfgMu      sync.Mutex
-	reg        *cameras.Registry
-	airplayMgr *airplay.Manager
-	store      *library.Store
-	tts        *tts.Client
-	vision     *vision.Client
-	events     *eventBus
-	db         *sql.DB
-	tmpDir     string
-	log        *clog.Logger
+	cfg          *config.Config
+	cfgMu        sync.Mutex
+	configEditMu sync.Mutex
+	reg          *cameras.Registry
+	airplayMgr   *airplay.Manager
+	store        *library.Store
+	tts          *tts.Client
+	vision       *vision.Client
+	events       *eventBus
+	db           *sql.DB
+	tmpDir       string
+	log          *clog.Logger
+	uploads      uploadWorker
+}
+
+// configSnapshot returns configuration values without exposing the mutable camera map.
+func (h *Handlers) configSnapshot() config.Config {
+	h.cfgMu.Lock()
+	defer h.cfgMu.Unlock()
+	cfg := *h.cfg
+	cfg.Cameras = maps.Clone(h.cfg.Cameras)
+	return cfg
+}
+
+// ttsClient returns the current immutable client, which settings updates replace atomically.
+func (h *Handlers) ttsClient() *tts.Client {
+	h.cfgMu.Lock()
+	defer h.cfgMu.Unlock()
+	return h.tts
+}
+
+// visionClient returns the current immutable vision client.
+func (h *Handlers) visionClient() *vision.Client {
+	h.cfgMu.Lock()
+	defer h.cfgMu.Unlock()
+	return h.vision
 }
 
 // SetAirPlayManager attaches a live AirPlay manager so per-camera toggles
@@ -58,29 +85,29 @@ func (h *Handlers) logger(c echo.Context) *clog.Logger {
 
 // speakReq is the body for POST /api/speak.
 type speakReq struct {
-	Camera string  `json:"camera"`
-	Text   string  `json:"text"`
-	Voice  string  `json:"voice"`
-	Gain   float64 `json:"gain"`
+	Camera string   `json:"camera"`
+	Text   string   `json:"text"`
+	Voice  string   `json:"voice"`
+	Gain   *float64 `json:"gain"`
 }
 
 // playReq is the body for POST /api/play.
 type playReq struct {
-	Camera   string  `json:"camera"`
-	Preset   string  `json:"preset"`
-	Category string  `json:"category"`
-	Gain     float64 `json:"gain"`
-	Loop     int     `json:"loop"`
+	Camera   string   `json:"camera"`
+	Preset   string   `json:"preset"`
+	Category string   `json:"category"`
+	Gain     *float64 `json:"gain"`
+	Loop     int      `json:"loop"`
 }
 
 // broadcastReq is the body for POST /api/broadcast.
 type broadcastReq struct {
-	Text     string  `json:"text"`
-	Preset   string  `json:"preset"`
-	Category string  `json:"category"`
-	Voice    string  `json:"voice"`
-	Gain     float64 `json:"gain"`
-	Loop     int     `json:"loop"`
+	Text     string   `json:"text"`
+	Preset   string   `json:"preset"`
+	Category string   `json:"category"`
+	Voice    string   `json:"voice"`
+	Gain     *float64 `json:"gain"`
+	Loop     int      `json:"loop"`
 }
 
 // genPresetReq is the body for POST /api/library.
@@ -93,6 +120,22 @@ type genPresetReq struct {
 	URL      string `json:"url"`
 }
 
+// requestGain distinguishes an omitted per-call override from an explicit mute.
+func requestGain(gain *float64) float64 {
+	if gain == nil {
+		return -1
+	}
+	return *gain
+}
+
+// validateRequestGain checks the public gain range before starting playback work.
+func validateRequestGain(gain *float64) error {
+	if gain != nil && (*gain < 0 || *gain > 10) {
+		return echo.NewHTTPError(http.StatusBadRequest, "gain must be between 0 and 10")
+	}
+	return nil
+}
+
 // Speak handles POST /api/speak — TTS → camera.
 func (h *Handlers) Speak(c echo.Context) error {
 	log := h.logger(c)
@@ -101,6 +144,9 @@ func (h *Handlers) Speak(c echo.Context) error {
 	err := c.Bind(&req)
 	if err != nil || req.Camera == "" || req.Text == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "camera and text required")
+	}
+	if err := validateRequestGain(req.Gain); err != nil {
+		return err
 	}
 
 	log.Info(
@@ -116,7 +162,14 @@ func (h *Handlers) Speak(c echo.Context) error {
 	)
 	start := time.Now()
 
-	timings, err := h.speakText(log, req.Camera, req.Text, req.Voice, req.Gain)
+	timings, err := h.speakTextContext(
+		c.Request().Context(),
+		log,
+		req.Camera,
+		req.Text,
+		req.Voice,
+		requestGain(req.Gain),
+	)
 	if err != nil {
 		log.Error("speak: failed", "camera", req.Camera, "elapsed", time.Since(start), "err", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -148,6 +201,12 @@ func (h *Handlers) Play(c echo.Context) error {
 	if err != nil || req.Camera == "" || req.Preset == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "camera and preset required")
 	}
+	if err := validateRequestGain(req.Gain); err != nil {
+		return err
+	}
+	if req.Loop < -1 {
+		return echo.NewHTTPError(http.StatusBadRequest, "loop must be -1 or a nonnegative integer")
+	}
 
 	log.Info(
 		"play: request",
@@ -164,7 +223,15 @@ func (h *Handlers) Play(c echo.Context) error {
 	)
 	start := time.Now()
 
-	timings, err := h.playPreset(log, req.Camera, req.Category, req.Preset, req.Gain, req.Loop)
+	timings, err := h.playPresetContext(
+		c.Request().Context(),
+		log,
+		req.Camera,
+		req.Category,
+		req.Preset,
+		requestGain(req.Gain),
+		req.Loop,
+	)
 	if err != nil {
 		log.Error(
 			"play: failed",
@@ -206,9 +273,13 @@ type playURLError struct {
 
 func (e *playURLError) Error() string { return e.msg }
 
-// doPlayURL downloads an audio URL, transcodes it, and sends it to a camera.
-// It is shared by the REST handler and the MCP tool.
-func (h *Handlers) doPlayURL(log *clog.Logger, camera, rawURL string, gain float64) error {
+// doPlayURLContext owns download and conversion as part of the cancelable playback operation.
+func (h *Handlers) doPlayURLContext(
+	ctx context.Context,
+	log *clog.Logger,
+	camera, rawURL string,
+	gain float64,
+) error {
 	// Validate URL scheme to prevent SSRF (only http/https allowed), and
 	// derive a redacted URL for logging/event storage.
 	parsedURL, err := neturl.Parse(rawURL)
@@ -229,12 +300,21 @@ func (h *Handlers) doPlayURL(log *clog.Logger, camera, rawURL string, gain float
 	)
 	start := time.Now()
 
-	cam, err := h.reg.Get(camera)
+	cam, err := h.reg.GetForPlayback(camera)
 	if err != nil {
 		return &playURLError{http.StatusNotFound, err.Error()}
 	}
 
-	resp, err := http.Get(rawURL)
+	op, err := h.beginPlaybackOperation(ctx, camera, cam, "play-url", redactedURL)
+	if err != nil {
+		return &playURLError{http.StatusConflict, err.Error()}
+	}
+	defer op.finish()
+	download, err := http.NewRequestWithContext(op.ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return &playURLError{http.StatusBadRequest, "invalid audio URL"}
+	}
+	resp, err := (&http.Client{Timeout: 2 * time.Minute}).Do(download)
 	if err != nil {
 		log.Error("play-url: download failed", "camera", camera, "url", redactedURL, "err", err)
 		return &playURLError{http.StatusBadGateway, fmt.Sprintf("download failed: %s", err)}
@@ -261,9 +341,13 @@ func (h *Handlers) doPlayURL(log *clog.Logger, camera, rawURL string, gain float
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
 
-	if _, err := io.Copy(tmp, resp.Body); err != nil {
+	const maxAudioDownload = 64 << 20
+	if n, err := io.Copy(tmp, io.LimitReader(resp.Body, maxAudioDownload+1)); err != nil {
 		tmp.Close()
 		return fmt.Errorf("saving download: %w", err)
+	} else if n > maxAudioDownload {
+		tmp.Close()
+		return &playURLError{http.StatusRequestEntityTooLarge, "audio download exceeds 64 MiB"}
 	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("closing temp file: %w", err)
@@ -277,7 +361,7 @@ func (h *Handlers) doPlayURL(log *clog.Logger, camera, rawURL string, gain float
 	rawName := raw.Name()
 	raw.Close()
 
-	if err := transcodeFileToRawGainWithPrime(tmpName, rawName, 1.0, h.cfg.PrimeSilenceMs); err != nil {
+	if err := transcodeFileToRawGainWithPrimeContext(op.ctx, tmpName, rawName, 1.0, h.configSnapshot().PrimeSilenceMs); err != nil {
 		os.Remove(rawName)
 		return err
 	}
@@ -285,9 +369,7 @@ func (h *Handlers) doPlayURL(log *clog.Logger, camera, rawURL string, gain float
 	defer os.Remove(rawName)
 
 	log.Debug("play-url: sending to camera", "camera", camera, "url", redactedURL)
-	setPlayback(camera, "play-url", redactedURL)
-	if _, err := sendRawWithLevel(camera, cam, rawName, h.gainForCall(camera, gain)); err != nil {
-		clearPlayback(camera)
+	if _, err := op.send(rawName, h.gainForCall(camera, gain)); err != nil {
 		log.Error(
 			"play-url: send failed",
 			"camera", camera,
@@ -306,7 +388,6 @@ func (h *Handlers) doPlayURL(log *clog.Logger, camera, rawURL string, gain float
 	h.events.publish(
 		event{Camera: camera, Action: "play-url", Text: redactedURL, At: time.Now()},
 	)
-	clearPlayback(camera)
 
 	return nil
 }
@@ -314,15 +395,18 @@ func (h *Handlers) doPlayURL(log *clog.Logger, camera, rawURL string, gain float
 // PlayURL handles POST /api/play-url — download URL → transcode → camera.
 func (h *Handlers) PlayURL(c echo.Context) error {
 	var req struct {
-		Camera string  `json:"camera"`
-		URL    string  `json:"url"`
-		Gain   float64 `json:"gain"`
+		Camera string   `json:"camera"`
+		URL    string   `json:"url"`
+		Gain   *float64 `json:"gain"`
 	}
 	if err := c.Bind(&req); err != nil || req.Camera == "" || req.URL == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "camera and url required")
 	}
+	if err := validateRequestGain(req.Gain); err != nil {
+		return err
+	}
 
-	if err := h.doPlayURL(h.logger(c), req.Camera, req.URL, req.Gain); err != nil {
+	if err := h.doPlayURLContext(c.Request().Context(), h.logger(c), req.Camera, req.URL, requestGain(req.Gain)); err != nil {
 		var perr *playURLError
 		if errors.As(err, &perr) {
 			return echo.NewHTTPError(perr.status, perr.msg)
@@ -347,11 +431,12 @@ func (h *Handlers) Stop(c echo.Context) error {
 	_ = c.Bind(&req)
 
 	if req.Camera != "" {
+		stopOperation(req.Camera)
+		stopStream(req.Camera)
 		if err := h.reg.Stop(req.Camera); err != nil {
 			log.Warn("stop: camera not found", "camera", req.Camera, "err", err)
 			return echo.NewHTTPError(http.StatusNotFound, err.Error())
 		}
-		stopStream(req.Camera)
 		clearPlayback(req.Camera)
 		h.resetAirPlay(req.Camera, log)
 		log.Info("stop: stopped and reset camera", "camera", req.Camera)
@@ -360,8 +445,9 @@ func (h *Handlers) Stop(c echo.Context) error {
 	}
 
 	// Stop all cameras, live streams, and reset AirPlay receivers.
-	h.reg.StopAll()
+	stopAllOperations()
 	stopAllStreams()
+	h.reg.StopAll()
 	clearAllPlayback()
 	h.resetAllAirPlay(log)
 	log.Info("stop: stopped and reset all cameras")
@@ -494,25 +580,40 @@ func (h *Handlers) Beep(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "camera required")
 	}
 
-	cam, err := h.reg.Get(req.Camera)
+	cam, err := h.reg.GetForPlayback(req.Camera)
 	if err != nil {
 		log.Warn("beep: camera not found", "camera", req.Camera, "err", err)
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
 
-	raw, err := GenerateBeep(h.tmpDir)
+	op, err := h.beginPlaybackOperation(
+		c.Request().Context(),
+		req.Camera,
+		cam,
+		"beep",
+		"800Hz test tone",
+	)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusConflict, err.Error())
+	}
+	defer op.finish()
+	raw, err := GenerateBeepContext(op.ctx, h.tmpDir)
 	if err != nil {
 		log.Error("beep: generating tone failed", "camera", req.Camera, "err", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	defer os.Remove(raw)
 
-	log.Info("beep: sending", "camera", req.Camera, "type", h.cfg.Cameras[req.Camera].Type)
+	log.Info(
+		"beep: sending",
+		"camera",
+		req.Camera,
+		"type",
+		h.configSnapshot().Cameras[req.Camera].Type,
+	)
 	start := time.Now()
 
-	setPlayback(req.Camera, "beep", "800Hz test tone")
-	if _, err := sendRawWithLevel(req.Camera, cam, raw, h.gainForCall(req.Camera, 0)); err != nil {
-		clearPlayback(req.Camera)
+	if _, err := op.send(raw, h.gainForCall(req.Camera, -1)); err != nil {
 		log.Error(
 			"beep: send failed",
 			"camera",
@@ -527,7 +628,6 @@ func (h *Handlers) Beep(c echo.Context) error {
 
 	log.Info("beep: sent", "camera", req.Camera, "elapsed", time.Since(start))
 	h.events.publish(event{Camera: req.Camera, Action: "beep", At: time.Now()})
-	clearPlayback(req.Camera)
 
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
@@ -535,13 +635,20 @@ func (h *Handlers) Beep(c echo.Context) error {
 // Cameras handles GET /api/cameras — returns only enabled cameras.
 func (h *Handlers) Cameras(c echo.Context) error {
 	status := h.reg.Status()
+	config := h.configSnapshot()
+	go2rtcURL, _ := h.reg.Routing()
 
 	out := make([]map[string]any, 0)
 	for _, name := range h.sortedCameraNames() {
-		cfg := h.cfg.Cameras[name]
+		cfg := config.Cameras[name]
 		if !cfg.Enabled {
 			continue
 		}
+		live := cfg.Type == "hikvision"
+		speak := cfg.Type == "hikvision" || cfg.Type == "onvif" ||
+			((cfg.Type == "go2rtc" || cfg.Type == "reolink") && cfg.Stream != "" && go2rtcURL != "")
+		snapshot := cfg.Type == "hikvision" || cfg.Type == "reolink" || config.FrigateURL != "" ||
+			(config.Go2rtcURL != "" && (cfg.Stream != "" || cfg.VisionStream != ""))
 		out = append(out, map[string]any{
 			"name":            name,
 			"type":            cfg.Type,
@@ -556,6 +663,10 @@ func (h *Handlers) Cameras(c echo.Context) error {
 			"airplay_name":    cfg.AirPlayName,
 			"airplay_model":   cfg.AirPlayModel,
 			"sort_order":      cfg.SortOrder,
+			"gain":            cfg.Gain,
+			"capabilities": map[string]bool{
+				"speak": speak, "snapshot": snapshot, "live_stream": live, "airplay": live,
+			},
 		})
 	}
 
@@ -569,8 +680,9 @@ func (h *Handlers) Cameras(c echo.Context) error {
 // name), and timestamps for when playback started and (if paused) when it
 // was paused.
 func (h *Handlers) Playback(c echo.Context) error {
-	names := make([]string, 0, len(h.cfg.Cameras))
-	for name, cfg := range h.cfg.Cameras {
+	config := h.configSnapshot()
+	names := make([]string, 0, len(config.Cameras))
+	for name, cfg := range config.Cameras {
 		if cfg.Enabled {
 			names = append(names, name)
 		}
@@ -580,7 +692,7 @@ func (h *Handlers) Playback(c echo.Context) error {
 
 // Voices handles GET /api/voices.
 func (h *Handlers) Voices(c echo.Context) error {
-	return c.JSON(http.StatusOK, h.tts.Voices())
+	return c.JSON(http.StatusOK, h.ttsClient().Voices())
 }
 
 // Health handles GET /api/health.

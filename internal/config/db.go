@@ -18,6 +18,22 @@ func SetPreference(db *sql.DB, key, value string) error {
 	return nil
 }
 
+// SetPreferences persists a group of settings atomically.
+func SetPreferences(db *sql.DB, preferences map[string]string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("beginning preferences transaction: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+	for key, value := range preferences {
+		if _, err := tx.Exec(`INSERT INTO preferences (key, value) VALUES (?, ?)
+			ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, value); err != nil {
+			return fmt.Errorf("setting preference %s: %w", key, err)
+		}
+	}
+	return tx.Commit()
+}
+
 // SaveCamera inserts or updates a camera in SQLite.
 func SaveCamera(db *sql.DB, name string, cam CameraConfig) error {
 	enabled := 0
@@ -103,27 +119,32 @@ func ListTTSPresets(db *sql.DB) ([]TTSPreset, error) {
 
 // SaveTTSPreset inserts or updates a TTS preset.
 func SaveTTSPreset(db *sql.DB, p TTSPreset) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("beginning TTS transaction: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
 	isActive := 0
 	if p.IsActive {
 		isActive = 1
 		// Deactivate all other presets
-		if _, err := db.Exec(`UPDATE tts_presets SET is_active = 0`); err != nil {
+		if _, err := tx.Exec(`UPDATE tts_presets SET is_active = 0`); err != nil {
 			return fmt.Errorf("deactivating presets: %w", err)
 		}
 	}
 	// Preserve existing API key when the incoming key is empty.
 	// This prevents editing a preset from wiping its stored key.
 	apiKey := p.APIKey
-	if apiKey == "" {
+	if apiKey == "" && !p.ClearAPIKey {
 		var existingKey string
-		err := db.QueryRow(
+		err := tx.QueryRow(
 			`SELECT api_key FROM tts_presets WHERE name = ?`, p.Name,
 		).Scan(&existingKey)
 		if err == nil {
 			apiKey = existingKey
 		}
 	}
-	_, err := db.Exec(
+	_, err = tx.Exec(
 		`INSERT INTO tts_presets (name, endpoint, model, api_key, default_voice, description, is_active)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(name) DO UPDATE SET
@@ -141,7 +162,7 @@ func SaveTTSPreset(db *sql.DB, p TTSPreset) error {
 	if err != nil {
 		return fmt.Errorf("saving TTS preset %s: %w", p.Name, err)
 	}
-	return nil
+	return tx.Commit()
 }
 
 // SetActiveTTSPreset marks a preset as active and deactivates all others.

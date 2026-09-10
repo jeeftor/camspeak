@@ -1,41 +1,25 @@
 <script>
   import { onMount } from 'svelte'
-  import { Bell, Pencil, X, Check, Loader2, ScanLine } from 'lucide-svelte'
+  import { Bell, Pencil, X, Loader2, ScanLine } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Select } from '$lib/components/ui/select'
   import { Badge } from '$lib/components/ui/badge'
   import JsonCode from '$lib/components/JsonCode.svelte'
   import Modal from '$lib/components/Modal.svelte'
-  import VisionTest from './VisionTest.svelte'
-  import CaptureBenchmark from './CaptureBenchmark.svelte'
-  import Benchmark from './Benchmark.svelte'
-  import Announce from './Announce.svelte'
   import CaptureTest from '$lib/components/CaptureTest.svelte'
-  import VoiceSelect from '$lib/components/VoiceSelect.svelte'
+  import PromptEditor from '$lib/components/PromptEditor.svelte'
+  import TTSSettings from './TTSSettings.svelte'
+  import VisionSettings from './VisionSettings.svelte'
   import { toast } from '$lib/components/ui/toast'
   import { apiClient } from '$lib/api'
-  import { isVisionCapableModel } from '$lib/models'
 
   let { onRefresh } = $props()
 
   let tab = $state('settings')
   let config = $state(null)
-  let ttsPresets = $state([])
   let cameras = $state([])
-  let voices = $state([])
   let loading = $state(true)
-
-  // TTS form
-  let ttsName = $state('')
-  let ttsEndpoint = $state('')
-  let ttsModel = $state('')
-  let ttsVoice = $state('')
-  let ttsKey = $state('')
-  let ttsDesc = $state('')
-  let ttsStatus = $state('')
-  let ttsTestBusy = $state(false)
-  let ttsTestStatus = $state('')
 
   // Camera modal
   let camFormOpen = $state(false)
@@ -50,8 +34,6 @@
   let go2rtcStreamsError = $state('')
   let camStreamCustom = $state(false) // toggle for free-text stream entry
 
-  // TTS modal
-  let ttsFormOpen = $state(false)
   let camName = $state('')
   let camType = $state('hikvision')
   let camIP = $state('')
@@ -69,17 +51,6 @@
   let camSnapMethod = $state('')
   let camStatus = $state('')
   let availableStreams = $state([])
-
-  // Vision form
-  let visionURL = $state('')
-  let visionModel = $state('')
-  let visionAPIKey = $state('')
-  let visionPrompt = $state('')
-  let visionStatus = $state('')
-  let visionTestStatus = $state('')
-  let visionTestBusy = $state(false)
-  let visionModelList = $state([]) // models fetched from endpoint
-  let visionModelPickerOpen = $state(false)
 
   // Camera pending-enabled batch state (checkbox → local, Save commits)
   let pendingEnabled = $state({}) // name → bool
@@ -109,22 +80,16 @@
 
   async function loadConfig() {
     loading = true
+    configError = ''
     try {
-      const [cfg, ttsData, cams, v, ap, st] = await Promise.all([
+      const [cfg, cams, ap, st] = await Promise.all([
         apiClient.getConfig(),
-        apiClient.listTTSPresets(),
         apiClient.listCamerasConfig(),
-        apiClient.getVisionConfig(),
         apiClient.getAirPlayConfig(),
         apiClient.getSettings(),
       ])
       config = cfg
-      ttsPresets = ttsData.presets ?? []
       cameras = cams ?? []
-      visionURL = v.url ?? ''
-      visionModel = v.model ?? ''
-      visionAPIKey = v.api_key ?? ''
-      visionPrompt = v.prompt ?? ''
       airplayEnabled = ap.enabled ?? false
       airplayBasePort = ap.base_port ?? 5000
       airplayPrimeSilenceMs = ap.prime_silence_ms ?? 500
@@ -133,8 +98,6 @@
       frigateURL = st.frigate_url ?? ''
       go2rtcURL = st.go2rtc_url ?? ''
       advertiseIP = st.advertise_ip ?? ''
-      // Load voices separately (not always needed)
-      apiClient.getVoices().then(v => voices = v ?? []).catch(() => {})
     } catch (e) {
       console.error('loadConfig error:', e)
       configError = '✗ Failed to load config: ' + (e?.message ?? String(e))
@@ -145,54 +108,12 @@
 
   onMount(loadConfig)
 
-  // --- TTS Presets ---
-  async function saveTTS() {
-    if (!ttsName || !ttsEndpoint) return
-    ttsStatus = ''
+  async function refreshRuntime() {
     try {
-      await apiClient.saveTTSPreset({
-        name: ttsName, endpoint: ttsEndpoint, model: ttsModel,
-        default_voice: ttsVoice, api_key: ttsKey, description: ttsDesc,
-      })
-      ttsStatus = '✓ Saved'
-      toast.success(`TTS preset "${ttsName}" saved`)
-      ttsFormOpen = false
-      ttsName = ''; ttsEndpoint = ''; ttsModel = ''; ttsVoice = ''; ttsKey = ''; ttsDesc = ''
-      loadConfig()
-    } catch (e) {
-      ttsStatus = '✗ ' + e.message
-    } finally {
-      setTimeout(() => ttsStatus = '', 4000)
-    }
-  }
-
-  async function activateTTS(name) {
-    try {
-      await apiClient.activateTTSPreset(name)
-      loadConfig()
-    } catch (e) {
-      configError = '✗ ' + e.message
-    }
-  }
-
-  async function deleteTTS(name) {
-    if (!confirm(`Delete TTS preset "${name}"?`)) return
-    try {
-      await apiClient.deleteTTSPreset(name)
-      loadConfig()
-    } catch (e) {
-      configError = '✗ ' + e.message
-    }
-  }
-
-  async function testTTS() {
-    testStatus = { ...testStatus, tts: 'testing...' }
-    try {
-      const activePreset = ttsPresets.find(p => p.is_active) ?? ttsPresets[0]
-      const data = await apiClient.testTTSConfig(activePreset?.endpoint ?? ttsEndpoint, activePreset?.api_key ?? ttsKey)
-      testStatus = { ...testStatus, tts: data.ok ? '✓ Connected' : '✗ ' + (data.message ?? 'failed') }
-    } catch (e) {
-      testStatus = { ...testStatus, tts: '✗ ' + e.message }
+      config = await apiClient.getConfig()
+      onRefresh?.()
+    } catch (cause) {
+      configError = 'Your runtime configuration could not be refreshed: ' + cause.message
     }
   }
 
@@ -331,23 +252,6 @@
     }
   }
 
-  function openAddTTS() {
-    ttsName = ''; ttsEndpoint = ''; ttsModel = ''; ttsVoice = ''; ttsKey = ''; ttsDesc = ''
-    ttsStatus = ''
-    ttsFormOpen = true
-  }
-
-  function editTTS(p) {
-    ttsName = p.name
-    ttsEndpoint = p.endpoint
-    ttsModel = p.model
-    ttsVoice = p.default_voice
-    ttsKey = ''
-    ttsDesc = p.description
-    ttsStatus = ''
-    ttsFormOpen = true
-  }
-
   // --- Cameras (batch enable) ---
   function getCamEnabled(cam) {
     return cam.name in pendingEnabled ? pendingEnabled[cam.name] : cam.enabled
@@ -393,66 +297,6 @@
     } finally {
       camerasSaving = false
       setTimeout(() => camerasStatus = '', 4000)
-    }
-  }
-
-  // --- Vision ---
-  async function saveVision() {
-    visionStatus = ''
-    try {
-      await apiClient.saveVisionConfig({
-        url: visionURL,
-        model: visionModel,
-        api_key: visionAPIKey,
-        prompt: visionPrompt,
-      })
-      visionStatus = '✓ Saved'
-      toast.success('Vision config saved')
-      loadConfig()
-    } catch (e) {
-      visionStatus = '✗ ' + e.message
-      toast.error(`Failed to save vision config: ${e.message}`)
-    } finally {
-      setTimeout(() => visionStatus = '', 4000)
-    }
-  }
-
-  async function testVision() {
-    visionTestBusy = true
-    visionTestStatus = ''
-    visionModelList = []
-    visionModelPickerOpen = false
-    try {
-      const data = await apiClient.testVisionConfig(visionURL, visionAPIKey)
-      if (data.ok) {
-        visionTestStatus = `✓ Connected (${data.models} model${data.models === 1 ? '' : 's'})`
-        const ids = (data.data?.data?.map(m => m.id).filter(Boolean) ?? []).filter(isVisionCapableModel)
-        if (ids.length > 0) {
-          visionModelList = ids
-          visionModelPickerOpen = true
-        }
-      } else {
-        visionTestStatus = '✗ ' + data.message
-      }
-    } catch (e) {
-      visionTestStatus = '✗ ' + e.message
-    } finally {
-      visionTestBusy = false
-      setTimeout(() => visionTestStatus = '', 8000)
-    }
-  }
-
-  async function testTTSModal() {
-    ttsTestBusy = true
-    ttsTestStatus = ''
-    try {
-      const data = await apiClient.testTTSConfig(ttsEndpoint, ttsKey)
-      ttsTestStatus = data.ok ? '✓ Connected' : '✗ ' + data.message
-    } catch (e) {
-      ttsTestStatus = '✗ ' + e.message
-    } finally {
-      ttsTestBusy = false
-      setTimeout(() => ttsTestStatus = '', 6000)
     }
   }
 
@@ -609,10 +453,6 @@
     { id: 'tts', label: 'TTS Presets' },
     { id: 'cameras', label: 'Cameras' },
     { id: 'vision', label: 'Vision' },
-    { id: 'vision-test', label: 'Playground' },
-    { id: 'announce', label: 'Announce' },
-    { id: 'capture-bench', label: 'Capture Benchmark' },
-    { id: 'benchmark', label: 'Full Matrix' },
     { id: 'overview', label: 'Overview' },
   ]
 </script>
@@ -621,7 +461,7 @@
   <p class="flex items-center gap-2 text-muted-foreground"><Loader2 class="h-4 w-4 animate-spin" /> Loading config…</p>
 {:else}
   <div class="flex flex-col gap-4">
-    {#if configError}<p class="text-sm text-destructive">{configError}</p>{/if}
+    {#if configError}<p role="alert" class="text-sm text-destructive">{configError} <button class="underline" onclick={loadConfig}>Retry</button></p>{/if}
     <div class="flex gap-1 overflow-x-auto" style="scrollbar-width:none;">
       {#each configTabs as t}
         <Button
@@ -635,7 +475,10 @@
       {/each}
     </div>
 
-    <!-- TTS Presets -->
+    <!-- Keep independent settings mounted so switching tabs preserves your drafts. -->
+    <div hidden={tab !== 'tts'}><TTSSettings onChanged={refreshRuntime} /></div>
+    <div hidden={tab !== 'vision'}><VisionSettings onChanged={refreshRuntime} /></div>
+
     {#if tab === 'settings'}
       <section class="rounded-lg border bg-card p-5">
         <div class="mb-4 flex items-center justify-between gap-4">
@@ -724,80 +567,6 @@
           </p>
         </div>
       </section>
-
-    {:else if tab === 'tts'}
-      <section class="rounded-lg border bg-card p-5">
-        <div class="mb-3 flex items-center justify-between">
-          <h3 class="text-base font-semibold text-primary">TTS Presets</h3>
-          <div class="flex items-center gap-2">
-            {#if testStatus.tts}<span class="text-sm text-primary">{testStatus.tts}</span>{/if}
-            <Button variant="outline" size="sm" onclick={testTTS}>Test Connection</Button>
-            <Button size="sm" onclick={openAddTTS}>Add Preset</Button>
-          </div>
-        </div>
-
-        <div class="flex flex-col gap-1.5">
-          {#each ttsPresets as p}
-            <div class="flex items-center justify-between rounded-lg border bg-background px-3 py-2 {p.is_active ? 'border-primary bg-primary/5' : ''}">
-              <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                <span class="font-semibold">{p.name}</span>
-                {#if p.is_active}<Badge>ACTIVE</Badge>{/if}
-                <span class="text-sm text-muted-foreground">{p.model}</span>
-                <span class="text-sm text-muted-foreground">{p.default_voice}</span>
-              </div>
-              <div class="flex shrink-0 gap-1">
-                <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => editTTS(p)} title="Edit" aria-label="Edit TTS preset"><Pencil class="h-4 w-4" /></Button>
-                {#if !p.is_active}
-                  <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => activateTTS(p.name)} title="Activate" aria-label="Activate TTS preset"><Check class="h-4 w-4" /></Button>
-                {/if}
-                <Button variant="outline" size="sm" class="h-7 px-2 hover:border-destructive hover:text-destructive" onclick={() => deleteTTS(p.name)} title="Delete" aria-label="Delete TTS preset"><X class="h-4 w-4" /></Button>
-              </div>
-            </div>
-          {/each}
-          {#if ttsPresets.length === 0}
-            <p class="italic text-muted-foreground">No TTS presets configured.</p>
-          {/if}
-        </div>
-      </section>
-
-      <!-- TTS Edit Modal -->
-      <Modal bind:open={ttsFormOpen} title={ttsName ? `Edit TTS Preset — ${ttsName}` : 'Add TTS Preset'}>
-        <div class="grid grid-cols-2 gap-2.5 max-sm:grid-cols-1">
-          <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-            Name
-            <Input bind:value={ttsName} placeholder="lemonade-local" />
-          </label>
-          <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-            Endpoint
-            <Input bind:value={ttsEndpoint} placeholder="http://10.0.0.x:13305/v1/audio/speech" />
-          </label>
-          <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-            Model
-            <Input bind:value={ttsModel} placeholder="kokoro" />
-          </label>
-          <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-            Default Voice
-            <VoiceSelect bind:value={ttsVoice} {voices} />
-          </label>
-          <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-            API Key (optional)
-            <Input bind:value={ttsKey} type="password" placeholder={ttsName ? 'Leave empty to keep existing' : 'sk-...'} />
-          </label>
-          <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-            Description
-            <Input bind:value={ttsDesc} placeholder="Local Lemonade instance" />
-          </label>
-        </div>
-        <div class="mt-4 flex flex-wrap items-center gap-2 border-t pt-4">
-          <Button onclick={saveTTS} disabled={!ttsName || !ttsEndpoint}>Save Preset</Button>
-          <Button variant="outline" onclick={testTTSModal} disabled={ttsTestBusy || !ttsEndpoint}>
-            {ttsTestBusy ? 'Testing…' : 'Test Connection'}
-          </Button>
-          <Button variant="ghost" onclick={() => ttsFormOpen = false}>Cancel</Button>
-          {#if ttsTestStatus}<span class="text-sm {ttsTestStatus.startsWith('✓') ? 'text-primary' : 'text-destructive'}">{ttsTestStatus}</span>{/if}
-          {#if ttsStatus}<span class="text-sm text-primary">{ttsStatus}</span>{/if}
-        </div>
-      </Modal>
 
     <!-- Cameras -->
     {:else if tab === 'cameras'}
@@ -1064,86 +833,6 @@
           {#if testCamStatus}<span class="text-sm text-primary">{testCamStatus}</span>{/if}
         </div>
       </Modal>
-
-    <!-- Vision -->
-    {:else if tab === 'vision'}
-      <section class="rounded-lg border bg-card p-5">
-        <div class="mb-4 flex items-center justify-between gap-4">
-          <h3 class="text-base font-semibold text-primary">Vision Model</h3>
-          <div class="flex items-center gap-2">
-            {#if visionTestStatus}<span class="text-sm text-primary">{visionTestStatus}</span>{/if}
-            {#if visionStatus}<span class="text-sm text-primary">{visionStatus}</span>{/if}
-            <Button variant="outline" size="sm" onclick={testVision} disabled={visionTestBusy}>
-              {visionTestBusy ? 'Testing…' : 'Test'}
-            </Button>
-            <Button onclick={saveVision} size="sm">Save</Button>
-          </div>
-        </div>
-        <p class="mb-4 text-sm text-muted-foreground">
-          OpenAI-compatible vision endpoint for the Describe and Vision endpoints.
-          The default prompt is used when neither the request nor the camera specifies one.
-        </p>
-        <div class="grid grid-cols-2 gap-2.5 max-sm:grid-cols-1">
-          <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-            Endpoint URL <span class="text-muted-foreground/60 font-normal">(base URL or full /v1/chat/completions path)</span>
-            <Input bind:value={visionURL} placeholder="http://10.0.0.x:8080" />
-          </label>
-          <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-            Model
-            {#if visionModelPickerOpen && visionModelList.length > 0}
-              <select
-                class="rounded-md border border-input bg-transparent px-3 py-2 text-sm"
-                onchange={(e) => { visionModel = e.target.value; visionModelPickerOpen = false }}
-              >
-                <option value="">— pick a model —</option>
-                {#each visionModelList as m}
-                  <option value={m} selected={m === visionModel}>{m}</option>
-                {/each}
-              </select>
-            {:else}
-              <div class="flex gap-1.5">
-                <Input bind:value={visionModel} placeholder="llama3.2-vision" class="flex-1" />
-                {#if visionModelList.length > 0}
-                  <button
-                    onclick={() => visionModelPickerOpen = true}
-                    class="rounded-md border border-input px-2 text-xs text-muted-foreground hover:bg-accent"
-                    title="Pick from scanned models"
-                  >↓</button>
-                {/if}
-              </div>
-            {/if}
-          </label>
-          <label class="flex flex-col gap-1 text-xs text-muted-foreground sm:col-span-2">
-            API Key (optional)
-            <Input bind:value={visionAPIKey} type="password" placeholder="sk-..." />
-          </label>
-        </div>
-        <label class="flex flex-col gap-1 text-xs text-muted-foreground mt-3">
-          Default Vision Prompt
-          <PromptEditor bind:value={visionPrompt}
-            placeholder="Describe what you see in one or two sentences. Be concise and factual." />
-          <span class="text-[11px] opacity-60">
-            Fallback chain: request prompt → camera's vision_prompt → this global default → hardcoded default.
-            Leave empty to use the hardcoded default.
-          </span>
-        </label>
-      </section>
-
-    <!-- Vision Test -->
-    {:else if tab === 'vision-test'}
-      <VisionTest cameras={cameras} globalPrompt={visionPrompt} onSavePrompt={async (p) => { visionPrompt = p; await saveVision(); }} />
-
-    <!-- Announce -->
-    {:else if tab === 'announce'}
-      <Announce cameras={cameras} />
-
-    <!-- Capture Benchmark -->
-    {:else if tab === 'capture-bench'}
-      <CaptureBenchmark cameras={cameras} />
-
-    <!-- Full Matrix Benchmark -->
-    {:else if tab === 'benchmark'}
-      <Benchmark cameras={cameras} />
 
     <!-- Overview -->
     {:else if tab === 'overview'}

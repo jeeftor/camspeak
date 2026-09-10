@@ -24,6 +24,7 @@
   } = $props()
 
   let showSavePreset = $state(false)
+  const inputId = $props.id()
   let presetName = $state('')
 
   function savePreset() {
@@ -37,7 +38,7 @@
 <div class="flex flex-col gap-2 {klass}">
   {#if showPresetButtons && (presets.length > 0 || onSavePreset || onResetGlobal || onSetGlobal)}
     <div class="flex items-center justify-between gap-2 flex-wrap">
-      <label class="text-xs font-semibold text-muted-foreground">Prompt</label>
+      <label for={inputId} class="text-xs font-semibold text-muted-foreground">Prompt</label>
       <div class="flex gap-1.5">
         {#if onResetGlobal && globalPrompt && value !== globalPrompt}
           <Button size="sm" variant="ghost" onclick={onResetGlobal} disabled={disabled}>Reset to default</Button>
@@ -74,6 +75,7 @@
               onclick={() => onDeletePreset(p.name)}
               disabled={disabled}
               class="px-1 py-1 hover:bg-destructive/10 rounded-r-md disabled:opacity-50"
+              aria-label={`Delete prompt ${p.name}`}
             >
               <Trash2 class="h-3 w-3" />
             </button>
@@ -93,5 +95,5 @@
     </div>
   {/if}
 
-  <Textarea bind:value rows={3} {placeholder} {disabled} class="text-sm" />
+  <Textarea id={inputId} aria-label="Vision prompt" bind:value rows={3} {placeholder} {disabled} class="text-sm" />
 </div>

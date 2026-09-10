@@ -9,6 +9,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/jeeftor/camspeak/internal/cameras"
 	"github.com/jeeftor/camspeak/internal/config"
 	"github.com/jeeftor/camspeak/internal/util"
 	"github.com/jeeftor/camspeak/internal/vision"
@@ -32,9 +33,19 @@ func (h *Handlers) GetVisionConfig(c echo.Context) error {
 
 // UpdateVisionConfig handles PUT /api/config/vision — updates vision config.
 func (h *Handlers) UpdateVisionConfig(c echo.Context) error {
-	var req config.VisionConfig
+	h.configEditMu.Lock()
+	defer h.configEditMu.Unlock()
+	var req struct {
+		config.VisionConfig
+		ClearAPIKey bool `json:"clear_api_key"`
+	}
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid JSON body")
+	}
+	if req.APIKey == "" && !req.ClearAPIKey {
+		if err := h.db.QueryRow(`SELECT value FROM preferences WHERE key = 'vision_api_key'`).Scan(&req.APIKey); err != nil {
+			req.APIKey = ""
+		}
 	}
 
 	prefs := map[string]string{
@@ -43,15 +54,15 @@ func (h *Handlers) UpdateVisionConfig(c echo.Context) error {
 		"vision_api_key": req.APIKey,
 		"vision_prompt":  req.Prompt,
 	}
-	for key, val := range prefs {
-		if err := config.SetPreference(h.db, key, val); err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-		}
+	if err := config.SetPreferences(h.db, prefs); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
 	h.cfgMu.Lock()
-	h.cfg.Vision = req
-	h.vision = vision.NewClient(req.URL, req.Model, req.APIKey)
+	h.cfg.Vision = req.VisionConfig
+	config.ApplyEnvOverrides(h.cfg)
+	h.vision = vision.NewClient(h.cfg.Vision.URL, h.cfg.Vision.Model, h.cfg.Vision.APIKey)
+	effective := h.cfg.Vision.Sanitized()
 	h.cfgMu.Unlock()
 
 	h.logger(c).Info(
@@ -60,7 +71,7 @@ func (h *Handlers) UpdateVisionConfig(c echo.Context) error {
 		"model", req.Model,
 		"has_prompt", req.Prompt != "",
 	)
-	return c.JSON(http.StatusOK, req.Sanitized())
+	return c.JSON(http.StatusOK, effective)
 }
 
 // TestVisionConfig handles POST /api/config/vision/test — probes the vision endpoint from the server.
@@ -72,6 +83,10 @@ func (h *Handlers) TestVisionConfig(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid JSON body")
 	}
+	current := h.configSnapshot().Vision
+	if req.APIKey == "" && req.URL == current.URL {
+		req.APIKey = current.APIKey
+	}
 	// Derive models endpoint from the chat completions URL.
 	// e.g. http://host/v1/chat/completions → http://host/v1/models
 	base := req.URL
@@ -80,9 +95,9 @@ func (h *Handlers) TestVisionConfig(c echo.Context) error {
 	} else {
 		base = strings.TrimRight(base, "/") + "/v1/models"
 	}
-	h.logger(c).Info("testing vision endpoint", "url", base)
+	h.logger(c).Info("testing vision endpoint", "url", util.RedactURLString(base))
 
-	httpReq, err := http.NewRequest(http.MethodGet, base, nil)
+	httpReq, err := http.NewRequestWithContext(c.Request().Context(), http.MethodGet, base, nil)
 	if err != nil {
 		return c.JSON(http.StatusOK, map[string]interface{}{"ok": false, "message": err.Error()})
 	}
@@ -126,6 +141,19 @@ func (h *Handlers) TestTTSConfig(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid JSON body")
 	}
+	if req.APIKey == "" {
+		current := h.configSnapshot().TTS
+		if req.URL == current.URL {
+			req.APIKey = current.APIKey
+		} else if presets, err := config.ListTTSPresets(h.db); err == nil {
+			for _, preset := range presets {
+				if preset.Endpoint == req.URL {
+					req.APIKey = preset.APIKey
+					break
+				}
+			}
+		}
+	}
 	// Derive base URL — strip any path after the host:port so we can probe /v1/models.
 	base := req.URL
 	if idx := strings.Index(base, "/v1/"); idx >= 0 {
@@ -133,9 +161,9 @@ func (h *Handlers) TestTTSConfig(c echo.Context) error {
 	} else {
 		base = strings.TrimRight(base, "/") + "/v1/models"
 	}
-	h.logger(c).Info("testing TTS endpoint", "url", base)
+	h.logger(c).Info("testing TTS endpoint", "url", util.RedactURLString(base))
 
-	httpReq, err := http.NewRequest(http.MethodGet, base, nil)
+	httpReq, err := http.NewRequestWithContext(c.Request().Context(), http.MethodGet, base, nil)
 	if err != nil {
 		return c.JSON(http.StatusOK, map[string]interface{}{"ok": false, "message": err.Error()})
 	}
@@ -159,17 +187,18 @@ func (h *Handlers) TestTTSConfig(c echo.Context) error {
 
 // GetSettings handles GET /api/config/settings — returns general settings.
 func (h *Handlers) GetSettings(c echo.Context) error {
-	h.cfgMu.Lock()
-	defer h.cfgMu.Unlock()
+	cfg := h.configSnapshot().Sanitized()
 	return c.JSON(http.StatusOK, map[string]interface{}{
-		"frigate_url":  h.cfg.FrigateURL,
-		"go2rtc_url":   h.cfg.Go2rtcURL,
-		"advertise_ip": h.cfg.AdvertiseIP,
+		"frigate_url":  cfg.FrigateURL,
+		"go2rtc_url":   cfg.Go2rtcURL,
+		"advertise_ip": cfg.AdvertiseIP,
 	})
 }
 
 // UpdateSettings handles PUT /api/config/settings — saves general settings.
 func (h *Handlers) UpdateSettings(c echo.Context) error {
+	h.configEditMu.Lock()
+	defer h.configEditMu.Unlock()
 	var req struct {
 		FrigateURL  string `json:"frigate_url"`
 		Go2rtcURL   string `json:"go2rtc_url"`
@@ -178,29 +207,53 @@ func (h *Handlers) UpdateSettings(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid JSON body")
 	}
-	if err := config.SetPreference(h.db, "frigate_url", req.FrigateURL); err != nil {
+	cfg := h.configSnapshot()
+	cfg.FrigateURL, cfg.Go2rtcURL, cfg.AdvertiseIP = req.FrigateURL, req.Go2rtcURL, req.AdvertiseIP
+	config.ApplyEnvOverrides(&cfg)
+	go2rtcURL := cfg.Go2rtcURL
+	if go2rtcURL == "" {
+		go2rtcURL = cameras.FindGo2rtcURL(cfg.FrigateURL)
+	}
+	if err := h.reg.ValidateRouting(go2rtcURL); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	if err := config.SetPreferences(h.db, map[string]string{
+		"frigate_url": req.FrigateURL, "go2rtc_url": req.Go2rtcURL, "advertise_ip": req.AdvertiseIP,
+	}); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	if err := config.SetPreference(h.db, "go2rtc_url", req.Go2rtcURL); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	previousURL, previousIP := h.reg.Routing()
+	if previousURL != go2rtcURL || previousIP != cfg.AdvertiseIP {
+		// SetRouting replaces every enabled speaker. Retire their supervisors first
+		// so prepared audio and reconnect loops cannot reopen an obsolete client.
+		for _, name := range h.reg.Names() {
+			stopOperation(name)
+			stopStream(name)
+			clearPlayback(name)
+		}
 	}
-	if err := config.SetPreference(h.db, "advertise_ip", req.AdvertiseIP); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	if err := h.reg.SetRouting(go2rtcURL, cfg.AdvertiseIP); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 	h.cfgMu.Lock()
-	h.cfg.FrigateURL = req.FrigateURL
-	h.cfg.Go2rtcURL = req.Go2rtcURL
-	h.cfg.AdvertiseIP = req.AdvertiseIP
+	h.cfg.FrigateURL = cfg.FrigateURL
+	h.cfg.Go2rtcURL = cfg.Go2rtcURL
+	h.cfg.AdvertiseIP = cfg.AdvertiseIP
 	h.cfgMu.Unlock()
+	if h.airplayMgr != nil {
+		if err := h.airplayMgr.UpdateRouting(cfg.AdvertiseIP); err != nil {
+			h.logger(c).Warn("AirPlay address update failed", "err", err)
+		}
+	}
 	h.logger(c).Info("settings updated",
-		"frigate_url", req.FrigateURL,
-		"go2rtc_url", req.Go2rtcURL,
+		"frigate_url", util.RedactURLString(req.FrigateURL),
+		"go2rtc_url", util.RedactURLString(req.Go2rtcURL),
 		"advertise_ip", req.AdvertiseIP,
 	)
 	return c.JSON(http.StatusOK, map[string]interface{}{
-		"frigate_url":  req.FrigateURL,
-		"go2rtc_url":   req.Go2rtcURL,
-		"advertise_ip": req.AdvertiseIP,
+		"frigate_url":  util.RedactURLString(cfg.FrigateURL),
+		"go2rtc_url":   util.RedactURLString(cfg.Go2rtcURL),
+		"advertise_ip": cfg.AdvertiseIP,
 	})
 }
 

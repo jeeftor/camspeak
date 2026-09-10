@@ -1,9 +1,13 @@
 // Centralized API client. All fetch calls go through this.
 // Add auth headers, retry logic, or error formatting here once.
 
+import { cancelAudioPreparation } from './audio-preparation'
+
 import type {
   AppConfig,
+  BroadcastResponse,
   Camera,
+  CameraSummary,
   CameraInfo,
   AnnounceResponse,
   DescribeResponse,
@@ -25,6 +29,7 @@ import type {
   SaveVisionPromptReq,
   SaveVisionReq,
   Settings,
+  SnapshotBenchmarkResponse,
   SpeakReq,
   StreamInfo,
   SpeakResponse,
@@ -75,9 +80,15 @@ function uploadWithProgress<T>(
   path: string,
   fd: FormData,
   onProgress?: (percent: number) => void,
+  signal?: AbortSignal,
 ): Promise<T> {
   return new Promise((resolve, reject) => {
+    signal?.throwIfAborted()
     const xhr = new XMLHttpRequest()
+    const abort = () => xhr.abort()
+    signal?.addEventListener('abort', abort, { once: true })
+    xhr.onloadend = () => signal?.removeEventListener('abort', abort)
+    xhr.onabort = () => reject(new DOMException('Upload canceled', 'AbortError'))
     xhr.open('POST', path)
 
     xhr.upload.onprogress = (e) => {
@@ -103,12 +114,48 @@ function uploadWithProgress<T>(
   })
 }
 
+export interface UploadProgress {
+  step: string
+  percent: number
+  label: string
+}
+
+/** Wait for conversion before callers use the newly uploaded preset. */
+async function uploadAndWait(
+  file: File,
+  name: string,
+  category: string,
+  onProgress?: (progress: UploadProgress) => void,
+  signal?: AbortSignal,
+): Promise<UploadJob> {
+  const fd = new FormData()
+  fd.append('file', file)
+  fd.append('name', name)
+  fd.append('category', category)
+  const accepted = await uploadWithProgress<UploadJobAccepted>('/api/library/upload', fd,
+    (percent) => onProgress?.({ step: 'uploading', percent, label: 'Uploading' }), signal)
+  if (!accepted.job_id) throw new Error('Upload response did not include a conversion job')
+  for (;;) {
+    signal?.throwIfAborted()
+    const job = await api<UploadJob>(`/api/library/upload/jobs/${encodeURIComponent(accepted.job_id)}`, { signal })
+    if (job.status === 'error') throw new Error(job.error || 'Audio conversion failed')
+    onProgress?.({ step: job.status, percent: Math.max(0, job.percent), label: job.step || 'Converting' })
+    signal?.throwIfAborted()
+    if (job.status === 'done') return job
+    await new Promise<void>((resolve, reject) => {
+      const abort = () => { clearTimeout(timer); reject(new DOMException('Upload canceled', 'AbortError')) }
+      const timer = setTimeout(() => { signal?.removeEventListener('abort', abort); resolve() }, 500)
+      signal?.addEventListener('abort', abort, { once: true })
+    })
+  }
+}
+
 export const apiClient = {
   // --- Health ---
   health: () => api<Health>('/api/health'),
 
   // --- Cameras ---
-  getCameras: () => api<Camera[]>('/api/cameras'),
+  getCameras: () => api<CameraSummary[]>('/api/cameras'),
   pingCamera: (name: string) =>
     api<PingResponse>(`/api/cameras/${encodeURIComponent(name)}/ping`, { method: 'POST' }),
   getCameraInfo: (name: string) =>
@@ -190,13 +237,18 @@ export const apiClient = {
     api<SpeakResponse>('/api/speak', { method: 'POST', body: JSON.stringify(req) }),
   play: (req: PlayReq) =>
     api<PlayResponse>('/api/play', { method: 'POST', body: JSON.stringify(req) }),
-  playURL: (req: { camera: string; url: string; gain: number }) =>
+  playURL: (req: { camera: string; url: string; gain?: number }) =>
     api('/api/play-url', { method: 'POST', body: JSON.stringify(req) }),
-  playStream: (req: { camera: string; url: string; gain: number }) =>
+  playStream: (req: { camera: string; url: string; gain?: number }) =>
     api('/api/play-stream', { method: 'POST', body: JSON.stringify(req) }),
-  stop: (camera?: string) =>
-    api('/api/stop', { method: 'POST', body: JSON.stringify(camera ? { camera } : {}) }),
-  stopAll: () => api('/api/stop', { method: 'POST' }),
+  stop: (camera?: string) => {
+    cancelAudioPreparation(camera)
+    return api('/api/stop', { method: 'POST', body: JSON.stringify(camera ? { camera } : {}) })
+  },
+  stopAll: () => {
+    cancelAudioPreparation()
+    return api('/api/stop', { method: 'POST' })
+  },
   pause: (camera?: string) =>
     api('/api/pause', { method: 'POST', body: JSON.stringify(camera ? { camera } : {}) }),
   resume: (camera?: string) =>
@@ -204,16 +256,17 @@ export const apiClient = {
   getPlayback: () => api<Record<string, PlaybackState>>('/api/playback'),
   beep: (req: { camera: string }) =>
     api('/api/beep', { method: 'POST', body: JSON.stringify(req) }),
-  broadcast: (req: { text: string; voice: string; gain: number }) =>
-    api('/api/broadcast', { method: 'POST', body: JSON.stringify(req) }),
+  broadcast: (req: { text?: string; preset?: string; category?: string; voice?: string; gain?: number }) =>
+    api<BroadcastResponse>('/api/broadcast', { method: 'POST', body: JSON.stringify(req) }),
 
   // --- Library ---
   getPresets: () => api<Preset[]>('/api/library'),
+  uploadAndWait,
   savePreset: (req: { name: string; text?: string; url?: string; category: string; voice?: string }) =>
     api<SavePresetResponse>('/api/library', { method: 'POST', body: JSON.stringify(req) }),
   uploadPreset: (fd: FormData) => apiRaw('/api/library/upload', { method: 'POST', body: fd }),
   uploadPresetWithProgress: (fd: FormData, onProgress?: (percent: number) => void) =>
-    uploadWithProgress('/api/library/upload', fd, onProgress),
+    uploadWithProgress<UploadJobAccepted>('/api/library/upload', fd, onProgress),
   getUploadJob: (id: string) => api<UploadJob>(`/api/library/upload/jobs/${encodeURIComponent(id)}`),
   deletePreset: (category: string, name: string) =>
     api(`/api/library/${encodeURIComponent(category)}/${encodeURIComponent(name)}`, { method: 'DELETE' }),
@@ -238,12 +291,12 @@ export const apiClient = {
     }),
 
   // --- Vision ---
-  snapshot: (camera: string, stream?: string, width?: number) => {
+  snapshot: (camera: string, stream?: string, width?: number, signal?: AbortSignal) => {
     const params = new URLSearchParams()
     if (stream) params.set('stream', stream)
     if (width) params.set('width', String(width))
     const qs = params.toString()
-    return apiRaw(`/api/snapshot/${encodeURIComponent(camera)}${qs ? '?' + qs : ''}`)
+    return apiRaw(`/api/snapshot/${encodeURIComponent(camera)}${qs ? '?' + qs : ''}`, { signal })
   },
   snapshotBenchmark: (camera: string, vision = false, prompt = '') => {
     const params = new URLSearchParams()

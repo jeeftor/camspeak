@@ -1,6 +1,7 @@
 package cameras
 
 import (
+	"context"
 	"crypto/rand"
 	"fmt"
 	"io"
@@ -29,6 +30,7 @@ type OnvifClient struct {
 
 	// Active stream tracking for Stop()
 	activeMu  sync.Mutex
+	mu        sync.Mutex
 	activeCli *gortsplib.Client // active RTSP client
 	stopped   bool              // set by Stop() to suppress write errors
 }
@@ -61,10 +63,44 @@ func findG711BackChannel(desc *description.Session) (*description.Media, *format
 // It reads the raw file, converts G.711ulaw → LPCM, encodes to RTP, and
 // sends packets at real-time speed (8000 samples/sec).
 func (c *OnvifClient) SendRaw(rawFile string, gc *GainController) (SendTiming, error) {
+	if c.mu.TryLock() {
+		c.mu.Unlock()
+	} else {
+		_ = c.Stop()
+	}
+	return c.SendRawContext(context.Background(), rawFile, gc)
+}
+
+// SendRawContext sends a file and cancels RTSP setup and playback with ctx.
+func (c *OnvifClient) SendRawContext(
+	ctx context.Context,
+	rawFile string,
+	gc *GainController,
+) (SendTiming, error) {
+	if err := ctx.Err(); err != nil {
+		return SendTiming{}, err
+	}
+	if err := lockSpeaker(ctx, &c.mu); err != nil {
+		return SendTiming{}, err
+	}
+	defer c.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return SendTiming{}, err
+	}
 	// Reset stopped flag from any previous Stop() call
 	c.activeMu.Lock()
 	c.stopped = false
 	c.activeMu.Unlock()
+	cancelDone := make(chan struct{})
+	stopCancel := context.AfterFunc(ctx, func() { _ = c.Stop(); close(cancelDone) })
+	defer func() {
+		if !stopCancel() {
+			<-cancelDone
+		}
+	}()
+	if err := ctx.Err(); err != nil {
+		return SendTiming{}, err
+	}
 
 	// Read the raw G.711ulaw file
 	rawData, err := os.ReadFile(rawFile)
@@ -74,20 +110,6 @@ func (c *OnvifClient) SendRaw(rawFile string, gc *GainController) (SendTiming, e
 
 	if len(rawData) == 0 {
 		return SendTiming{}, fmt.Errorf("raw file is empty")
-	}
-
-	// Apply runtime gain to the entire buffer (ONVIF sends via RTP packets,
-	// not a throttled TCP stream, so per-chunk gain wouldn't help — but
-	// applying once before sending is equivalent to what the old pre-transcode did).
-	if gc != nil {
-		gain := gc.Get()
-		if gain == 0 {
-			for i := range rawData {
-				rawData[i] = 128
-			}
-		} else if gain != 1.0 {
-			util.ApplyGainMulaw(rawData, gain)
-		}
 	}
 
 	// Parse the RTSP URL
@@ -111,6 +133,11 @@ func (c *OnvifClient) SendRaw(rawFile string, gc *GainController) (SendTiming, e
 
 	// Track active client for Stop()
 	c.activeMu.Lock()
+	if c.stopped || ctx.Err() != nil {
+		c.activeMu.Unlock()
+		client.Close()
+		return SendTiming{}, context.Canceled
+	}
 	c.activeCli = &client
 	c.activeMu.Unlock()
 
@@ -163,9 +190,6 @@ func (c *OnvifClient) SendRaw(rawFile string, gc *GainController) (SendTiming, e
 		return SendTiming{}, fmt.Errorf("generating random start: %w", err)
 	}
 
-	// Convert G.711ulaw raw bytes → LPCM samples (16-bit, big-endian)
-	lpcmSamples := decodeMulaw(rawData)
-
 	// Send in 100ms chunks (800 samples per chunk at 8kHz)
 	const chunkSize = 800 // 100ms at 8kHz
 	const tickerInterval = 100 * time.Millisecond
@@ -173,13 +197,17 @@ func (c *OnvifClient) SendRaw(rawFile string, gc *GainController) (SendTiming, e
 	ticker := time.NewTicker(tickerInterval)
 	defer ticker.Stop()
 
-	totalSamples := len(lpcmSamples) / 2 // 16-bit = 2 bytes per sample
+	totalSamples := len(rawData)
 	sentSamples := 0
 	firstPacket := true
 	var openMs int64
 
 	for sentSamples < totalSamples {
-		<-ticker.C
+		select {
+		case <-ctx.Done():
+			return SendTiming{}, ctx.Err()
+		case <-ticker.C:
+		}
 
 		remaining := totalSamples - sentSamples
 		n := chunkSize
@@ -187,10 +215,14 @@ func (c *OnvifClient) SendRaw(rawFile string, gc *GainController) (SendTiming, e
 			n = remaining
 		}
 
-		// Extract n samples (n*2 bytes) from the LPCM buffer
-		startIdx := sentSamples * 2
-		endIdx := startIdx + n*2
-		chunk := lpcmSamples[startIdx:endIdx]
+		// Apply gain immediately before sending, so runtime volume changes
+		// affect the next packet. Measure µ-law before conversion to A-law.
+		rawChunk := append([]byte(nil), rawData[sentSamples:sentSamples+n]...)
+		if gc != nil {
+			util.ApplyGainMulaw(rawChunk, gc.Get())
+			gc.RecordLevel(util.ComputeLevel(rawChunk))
+		}
+		chunk := decodeMulaw(rawChunk)
 
 		// Current PTS
 		pts := int64(sentSamples)
@@ -204,11 +236,6 @@ func (c *OnvifClient) SendRaw(rawFile string, gc *GainController) (SendTiming, e
 		}
 		if err != nil {
 			return SendTiming{}, fmt.Errorf("encoding G.711: %w", err)
-		}
-
-		// Feed VU meter level for one-shot playback.
-		if gc != nil {
-			gc.RecordLevel(util.ComputeLevel(g711Samples))
 		}
 
 		// Generate RTP packets
@@ -260,20 +287,9 @@ func (c *OnvifClient) SendRaw(rawFile string, gc *GainController) (SendTiming, e
 	return SendTiming{OpenMs: openMs, PlaybackMs: time.Since(start).Milliseconds() - openMs}, nil
 }
 
-// Stream is not yet implemented for ONVIF; it buffers r and calls SendRaw.
+// Stream rejects continuous input until a live ONVIF transport is available.
 func (c *OnvifClient) Stream(r io.Reader) error {
-	tmp, err := os.CreateTemp("", "camspeak-onvif-*.raw")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := io.Copy(tmp, r); err != nil {
-		tmp.Close()
-		return err
-	}
-	tmp.Close()
-	_, err = c.SendRaw(tmp.Name(), nil)
-	return err
+	return ErrLiveStreamUnsupported
 }
 
 // Stop immediately stops audio playback by closing the active RTSP client.

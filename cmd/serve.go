@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -87,7 +89,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		appLog.Warn("ffmpeg not found — audio transcoding will fail")
 	}
 
-	ttsClient := tts.NewClient(cfg.TTS.URL, cfg.TTS.Model)
+	ttsClient := tts.NewClient(cfg.TTS.URL, cfg.TTS.Model, cfg.TTS.APIKey)
 
 	tmpDir := filepath.Join(dir, "tmp")
 	store, err := library.NewStore(cfg.Library, tmpDir)
@@ -108,11 +110,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Start AirPlay receivers via the Manager (shairport-sync backend).
 	// The Manager assigns stable ports and handles per-camera enable/disable live.
-	var airplayMgr *airplay.Manager
+	airplayMgr := airplay.NewManager(cfg, reg)
+	airplayMgr.SetLogLevel(level)
 	if cfg.AirPlay.Enabled {
 		appLog.Info("AirPlay enabled — starting Manager")
-		airplayMgr = airplay.NewManager(cfg, reg)
-		airplayMgr.SetLogLevel(level)
 	}
 
 	srv := api.New(cfg, reg, store, ttsClient, database)
@@ -132,11 +133,18 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Graceful shutdown
 	quit := make(chan os.Signal, 1)
+	serverReturned := make(chan struct{})
+	shutdownDone := make(chan struct{})
 
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(quit)
 
 	go func() {
-		<-quit
+		defer close(shutdownDone)
+		select {
+		case <-quit:
+		case <-serverReturned:
+		}
 		appLog.Info("shutting down")
 		if disc != nil {
 			disc.Shutdown()
@@ -149,7 +157,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 
-	return srv.Start(addr)
+	err = srv.Start(addr)
+	close(serverReturned)
+	// Keep SQLite open until uploads, playback and receiver shutdown finish.
+	<-shutdownDone
+	if errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return err
 }
 
 var titleStyle = lipgloss.NewStyle().

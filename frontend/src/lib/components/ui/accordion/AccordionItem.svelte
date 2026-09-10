@@ -1,6 +1,7 @@
 <script>
   import { ChevronDown } from 'lucide-svelte'
   import { cn } from '$lib/utils'
+  import { untrack } from 'svelte'
 
   let {
     value,
@@ -11,7 +12,7 @@
 
   // Access parent accordion context via props or a simple store.
   // For simplicity, we manage open state locally if no parent context.
-  let open = $state(defaultOpen)
+  let open = $state(untrack(() => defaultOpen))
 
   function toggle() {
     open = !open

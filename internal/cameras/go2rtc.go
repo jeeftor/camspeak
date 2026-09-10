@@ -34,6 +34,7 @@ type Go2rtcClient struct {
 
 	// Active stream tracking for Stop()
 	activeMu   sync.Mutex
+	mu         sync.Mutex
 	cancelFunc context.CancelFunc // cancels the active go2rtc API call
 	stopped    bool               // set by Stop() to suppress errors
 }
@@ -56,6 +57,30 @@ func NewGo2rtcClient(go2rtcURL, stream, ip, advertiseIP, name string) *Go2rtcCli
 // It starts a temporary HTTP server to serve the file, then tells go2rtc
 // to fetch and transcode it.
 func (c *Go2rtcClient) SendRaw(rawFile string, gc *GainController) (SendTiming, error) {
+	if c.mu.TryLock() {
+		c.mu.Unlock()
+	} else {
+		_ = c.Stop()
+	}
+	return c.SendRawContext(context.Background(), rawFile, gc)
+}
+
+// SendRawContext sends a finite file with cancellation during preparation and playback.
+func (c *Go2rtcClient) SendRawContext(
+	parent context.Context,
+	rawFile string,
+	gc *GainController,
+) (SendTiming, error) {
+	if err := parent.Err(); err != nil {
+		return SendTiming{}, err
+	}
+	if err := lockSpeaker(parent, &c.mu); err != nil {
+		return SendTiming{}, err
+	}
+	defer c.mu.Unlock()
+	if err := parent.Err(); err != nil {
+		return SendTiming{}, err
+	}
 	// Reset stopped flag from any previous Stop() call
 	c.activeMu.Lock()
 	c.stopped = false
@@ -69,14 +94,7 @@ func (c *Go2rtcClient) SendRaw(rawFile string, gc *GainController) (SendTiming, 
 		return SendTiming{}, fmt.Errorf("reading audio file: %w", err)
 	}
 	if gc != nil {
-		gain := gc.Get()
-		if gain == 0 {
-			for i := range audioData {
-				audioData[i] = 128
-			}
-		} else if gain != 1.0 {
-			util.ApplyGainMulaw(audioData, gain)
-		}
+		util.ApplyGainMulaw(audioData, gc.Get())
 	}
 
 	// go2rtc fetches the entire audio buffer via HTTP at once, so there's
@@ -168,11 +186,15 @@ func (c *Go2rtcClient) SendRaw(rawFile string, gc *GainController) (SendTiming, 
 	timeout := time.Duration(info.Size()/8000+10) * time.Second
 
 	// Use cancellable context for Stop() support
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
 	// Track active cancel for Stop()
 	c.activeMu.Lock()
+	if c.stopped || ctx.Err() != nil {
+		c.activeMu.Unlock()
+		return SendTiming{}, context.Canceled
+	}
 	c.cancelFunc = cancel
 	c.activeMu.Unlock()
 
@@ -224,20 +246,9 @@ func (c *Go2rtcClient) SendRaw(rawFile string, gc *GainController) (SendTiming, 
 	return SendTiming{OpenMs: openMs, PlaybackMs: playbackMs}, nil
 }
 
-// Stream is not yet implemented for go2rtc; it buffers r and calls SendRaw.
+// Stream rejects continuous input until a live go2rtc transport is available.
 func (c *Go2rtcClient) Stream(r io.Reader) error {
-	tmp, err := os.CreateTemp("", "camspeak-go2rtc-*.raw")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := io.Copy(tmp, r); err != nil {
-		tmp.Close()
-		return err
-	}
-	tmp.Close()
-	_, err = c.SendRaw(tmp.Name(), nil)
-	return err
+	return ErrLiveStreamUnsupported
 }
 
 // Stop immediately stops audio playback by cancelling the active go2rtc API call

@@ -46,7 +46,7 @@ func init() {
 	// PCM is closest. This is O(65536 * 256) = 16M, runs once at startup.
 	for i := 0; i < 65536; i++ {
 		pcm := int16(i - 32768)
-		bestByte := byte(128) // silence
+		bestByte := byte(255) // silence
 		bestDist := int(1 << 30)
 		for b := 0; b < 256; b++ {
 			decoded := mulawToLinear[b]
@@ -76,7 +76,7 @@ func MulawEncode(s int16) byte {
 // ApplyGainMulaw applies a volume gain to a buffer of G.711 µ-law encoded audio
 // in place. Each byte is decoded to linear PCM, scaled by gain, and re-encoded.
 // gain=1.0 is unity (no change), gain=3.0 is 3x amplification.
-// gain=0.0 produces µ-law silence (byte 128).
+// gain=0.0 produces µ-law silence (decoded PCM zero).
 // Samples are clamped to int16 range to prevent wrap-around.
 //
 // NOTE: This assumes the buffer is G.711 µ-law. All camera types currently

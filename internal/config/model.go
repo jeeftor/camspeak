@@ -16,11 +16,13 @@ type TTSConfig struct {
 	Model        string `json:"model"`
 	DefaultVoice string `json:"default_voice"`
 	APIKey       string `json:"api_key,omitempty"`
+	HasAPIKey    bool   `json:"has_api_key"`
 }
 
 // Sanitized returns a copy of c with secrets redacted and URL credentials removed.
 func (c TTSConfig) Sanitized() TTSConfig {
 	out := c
+	out.HasAPIKey = c.APIKey != ""
 	out.APIKey = ""
 	out.URL = util.RedactURLString(out.URL)
 	return out
@@ -28,15 +30,17 @@ func (c TTSConfig) Sanitized() TTSConfig {
 
 // VisionConfig holds connection details for the vision LLM endpoint.
 type VisionConfig struct {
-	URL    string `json:"url"`
-	Model  string `json:"model"`
-	APIKey string `json:"api_key,omitempty"`
-	Prompt string `json:"prompt"` // global default prompt; empty = hardcoded fallback
+	URL       string `json:"url"`
+	Model     string `json:"model"`
+	APIKey    string `json:"api_key,omitempty"`
+	HasAPIKey bool   `json:"has_api_key"`
+	Prompt    string `json:"prompt"` // global default prompt; empty = hardcoded fallback
 }
 
 // Sanitized returns a copy of c with the API key removed and URL credentials stripped.
 func (c VisionConfig) Sanitized() VisionConfig {
 	out := c
+	out.HasAPIKey = c.APIKey != ""
 	out.APIKey = ""
 	out.URL = util.RedactURLString(out.URL)
 	return out
@@ -67,6 +71,7 @@ type CameraConfig struct {
 func (c CameraConfig) Sanitized() CameraConfig {
 	out := c
 	out.Pass = ""
+	out.Stream = util.RedactURLString(out.Stream)
 	return out
 }
 
@@ -79,6 +84,17 @@ type TTSPreset struct {
 	DefaultVoice string `json:"default_voice"`
 	Description  string `json:"description,omitempty"`
 	IsActive     bool   `json:"is_active"`
+	HasAPIKey    bool   `json:"has_api_key"`
+	ClearAPIKey  bool   `json:"clear_api_key,omitempty"`
+}
+
+// Sanitized removes credentials while retaining whether a key is configured.
+func (p TTSPreset) Sanitized() TTSPreset {
+	p.HasAPIKey = p.APIKey != ""
+	p.APIKey = ""
+	p.ClearAPIKey = false
+	p.Endpoint = util.RedactURLString(p.Endpoint)
+	return p
 }
 
 // VisionPrompt is a saved named vision prompt for reuse in the vision test playground.
@@ -117,6 +133,8 @@ func (cfg Config) Sanitized() Config {
 	out := cfg
 	out.TTS = out.TTS.Sanitized()
 	out.Vision = out.Vision.Sanitized()
+	out.FrigateURL = util.RedactURLString(out.FrigateURL)
+	out.Go2rtcURL = util.RedactURLString(out.Go2rtcURL)
 	if len(cfg.Cameras) > 0 {
 		out.Cameras = make(map[string]CameraConfig, len(cfg.Cameras))
 		for name, cam := range cfg.Cameras {

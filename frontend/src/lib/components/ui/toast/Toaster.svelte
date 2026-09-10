@@ -3,7 +3,7 @@
   import { getToasts, toast } from './store.svelte'
   import { cn } from '$lib/utils'
 
-  let toasts = getToasts()
+  let toasts = $derived(getToasts())
 
   const icons = {
     default: Info,
@@ -20,20 +20,23 @@
   }
 </script>
 
-<div class="fixed bottom-4 right-4 z-[100] flex flex-col gap-2">
+<div class="fixed bottom-4 right-4 z-[100] flex w-[calc(100%_-_2rem)] max-w-md flex-col gap-2">
   {#each toasts as t (t.id)}
     {@const Icon = icons[t.variant]}
     <div
+      role={t.variant === 'error' ? 'alert' : 'status'}
+      aria-atomic="true"
       class={cn(
         'flex items-start gap-3 rounded-lg border px-4 py-3 shadow-lg',
         'animate-in slide-in-from-right fade-in duration-300',
-        'min-w-[280px] max-w-md',
+        'w-full min-w-0',
         styles[t.variant],
       )}
     >
       <Icon class="mt-0.5 h-5 w-5 shrink-0" />
-      <p class="flex-1 text-sm font-medium">{t.message}</p>
+      <p class="min-w-0 flex-1 break-words text-sm font-medium">{t.message}</p>
       <button
+        type="button"
         onclick={() => toast.dismiss(t.id)}
         class="shrink-0 rounded p-0.5 opacity-60 hover:opacity-100"
         aria-label="Dismiss"

@@ -44,7 +44,11 @@ func CopyAt8kBps(w io.Writer, r io.Reader, stopped *bool, mu *sync.Mutex) error 
 			if dl != nil {
 				_ = dl.SetReadDeadline(time.Time{}) // clear deadline before write
 			}
-			if _, werr := w.Write(buf[:chunkSize]); werr != nil {
+			written, werr := w.Write(buf[:chunkSize])
+			if werr == nil && written != chunkSize {
+				werr = io.ErrShortWrite
+			}
+			if werr != nil {
 				mu.Lock()
 				s := *stopped
 				mu.Unlock()
@@ -69,6 +73,15 @@ func CopyAt8kBps(w io.Writer, r io.Reader, stopped *bool, mu *sync.Mutex) error 
 				}
 			}
 			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				if pending > 0 {
+					written, writeErr := w.Write(buf[:pending])
+					if writeErr != nil {
+						return writeErr
+					}
+					if written != pending {
+						return io.ErrShortWrite
+					}
+				}
 				return nil
 			}
 			return err

@@ -3,8 +3,10 @@ package cameras
 import (
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"os/exec"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -48,6 +50,7 @@ type SendTiming struct {
 // and clears it after. Stream/looped playback uses levelTapReader
 // directly and does not use this sink.
 type GainController struct {
+	parent    *GainController
 	mu        sync.RWMutex
 	gain      float64
 	levelSink atomic.Pointer[func(float64)]
@@ -60,6 +63,9 @@ func NewGainController(gain float64) *GainController {
 
 // Get returns the current gain value.
 func (g *GainController) Get() float64 {
+	if g.parent != nil {
+		return g.parent.Get()
+	}
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.gain
@@ -68,9 +74,20 @@ func (g *GainController) Get() float64 {
 // Set updates the gain value. Safe to call while audio is playing —
 // the next chunk will pick up the new value.
 func (g *GainController) Set(gain float64) {
+	if g.parent != nil {
+		g.parent.Set(gain)
+		return
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.gain = gain
+}
+
+// WithLevelSink shares live gain while isolating an operation's level callback.
+func (g *GainController) WithLevelSink(sink func(float64)) *GainController {
+	child := &GainController{parent: g}
+	child.SetLevelSink(sink)
+	return child
 }
 
 // SetLevelSink attaches a callback that receives real-time audio levels
@@ -97,12 +114,16 @@ type Speaker interface {
 
 // Registry holds all configured cameras.
 type Registry struct {
+	mu          sync.RWMutex
 	cameras     map[string]Speaker
 	configs     map[string]config.CameraConfig
 	gains       map[string]*GainController
 	tts         *tts.Client
 	go2rtcURL   string
 	advertiseIP string
+	health      map[string]bool
+	healthAt    time.Time
+	refreshing  bool
 }
 
 // NewRegistry builds a Registry from config.
@@ -119,16 +140,17 @@ func NewRegistry(cfg *config.Config, ttsClient *tts.Client) (*Registry, error) {
 	}
 	r := &Registry{
 		cameras:     make(map[string]Speaker),
-		configs:     cfg.Cameras,
+		configs:     maps.Clone(cfg.Cameras),
 		gains:       make(map[string]*GainController),
 		tts:         ttsClient,
 		go2rtcURL:   go2rtcURL,
 		advertiseIP: cfg.AdvertiseIP,
+		health:      make(map[string]bool),
 	}
 
 	for name, cam := range cfg.Cameras {
 		gain := cam.Gain
-		if gain <= 0 {
+		if gain < 0 {
 			gain = 3.0
 		}
 		r.gains[name] = NewGainController(gain)
@@ -218,20 +240,58 @@ func (r *Registry) register(name string, cam config.CameraConfig) error {
 
 // EnableCamera registers a camera at runtime (after toggle on).
 func (r *Registry) EnableCamera(name string, cam config.CameraConfig) error {
-	return r.register(name, cam)
+	r.mu.RLock()
+	url, ip := r.go2rtcURL, r.advertiseIP
+	r.mu.RUnlock()
+	speaker, err := NewSpeaker(cam, name, url, ip)
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	old := r.cameras[name]
+	r.cameras[name] = speaker
+	r.configs[name] = cam
+	r.healthAt = time.Time{}
+	r.mu.Unlock()
+	if old != nil {
+		_ = old.Stop()
+	}
+	return nil
 }
 
 // DisableCamera unregisters a camera at runtime (after toggle off).
 func (r *Registry) DisableCamera(name string) {
+	r.mu.Lock()
+	old := r.cameras[name]
 	delete(r.cameras, name)
+	delete(r.health, name)
+	if cam, ok := r.configs[name]; ok {
+		cam.Enabled = false
+		r.configs[name] = cam
+	}
+	r.mu.Unlock()
+	if old != nil {
+		_ = old.Stop()
+	}
+}
+
+// RemoveCamera retires the speaker and removes its configuration and gain.
+func (r *Registry) RemoveCamera(name string) {
+	r.DisableCamera(name)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.configs, name)
+	delete(r.gains, name)
 }
 
 // UpdateConfig updates the stored config for a camera (used after save/toggle).
 func (r *Registry) UpdateConfig(name string, cam config.CameraConfig) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.configs[name] = cam
 	// Sync the gain controller if the config gain changed.
 	gain := cam.Gain
-	if gain <= 0 {
+	if gain < 0 {
 		gain = 3.0
 	}
 	if gc, ok := r.gains[name]; ok {
@@ -243,13 +303,15 @@ func (r *Registry) UpdateConfig(name string, cam config.CameraConfig) {
 
 // GetGain returns the GainController for a camera, or nil if not found.
 func (r *Registry) GetGain(name string) *GainController {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	return r.gains[name]
 }
 
 // SetGain updates the runtime gain for a camera. Takes effect on the next
 // audio chunk — no need to restart playback.
 func (r *Registry) SetGain(name string, gain float64) {
-	if gc, ok := r.gains[name]; ok {
+	if gc := r.GetGain(name); gc != nil {
 		gc.Set(gain)
 	}
 }
@@ -258,46 +320,178 @@ func (r *Registry) SetGain(name string, gain float64) {
 // If the camera is not registered (e.g. disabled for speak/broadcast) but has a
 // known config, it is registered on-demand so AirPlay can reach it.
 func (r *Registry) Get(name string) (Speaker, error) {
+	r.mu.RLock()
 	if s, ok := r.cameras[name]; ok {
+		r.mu.RUnlock()
 		return s, nil
 	}
-	// Camera may be disabled (not in r.cameras) but config is known — register on-demand.
-	if cam, ok := r.configs[name]; ok {
-		if err := r.register(name, cam); err != nil {
-			return nil, fmt.Errorf(
-				"camera %q not registered and on-demand init failed: %w",
-				name,
-				err,
-			)
-		}
-		return r.cameras[name], nil
+	cam, ok := r.configs[name]
+	url, ip := r.go2rtcURL, r.advertiseIP
+	r.mu.RUnlock()
+	if ok {
+		// A diagnostic lookup must never enroll a disabled camera in broadcast.
+		return NewSpeaker(cam, name, url, ip)
 	}
 	return nil, fmt.Errorf("camera %q not found (available: %v)", name, r.Names())
 }
 
+// GetForPlayback returns only enabled camera speakers for operational requests.
+func (r *Registry) GetForPlayback(name string) (Speaker, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	cam, ok := r.configs[name]
+	if !ok {
+		return nil, fmt.Errorf("camera %q not found", name)
+	}
+	if !cam.Enabled {
+		return nil, fmt.Errorf("camera %q is disabled", name)
+	}
+	speaker := r.cameras[name]
+	if speaker == nil {
+		return nil, fmt.Errorf("camera %q speaker is unavailable", name)
+	}
+	return speaker, nil
+}
+
+// Routing returns the effective routing values, including startup auto-discovery.
+func (r *Registry) Routing() (go2rtcURL, advertiseIP string) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.go2rtcURL, r.advertiseIP
+}
+
 // Names returns all configured camera names.
 func (r *Registry) Names() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	names := make([]string, 0, len(r.cameras))
 	for name := range r.cameras {
-		names = append(names, name)
+		if r.configs[name].Enabled {
+			names = append(names, name)
+		}
 	}
+	sort.Strings(names)
 
 	return names
 }
 
-// Status returns online status for all cameras.
+// Status returns cached health immediately and starts at most one bounded refresh.
 func (r *Registry) Status() map[string]bool {
-	out := make(map[string]bool)
-	for name, cam := range r.cameras {
-		out[name] = cam.Ping()
+	r.mu.Lock()
+	out := make(map[string]bool, len(r.cameras))
+	for name := range r.cameras {
+		if r.configs[name].Enabled {
+			out[name] = r.health[name]
+		}
 	}
-
+	if !r.refreshing && time.Since(r.healthAt) >= 10*time.Second {
+		r.refreshing = true
+		speakers := maps.Clone(r.cameras)
+		go r.refreshHealth(speakers)
+	}
+	r.mu.Unlock()
 	return out
+}
+
+func (r *Registry) refreshHealth(speakers map[string]Speaker) {
+	jobs := make(chan string)
+	var workers sync.WaitGroup
+	for range min(4, len(speakers)) {
+		workers.Go(func() {
+			for name := range jobs {
+				online := speakers[name].Ping()
+				r.mu.Lock()
+				if r.cameras[name] == speakers[name] {
+					r.health[name] = online
+				}
+				r.mu.Unlock()
+			}
+		})
+	}
+	for name := range speakers {
+		jobs <- name
+	}
+	close(jobs)
+	workers.Wait()
+	r.mu.Lock()
+	r.healthAt = time.Now()
+	r.refreshing = false
+	r.mu.Unlock()
+}
+
+// SetRouting rebuilds speakers after a go2rtc or advertised-address change.
+func (r *Registry) SetRouting(go2rtcURL, advertiseIP string) error {
+	r.mu.RLock()
+	if r.go2rtcURL == go2rtcURL && r.advertiseIP == advertiseIP {
+		r.mu.RUnlock()
+		return nil
+	}
+	configs := maps.Clone(r.configs)
+	r.mu.RUnlock()
+	replacements := make(map[string]Speaker)
+	for name, cam := range configs {
+		if !cam.Enabled {
+			continue
+		}
+		speaker, err := NewSpeaker(cam, name, go2rtcURL, advertiseIP)
+		if err != nil {
+			return err
+		}
+		replacements[name] = speaker
+	}
+	r.mu.Lock()
+	old := r.cameras
+	r.cameras = replacements
+	r.go2rtcURL, r.advertiseIP = go2rtcURL, advertiseIP
+	r.healthAt = time.Time{}
+	r.mu.Unlock()
+	for _, speaker := range old {
+		_ = speaker.Stop()
+	}
+	return nil
+}
+
+// ValidateConfig checks speaker requirements without making network requests.
+func (r *Registry) ValidateConfig(name string, cam config.CameraConfig) error {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return validateSpeakerRouting(name, cam, r.go2rtcURL)
+}
+
+// ValidateRouting checks prospective routing before settings are persisted.
+// It never probes cameras or changes runtime speaker ownership.
+func (r *Registry) ValidateRouting(go2rtcURL string) error {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for name, cam := range r.configs {
+		if cam.Enabled {
+			if err := validateSpeakerRouting(name, cam, go2rtcURL); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateSpeakerRouting(name string, cam config.CameraConfig, go2rtcURL string) error {
+	switch cam.Type {
+	case "hikvision", "reolink", "onvif":
+		return nil
+	case "go2rtc":
+		if go2rtcURL == "" || cam.Stream == "" {
+			return fmt.Errorf("camera %q requires a go2rtc URL and stream name", name)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown camera type %q for camera %q", cam.Type, name)
+	}
 }
 
 // Stop stops audio playback on a specific camera.
 func (r *Registry) Stop(name string) error {
+	r.mu.RLock()
 	cam, ok := r.cameras[name]
+	r.mu.RUnlock()
 	if !ok {
 		return fmt.Errorf("camera %q not found", name)
 	}
@@ -306,7 +500,10 @@ func (r *Registry) Stop(name string) error {
 
 // StopAll stops audio playback on all cameras.
 func (r *Registry) StopAll() {
-	for _, cam := range r.cameras {
+	r.mu.RLock()
+	speakers := maps.Clone(r.cameras)
+	r.mu.RUnlock()
+	for _, cam := range speakers {
 		_ = cam.Stop()
 	}
 }

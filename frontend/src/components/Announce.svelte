@@ -3,18 +3,20 @@
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { apiClient } from '$lib/api'
-  import type { AnnounceResponse } from '$lib/types'
+  import type { AnnounceResponse, CameraSummary } from '$lib/types'
   import Markdown from '$lib/components/Markdown.svelte'
   import CameraSelect from '$lib/components/CameraSelect.svelte'
   import PromptEditor from '$lib/components/PromptEditor.svelte'
   import { formatTimings } from '$lib/utils'
 
-  let { cameras = [] } = $props()
+  let { cameras = [] }: { cameras?: CameraSummary[] } = $props()
+  let sourceCameras = $derived(cameras.filter(camera => camera.capabilities?.snapshot !== false))
+  let targetCameras = $derived(cameras.filter(camera => camera.capabilities?.speak !== false))
 
   let sourceCamera = $state('')
   let targetCamera = $state('')
   let prompt = $state('')
-  let gain = $state(0)
+  let gain = $state<number | undefined>(undefined)
   let busy = $state(false)
   let result = $state<AnnounceResponse | null>(null)
   let error = $state('')
@@ -29,10 +31,10 @@
         source_camera: sourceCamera,
         target_camera: targetCamera,
         prompt: prompt.trim() || undefined,
-        gain: gain > 0 ? gain : undefined,
+        gain,
       })
-    } catch (e: any) {
-      error = e.message || String(e)
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e)
     } finally {
       busy = false
     }
@@ -40,12 +42,9 @@
 
   // Auto-select different cameras if possible
   $effect(() => {
-    if (cameras.length > 0 && !sourceCamera) sourceCamera = cameras[0]?.name || ''
-    if (cameras.length > 1 && !targetCamera) {
-      targetCamera = cameras.find((c: any) => c.name !== sourceCamera)?.name || ''
-    } else if (cameras.length === 1 && !targetCamera) {
-      targetCamera = cameras[0]?.name || ''
-    }
+    if (!sourceCameras.some(camera => camera.name === sourceCamera)) sourceCamera = sourceCameras[0]?.name || ''
+    if (!targetCameras.some(camera => camera.name === targetCamera))
+      targetCamera = targetCameras.find(camera => camera.name !== sourceCamera)?.name || targetCameras[0]?.name || ''
   })
 </script>
 
@@ -64,18 +63,18 @@
     <div class="flex flex-wrap items-end gap-3">
       <label class="flex flex-col gap-1 text-sm text-muted-foreground">
         Source (capture + vision)
-        <CameraSelect bind:value={sourceCamera} {cameras} disabled={busy} class="min-w-[160px]" />
+        <CameraSelect bind:value={sourceCamera} cameras={sourceCameras} disabled={busy} class="min-w-[160px]" />
       </label>
 
       <ArrowRight class="h-5 w-5 text-muted-foreground self-center pb-2" />
 
       <label class="flex flex-col gap-1 text-sm text-muted-foreground">
         Target (speaker)
-        <CameraSelect bind:value={targetCamera} {cameras} disabled={busy} class="min-w-[160px]" />
+        <CameraSelect bind:value={targetCamera} cameras={targetCameras} disabled={busy} class="min-w-[160px]" />
       </label>
 
       <label class="flex flex-col gap-1 text-sm text-muted-foreground">
-        Gain
+        Volume override (optional)
         <Input type="number" min="0" max="10" step="0.5" bind:value={gain} disabled={busy}
           placeholder="default" class="w-24" />
       </label>
@@ -99,7 +98,7 @@
 
   <!-- Error -->
   {#if error}
-    <div class="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+    <div role="alert" class="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
       {error}
     </div>
   {/if}
@@ -112,7 +111,7 @@
         {result.source_camera} <ArrowRight class="h-4 w-4" /> {result.target_camera}
         {#if result.total_ms}
           <span class="text-xs font-normal text-muted-foreground ml-2">
-            {formatTimings({ total_ms: result.total_ms, ttfs_ms: result.ttfs_ms } as any)}
+            {formatTimings({ total_ms: result.total_ms, ...(result.ttfs_ms !== undefined ? { ttfs_ms: result.ttfs_ms } : {}) })}
           </span>
         {/if}
       </div>

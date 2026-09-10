@@ -1,8 +1,9 @@
 package api
 
 import (
+	"context"
+	"strconv"
 	"sync"
-	"testing"
 	"time"
 
 	"github.com/jeeftor/camspeak/internal/library"
@@ -49,22 +50,7 @@ func nextJobID() string {
 
 func formatJobID(seq uint64) string {
 	// Simple, sortable ID without external deps.
-	return time.Now().Format("20060102-150405") + "-" + itoa(seq)
-}
-
-// itoa is a tiny uint64 → string converter to avoid strconv in this hot path.
-func itoa(n uint64) string {
-	if n == 0 {
-		return "0"
-	}
-	buf := [20]byte{}
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(buf[i:])
+	return time.Now().Format("20060102-150405") + "-" + strconv.FormatUint(seq, 10)
 }
 
 // newUploadJob creates and registers a job, returning the job pointer.
@@ -81,16 +67,29 @@ func newUploadJob(name, category, filename string) *UploadJob {
 	}
 	uploadJobsMu.Lock()
 	uploadJobs[job.ID] = job
+	snapshot := *job
 	uploadJobsMu.Unlock()
-	return job
+	return &snapshot
 }
 
 // getUploadJob returns a job by ID, or nil if not found.
 func getUploadJob(id string) *UploadJob {
 	uploadJobsMu.RLock()
+	defer uploadJobsMu.RUnlock()
 	job := uploadJobs[id]
-	uploadJobsMu.RUnlock()
-	return job
+	if job == nil {
+		return nil
+	}
+	snapshot := *job
+	if job.Preset != nil {
+		preset := *job.Preset
+		snapshot.Preset = &preset
+	}
+	if job.DoneAt != nil {
+		doneAt := *job.DoneAt
+		snapshot.DoneAt = &doneAt
+	}
+	return &snapshot
 }
 
 // updateUploadJob updates a job's progress. Safe to call from goroutines.
@@ -113,7 +112,10 @@ func completeUploadJob(id string, preset *library.Preset) {
 		job.Status = JobDone
 		job.Step = "Done"
 		job.Percent = 100
-		job.Preset = preset
+		if preset != nil {
+			copy := *preset
+			job.Preset = &copy
+		}
 		job.DoneAt = &now
 	}
 	uploadJobsMu.Unlock()
@@ -145,10 +147,47 @@ func cleanupOldUploadJobs(maxAge time.Duration) {
 	uploadJobsMu.Unlock()
 }
 
-// resetUploadJobs clears all jobs (for testing).
-func resetUploadJobs(t *testing.T) {
-	t.Helper()
-	uploadJobsMu.Lock()
-	uploadJobs = make(map[string]*UploadJob)
-	uploadJobsMu.Unlock()
+// uploadWorker bounds concurrent uploads and owns their cancellation and lifetime.
+type uploadWorker struct {
+	mu     sync.Mutex
+	ctx    context.Context
+	cancel context.CancelFunc
+	active int
+	closed bool
+	wg     sync.WaitGroup
+}
+
+// acquire reserves an upload slot before multipart parsing consumes disk space.
+func (w *uploadWorker) acquire() (context.Context, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed || w.active >= 2 {
+		return nil, false
+	}
+	if w.ctx == nil {
+		w.ctx, w.cancel = context.WithCancel(context.Background())
+	}
+	w.active++
+	w.wg.Add(1)
+	return w.ctx, true
+}
+
+// release returns a slot after its upload or transcode has finished.
+func (w *uploadWorker) release() {
+	w.mu.Lock()
+	w.active--
+	w.mu.Unlock()
+	w.wg.Done()
+}
+
+// shutdownUploads stops active transcodes before their store is closed.
+func (h *Handlers) shutdownUploads() {
+	w := &h.uploads
+	w.mu.Lock()
+	w.closed = true
+	if w.cancel != nil {
+		w.cancel()
+	}
+	w.mu.Unlock()
+	w.wg.Wait()
 }

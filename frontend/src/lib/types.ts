@@ -3,6 +3,19 @@
 
 export type CameraType = 'hikvision' | 'reolink' | 'go2rtc' | 'onvif'
 
+export interface CameraSummary {
+  name: string
+  type: CameraType
+  online: boolean
+  gain: number
+  note?: string
+  sort_order?: number
+  airplay_enabled?: boolean
+  airplay_name?: string
+  vision_prompt?: string
+  capabilities?: { speak: boolean; live_stream: boolean; snapshot: boolean; airplay: boolean }
+}
+
 // Timing breakdown returned by several API endpoints. Keys are step names
 // (e.g. "tts_ms", "transcode_ms", "send_ms") mapped to milliseconds.
 export interface Timings {
@@ -48,6 +61,7 @@ export interface VisionConfig {
   url: string
   model: string
   api_key: string
+  has_api_key?: boolean
   prompt: string
 }
 
@@ -64,6 +78,7 @@ export interface TTSPreset {
   endpoint: string
   model: string
   api_key: string
+  has_api_key?: boolean
   default_voice: string
   description: string
   is_active: boolean
@@ -122,6 +137,7 @@ export interface PlaybackState {
   started_at?: string
   paused_at?: string
   level?: number
+  can_pause?: boolean
 }
 
 export interface UploadJobAccepted {
@@ -152,13 +168,14 @@ export interface SpeakReq {
   camera: string
   text: string
   voice: string
-  gain: number
+  gain?: number
 }
 
 export interface PlayReq {
   camera: string
   preset: string
-  gain: number
+  category?: string
+  gain?: number
   loop?: number
 }
 
@@ -186,14 +203,16 @@ export interface SaveTTSReq {
   endpoint: string
   model: string
   default_voice: string
-  api_key: string
+  api_key?: string
+  clear_api_key?: boolean
   description: string
 }
 
 export interface SaveVisionReq {
   url: string
   model: string
-  api_key: string
+  api_key?: string
+  clear_api_key?: boolean
   prompt: string
 }
 
@@ -275,6 +294,12 @@ export interface PlayResponse {
   timings?: Timings
   ttfs_ms?: number
   total_ms?: number
+}
+
+export interface BroadcastResponse {
+  status: string
+  succeeded: string[]
+  errors: string[]
 }
 
 export interface DescribeResponse {

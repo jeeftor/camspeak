@@ -3,10 +3,14 @@ package airplay
 import (
 	"bytes"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	clog "github.com/charmbracelet/log"
@@ -24,19 +28,24 @@ import (
 // (for mDNS advertisement). In Docker, use --net=host so tinysvcmdns can
 // join the LAN multicast group (224.0.0.251).
 type ShairportServer struct {
-	name       string
-	port       int
-	model      string
-	gain       float64
-	speaker    Speaker
-	log        *clog.Logger
-	pidPath    string
-	configPath string
+	name           string
+	port           int
+	model          string
+	gain           float64
+	primeSilenceMs int
+	speaker        Speaker
+	log            *clog.Logger
+	workDir        string
+	configPath     string
 
-	mu     sync.Mutex
-	cmd    *exec.Cmd
-	stream *audioStream
-	quit   chan struct{} // closed by Stop() to signal the monitor goroutine
+	mu          sync.Mutex
+	cmd         *exec.Cmd
+	stream      *audioStream
+	quit        chan struct{} // closed by Stop() to signal the monitor goroutine
+	done        chan struct{} // closed when the monitor has stopped and reaped its child
+	processDone chan struct{}
+	stopOnce    sync.Once
+	running     atomic.Bool
 }
 
 // NewShairportServer creates a ShairportServer for the given camera.
@@ -46,9 +55,6 @@ type ShairportServer struct {
 func NewShairportServer(
 	name string, port int, advertiseIP string, speaker Speaker, model string, gain float64,
 ) (*ShairportServer, error) {
-	safeName := strings.NewReplacer(" ", "-", "/", "-", "\\", "-").Replace(
-		strings.ToLower(name),
-	)
 	log := logging.New("shairport", clog.InfoLevel).With("camera", name)
 	if advertiseIP != "" {
 		log.Warn(
@@ -58,15 +64,14 @@ func NewShairportServer(
 		)
 	}
 	return &ShairportServer{
-		name:       name,
-		port:       port,
-		model:      model,
-		gain:       gain,
-		speaker:    speaker,
-		pidPath:    fmt.Sprintf("/tmp/shairport-%s-%d.pid", safeName, port),
-		configPath: fmt.Sprintf("/tmp/shairport-%s-%d.conf", safeName, port),
-		log:        log,
-		quit:       make(chan struct{}),
+		name:    name,
+		port:    port,
+		model:   model,
+		gain:    gain,
+		speaker: speaker,
+		log:     log,
+		quit:    make(chan struct{}),
+		done:    make(chan struct{}),
 	}, nil
 }
 
@@ -75,24 +80,20 @@ func (s *ShairportServer) SetLogLevel(level clog.Level) {
 	logging.SetLevel(s.log, level)
 }
 
-// KillAllStale kills every shairport-sync process on this host.
-// Called once at manager startup to clear any leftover processes from a
-// previous unclean exit, regardless of which port they were using.
-func KillAllStale() {
-	// Best-effort: ignore errors (process may not exist or pkill unavailable).
-	if err := exec.Command("pkill", "-x", "shairport-sync").Run(); err == nil {
-		// Remove any stale PID files so Start() doesn't try to re-kill them.
-		_ = exec.Command("sh", "-c", "rm -f /tmp/shairport-*.pid").Run()
-	}
-}
-
 // Start launches shairport-sync and starts reading PCM into the audio pipeline.
 // A monitor goroutine reaps the subprocess on exit and auto-restarts on crash.
 func (s *ShairportServer) Start() error {
-	// Kill any stale instance left over from a previous unclean exit.
-	s.killStalePID()
-
+	// Private scratch paths avoid following stale PID/config files or taking
+	// ownership of another service's processes after a restart.
+	workDir, err := os.MkdirTemp("", "camspeak-shairport-")
+	if err != nil {
+		return fmt.Errorf("creating shairport-sync directory: %w", err)
+	}
+	s.workDir = workDir
+	s.configPath = filepath.Join(workDir, "shairport.conf")
 	if err := s.launchProcess(); err != nil {
+		s.cleanupFiles()
+		close(s.done)
 		return err
 	}
 
@@ -105,7 +106,19 @@ func (s *ShairportServer) Start() error {
 // launchProcess starts shairport-sync and the PCM reader goroutine.
 // Called both from Start() and from the monitor loop on restart.
 func (s *ShairportServer) launchProcess() error {
-	stream, err := newAudioStream(s.speaker, s.log, 0, s.gain)
+	select {
+	case <-s.quit:
+		return fmt.Errorf("receiver is stopped")
+	default:
+	}
+	// Refuse occupied ports before starting audio or inspecting readiness, so
+	// another service's listener can never make this receiver appear healthy.
+	probe, err := net.Listen("tcp", fmt.Sprintf(":%d", s.port))
+	if err != nil {
+		return fmt.Errorf("reserving shairport-sync port %d: %w", s.port, err)
+	}
+	_ = probe.Close()
+	stream, err := newAudioStream(s.speaker, s.log, s.primeSilenceMs, s.gain)
 	if err != nil {
 		return fmt.Errorf("audio stream: %w", err)
 	}
@@ -113,13 +126,13 @@ func (s *ShairportServer) launchProcess() error {
 	// Write a minimal shairport-sync config so we can control the advertised
 	// model string (am= / model=), which determines the icon in the iOS picker.
 	configBody := fmt.Sprintf(`general = {
-  name = "%s";
+  name = %s;
   port = %d;
-  model = "%s";
+  model = %s;
   output_backend = "stdout";
 };
-`, s.name, s.port, s.model)
-	if err := os.WriteFile(s.configPath, []byte(configBody), 0o644); err != nil {
+`, strconv.Quote(s.name), s.port, strconv.Quote(s.model))
+	if err := os.WriteFile(s.configPath, []byte(configBody), 0o600); err != nil {
 		stream.finish()
 		return fmt.Errorf("writing shairport-sync config: %w", err)
 	}
@@ -140,11 +153,11 @@ func (s *ShairportServer) launchProcess() error {
 		return fmt.Errorf("starting shairport-sync: %w", err)
 	}
 
-	_ = os.WriteFile(s.pidPath, fmt.Appendf(nil, "%d\n", cmd.Process.Pid), 0o644)
-
+	processDone := make(chan struct{})
 	s.mu.Lock()
 	s.cmd = cmd
 	s.stream = stream
+	s.processDone = processDone
 	s.mu.Unlock()
 
 	s.log.Info("shairport-sync started", "port", s.port, "pid", cmd.Process.Pid)
@@ -172,37 +185,86 @@ func (s *ShairportServer) launchProcess() error {
 			}
 		}
 	}()
+	// One goroutine owns Wait. Stop and the monitor only signal this child;
+	// they never compete to reap it.
+	go func() {
+		waitErr := cmd.Wait()
+		s.running.Store(false)
+		if waitErr != nil {
+			s.log.Debug("shairport-sync exited", "err", waitErr)
+		}
+		close(processDone)
+	}()
+
+	if err := s.waitReady(processDone); err != nil {
+		_ = cmd.Process.Kill()
+		stream.finish()
+		<-processDone
+		s.mu.Lock()
+		s.cmd = nil
+		s.stream = nil
+		s.mu.Unlock()
+		return err
+	}
 
 	return nil
+}
+
+// waitReady waits for the owned child to accept RTSP connections, or fail.
+func (s *ShairportServer) waitReady(processDone <-chan struct{}) error {
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.quit:
+			return fmt.Errorf("receiver stopped during startup")
+		case <-processDone:
+			return fmt.Errorf("shairport-sync exited before opening port %d", s.port)
+		case <-deadline.C:
+			return fmt.Errorf("shairport-sync did not open port %d within 5 seconds", s.port)
+		case <-ticker.C:
+			conn, err := net.DialTimeout(
+				"tcp",
+				net.JoinHostPort("127.0.0.1", strconv.Itoa(s.port)),
+				100*time.Millisecond,
+			)
+			if err == nil {
+				_ = conn.Close()
+				s.running.Store(true)
+				// Do not report a dead child as ready if exit raced the probe.
+				select {
+				case <-s.quit:
+					s.running.Store(false)
+					return fmt.Errorf("receiver stopped during startup")
+				case <-processDone:
+					s.running.Store(false)
+					return fmt.Errorf("shairport-sync exited during startup")
+				default:
+					return nil
+				}
+			}
+		}
+	}
 }
 
 // monitor waits for the shairport-sync subprocess to exit. If Stop() was not
 // called (i.e. the process crashed), it cleans up and restarts after a delay.
 func (s *ShairportServer) monitor() {
+	defer close(s.done)
+	backoff := 3 * time.Second
 	for {
 		s.mu.Lock()
-		cmd := s.cmd
+		processDone := s.processDone
 		stream := s.stream
 		s.mu.Unlock()
-
-		if cmd == nil {
-			return // Stop() already cleaned up
-		}
-
-		// Reap the subprocess — blocks until it exits.
-		waitErr := cmd.Wait()
-
-		// Check if Stop() was called.
 		select {
 		case <-s.quit:
 			return
-		default:
+		case <-processDone:
 		}
-
-		// Subprocess exited unexpectedly — log, clean up, and restart.
-		s.log.Warn("shairport-sync crashed, will restart in 3s", "exit", waitErr)
-
-		// Clean up the old audio stream.
+		s.running.Store(false)
 		if stream != nil {
 			stream.finish()
 		}
@@ -210,78 +272,78 @@ func (s *ShairportServer) monitor() {
 		s.cmd = nil
 		s.stream = nil
 		s.mu.Unlock()
-		_ = os.Remove(s.pidPath)
-
-		// Wait before restart, but bail if Stop() is called.
-		select {
-		case <-time.After(3 * time.Second):
-		case <-s.quit:
-			return
-		}
-
-		s.killStalePID()
-		if err := s.launchProcess(); err != nil {
-			s.log.Error("shairport-sync restart failed", "err", err)
-			// Back off longer on repeated failures.
+		// Keep retrying launch failures. A nil process means retrying, not that
+		// the receiver has been intentionally removed from the manager.
+		for {
+			s.log.Warn("shairport-sync stopped, retrying", "backoff", backoff)
 			select {
-			case <-time.After(10 * time.Second):
+			case <-time.After(backoff):
 			case <-s.quit:
 				return
 			}
+			if err := s.launchProcess(); err == nil {
+				backoff = 3 * time.Second
+				break
+			} else {
+				s.log.Warn("shairport-sync restart failed", "err", err)
+			}
+			backoff = min(backoff*2, 30*time.Second)
 		}
 	}
 }
 
-// killStalePID reads the PID file and kills the process if it's still running.
-// Called at Start() to clean up processes left over from unclean exits.
-func (s *ShairportServer) killStalePID() {
-	data, err := os.ReadFile(s.pidPath)
-	if err != nil {
-		return // no PID file, nothing to do
+// IsRunning reports actual listener readiness, including false during retries.
+func (s *ShairportServer) IsRunning() bool {
+	if !s.running.Load() {
+		return false
 	}
-	pidStr := strings.TrimSpace(string(data))
-	pid := 0
-	if _, err := fmt.Sscan(pidStr, &pid); err != nil || pid <= 0 {
-		_ = os.Remove(s.pidPath)
-		return
+	s.mu.Lock()
+	processDone := s.processDone
+	s.mu.Unlock()
+	select {
+	case <-s.quit:
+		return false
+	case <-processDone:
+		return false
+	default:
+		return true
 	}
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		_ = os.Remove(s.pidPath)
-		return
+}
+
+// cleanupFiles removes only the files created in this receiver's private directory.
+func (s *ShairportServer) cleanupFiles() {
+	if s.configPath != "" {
+		_ = os.Remove(s.configPath)
 	}
-	if err := proc.Kill(); err == nil {
-		s.log.Info("killed stale shairport-sync", "pid", pid)
-		_, _ = proc.Wait()
+	if s.workDir != "" {
+		_ = os.Remove(s.workDir)
 	}
-	_ = os.Remove(s.pidPath)
 }
 
 // Stop kills the shairport-sync subprocess and cleans up.
 func (s *ShairportServer) Stop() {
-	// Signal the monitor goroutine to stop before taking the lock,
-	// so it won't try to restart after we kill the process.
-	select {
-	case <-s.quit:
-	default:
+	s.stopOnce.Do(func() {
 		close(s.quit)
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.cmd != nil && s.cmd.Process != nil {
-		_ = s.cmd.Process.Kill()
-		_ = s.cmd.Wait()
-		s.cmd = nil
-	}
-	if s.stream != nil {
-		s.stream.finish()
-		s.stream = nil
-	}
-	_ = os.Remove(s.pidPath)
-	_ = os.Remove(s.configPath)
-	s.log.Info("shairport-sync stopped")
+		s.running.Store(false)
+		s.mu.Lock()
+		cmd, stream, processDone := s.cmd, s.stream, s.processDone
+		s.mu.Unlock()
+		if cmd != nil && cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		if stream != nil {
+			stream.finish()
+		}
+		if processDone != nil {
+			<-processDone
+		}
+		// A pending launch observes quit and disposes of any child it created.
+		if s.workDir != "" {
+			<-s.done
+		}
+		s.cleanupFiles()
+		s.log.Info("shairport-sync stopped")
+	})
 }
 
 // lineLogger forwards subprocess stderr to our structured logger line by line.

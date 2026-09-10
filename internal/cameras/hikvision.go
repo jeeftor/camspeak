@@ -3,6 +3,7 @@ package cameras
 
 import (
 	"bufio"
+	"context"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -33,7 +34,8 @@ type HikvisionClient struct {
 	activeMu      sync.Mutex
 	activeConn    net.Conn // active TCP connection streaming audio
 	activeSession string   // active ISAPI two-way audio session ID
-	stopped       bool     // set by Stop() to suppress write errors in SendRaw
+	activeCancel  context.CancelFunc
+	stopped       bool // set by Stop() to suppress write errors in SendRaw
 }
 
 // NewHikvisionClient creates a client with digest auth transport.
@@ -48,7 +50,7 @@ func NewHikvisionClient(ip, user, pass string, channel int, name string) *Hikvis
 		user:    user,
 		pass:    pass,
 		channel: channel,
-		client:  &http.Client{Transport: transport},
+		client:  &http.Client{Transport: transport, Timeout: 5 * time.Second},
 		log:     newLogger("hikvision").With("camera", name),
 	}
 }
@@ -64,15 +66,30 @@ type openResponse struct {
 
 // openChannel opens the two-way audio session and returns the sessionId.
 func (c *HikvisionClient) openChannel() (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	c.activeMu.Lock()
+	if c.stopped {
+		c.activeMu.Unlock()
+		cancel()
+		return "", context.Canceled
+	}
+	c.activeCancel = cancel
+	c.activeMu.Unlock()
+	defer func() {
+		cancel()
+		c.activeMu.Lock()
+		c.activeCancel = nil
+		c.activeMu.Unlock()
+	}()
 	// Clear any stale session first (ignore error).
-	req, _ := http.NewRequest(http.MethodPut, c.baseURL()+"/close", nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPut, c.baseURL()+"/close", nil)
 	if req != nil {
 		if resp, err := c.client.Do(req); err == nil {
 			resp.Body.Close()
 		}
 	}
 
-	req, err := http.NewRequest(http.MethodPut, c.baseURL()+"/open", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.baseURL()+"/open", nil)
 	if err != nil {
 		return "", fmt.Errorf("building open request: %w", err)
 	}
@@ -83,7 +100,7 @@ func (c *HikvisionClient) openChannel() (string, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	if err != nil {
 		return "", fmt.Errorf("reading open response: %w", err)
 	}
@@ -134,19 +151,41 @@ func (c *HikvisionClient) closeChannel(sessionID string) {
 // bytes/sec before reading the response — matching curl's behavior
 // with --limit-rate.
 func (c *HikvisionClient) SendRaw(rawFile string, gc *GainController) (SendTiming, error) {
-	// If a long-running Stream session is active (e.g. AirPlay), interrupt it
-	// so this send doesn't block indefinitely. The audioStream reconnect loop
-	// will reopen the session automatically once SendRaw completes.
-	if !c.mu.TryLock() {
+	if c.mu.TryLock() {
+		c.mu.Unlock()
+	} else {
 		_ = c.Stop()
-		c.mu.Lock()
+	}
+	return c.SendRawContext(context.Background(), rawFile, gc)
+}
+
+// SendRawContext sends a file and cancels channel setup or playback with ctx.
+func (c *HikvisionClient) SendRawContext(
+	ctx context.Context,
+	rawFile string,
+	gc *GainController,
+) (SendTiming, error) {
+	if err := ctx.Err(); err != nil {
+		return SendTiming{}, err
+	}
+	// The operation owner preempts deliberately before preparation. Waiting
+	// here must not let a superseded request interrupt a newer session.
+	if err := lockSpeaker(ctx, &c.mu); err != nil {
+		return SendTiming{}, err
 	}
 	defer c.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return SendTiming{}, err
+	}
 
 	// Reset stopped flag from any previous Stop() call
 	c.activeMu.Lock()
 	c.stopped = false
 	c.activeMu.Unlock()
+	defer c.cancelOnDone(ctx)()
+	if err := ctx.Err(); err != nil {
+		return SendTiming{}, err
+	}
 
 	data, err := os.ReadFile(rawFile)
 	if err != nil {
@@ -213,12 +252,29 @@ func (c *HikvisionClient) SendRaw(rawFile string, gc *GainController) (SendTimin
 // to the camera speaker at 8000 bytes/sec until r returns EOF.
 // This is the preferred method for AirPlay; it avoids per-chunk open/close overhead.
 func (c *HikvisionClient) Stream(r io.Reader) error {
-	c.mu.Lock()
+	return c.StreamContext(context.Background(), r)
+}
+
+// StreamContext streams live audio with cancellation through channel setup and I/O.
+func (c *HikvisionClient) StreamContext(ctx context.Context, r io.Reader) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := lockSpeaker(ctx, &c.mu); err != nil {
+		return err
+	}
 	defer c.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	c.activeMu.Lock()
 	c.stopped = false
 	c.activeMu.Unlock()
+	defer c.cancelOnDone(ctx)()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	sessionID, err := c.openChannel()
 	if err != nil {
@@ -243,6 +299,10 @@ func (c *HikvisionClient) Stream(r io.Reader) error {
 	defer conn.Close()
 
 	c.activeMu.Lock()
+	if c.stopped || ctx.Err() != nil {
+		c.activeMu.Unlock()
+		return context.Canceled
+	}
 	c.activeConn = conn
 	c.activeSession = sessionID
 	c.activeMu.Unlock()
@@ -300,6 +360,20 @@ func (c *HikvisionClient) Stream(r io.Reader) error {
 	return err
 }
 
+// cancelOnDone joins the cancellation callback before a newer session can start.
+func (c *HikvisionClient) cancelOnDone(ctx context.Context) func() {
+	done := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() {
+		_ = c.Stop()
+		close(done)
+	})
+	return func() {
+		if !stop() {
+			<-done
+		}
+	}
+}
+
 // getDigestAuth performs the 401 challenge/response handshake for the given path
 // and returns the Authorization header value.
 func (c *HikvisionClient) getDigestAuth(path string) (string, error) {
@@ -312,8 +386,12 @@ func (c *HikvisionClient) Stop() error {
 	c.activeMu.Lock()
 	conn := c.activeConn
 	sessionID := c.activeSession
+	cancel := c.activeCancel
 	c.stopped = true // suppress write errors in the streaming loop
 	c.activeMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 
 	if conn == nil && sessionID == "" {
 		return nil // nothing playing
@@ -369,6 +447,10 @@ func (c *HikvisionClient) sendAudioRaw(
 
 	// Track active connection for Stop()
 	c.activeMu.Lock()
+	if c.stopped {
+		c.activeMu.Unlock()
+		return SendTiming{}, context.Canceled
+	}
 	c.activeConn = conn2
 	c.activeMu.Unlock()
 
@@ -423,15 +505,7 @@ func (c *HikvisionClient) sendAudioWithAuth(
 		// Apply runtime gain if a GainController is provided.
 		// gain=1.0 is unity (no change), gain=0 is mute, gain=3.0 is 3x.
 		if gc != nil {
-			gain := gc.Get()
-			if gain == 0 {
-				// Mute: fill with µ-law silence (byte 128).
-				for i := range chunkBuf[:end-totalWritten] {
-					chunkBuf[i] = 128
-				}
-			} else if gain != 1.0 {
-				util.ApplyGainMulaw(chunkBuf[:end-totalWritten], gain)
-			}
+			util.ApplyGainMulaw(chunkBuf[:end-totalWritten], gc.Get())
 			// Feed VU meter level for one-shot playback.
 			gc.RecordLevel(util.ComputeLevel(chunkBuf[:end-totalWritten]))
 		}
@@ -568,15 +642,19 @@ func (c *HikvisionClient) Snapshot(streamType string) ([]byte, error) {
 		return nil, fmt.Errorf("reading snapshot: %w", err)
 	}
 
-	if len(data) == 0 {
+	if len(data) < 2 {
 		return nil, fmt.Errorf("snapshot returned empty response")
 	}
 
 	// Some Hikvision cameras return HTTP 200 with an HTML error page
 	// instead of a JPEG. Validate that we actually got an image.
 	if data[0] != 0xFF || data[1] != 0xD8 {
-		return nil, fmt.Errorf("snapshot did not return a JPEG (got %d bytes, content starts with %02x %02x)",
-			len(data), data[0], data[1])
+		return nil, fmt.Errorf(
+			"snapshot did not return a JPEG (got %d bytes, content starts with %02x %02x)",
+			len(data),
+			data[0],
+			data[1],
+		)
 	}
 
 	return data, nil

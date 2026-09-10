@@ -113,34 +113,25 @@
     localLevel = 0
   }
 
-  // Listen for play/pause events from the MiniWaveform's audio element.
-  // We use a MutationObserver-free approach: poll for the audio element
-  // after mount and attach listeners.
-  let waveContainer: HTMLDivElement | null = $state(null)
-  let monitoredAudio: HTMLAudioElement | null = null
+  let monitoredAudio: HTMLAudioElement | null = $state(null)
 
   $effect(() => {
-    const container = waveContainer
-    if (!container || visualMode) return
-
-    // Find the audio element created by MiniWaveform
-    // It's created lazily on first play, so we poll
-    const checkInterval = setInterval(() => {
-      const audio = container.querySelector('audio')
-      if (audio && audio !== monitoredAudio) {
-        monitoredAudio = audio
-        setupAnalyser(audio)
-        audio.addEventListener('play', () => {
-          if (audioCtx?.state === 'suspended') audioCtx.resume()
-          startLevelMonitoring()
-        })
-        audio.addEventListener('pause', stopLevelMonitoring)
-        audio.addEventListener('ended', stopLevelMonitoring)
-      }
-    }, 500)
+    const audio = monitoredAudio
+    if (!audio || visualMode) return
+    setupAnalyser(audio)
+    const onPlay = () => {
+      if (audioCtx?.state === 'suspended') void audioCtx.resume()
+      startLevelMonitoring()
+    }
+    audio.addEventListener('play', onPlay)
+    audio.addEventListener('pause', stopLevelMonitoring)
+    audio.addEventListener('ended', stopLevelMonitoring)
+    if (!audio.paused) onPlay()
 
     return () => {
-      clearInterval(checkInterval)
+      audio.removeEventListener('play', onPlay)
+      audio.removeEventListener('pause', stopLevelMonitoring)
+      audio.removeEventListener('ended', stopLevelMonitoring)
       stopLevelMonitoring()
       if (sourceNode) sourceNode.disconnect()
       if (analyser) analyser.disconnect()
@@ -148,12 +139,11 @@
       sourceNode = null
       analyser = null
       audioCtx = null
-      monitoredAudio = null
     }
   })
 </script>
 
-<div class="flex flex-col gap-1" bind:this={waveContainer}>
+<div class="flex flex-col gap-1">
   <div class="flex gap-2">
     <!-- Waveform + play button + time -->
     <div class="flex-1 min-w-0">
@@ -163,6 +153,7 @@
         {duration}
         {visualMode}
         {externalProgress}
+        onAudio={(audio) => { monitoredAudio = audio }}
       />
     </div>
 

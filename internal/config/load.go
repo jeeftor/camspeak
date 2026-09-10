@@ -233,7 +233,8 @@ func loadCameras(db *sql.DB, cfg *Config) {
 
 // applyEnvOverrides applies environment variable overrides on top of SQLite config.
 // Env vars always win.
-func applyEnvOverrides(cfg *Config) {
+// ApplyEnvOverrides reapplies the documented environment precedence after a runtime edit.
+func ApplyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("CAMSPEAK_PORT"); v != "" {
 		if p, err := strconv.Atoi(v); err == nil {
 			cfg.Port = p
@@ -317,6 +318,8 @@ func applyEnvOverrides(cfg *Config) {
 		cfg.Cameras[name] = cam
 	}
 }
+
+func applyEnvOverrides(cfg *Config) { ApplyEnvOverrides(cfg) }
 
 // envCamName converts a camera name to env var format (uppercase, underscores).
 func envCamName(name string) string {

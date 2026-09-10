@@ -1,4 +1,4 @@
-.PHONY: help build run test frontend docker clean dev-airtest lint fmt vet test-go2rtc
+.PHONY: help build run test test-race check-frontend frontend docker clean dev-airtest lint fmt vet test-go2rtc
 
 BINARY := camspeak
 IMAGE   := ghcr.io/jeeftor/camspeak
@@ -19,6 +19,12 @@ frontend: ## Build the frontend assets
 
 test: ## Run the test suite
 	gotestsum --format testdox ./...
+
+test-race: ## Run Go tests with the race detector
+	go test -race ./...
+
+check-frontend: ## Check frontend types and run frontend regression tests
+	cd frontend && bun run check && bun run test
 
 lint: ## Run golangci-lint
 	golangci-lint run ./...

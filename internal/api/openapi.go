@@ -63,7 +63,7 @@ const openAPISpec = `{
       "post": {
         "tags": ["audio"],
         "summary": "Play a saved library preset (audio clip or stream) on a camera",
-        "description": "If the preset is a stream preset (has a URL), it starts an ffmpeg live stream to the camera (pausable/resumable via /api/pause and /api/resume). If the preset is an audio clip, it sends the raw G.711 file to the camera speaker.",
+        "description": "A stream preset starts a live stream; an audio clip sends its saved G.711 audio. Stream presets and looped clips require the camera's live_stream capability (currently Hikvision). Use category and preset together; name-only requests must identify a unique preset. Check can_pause in playback state before offering pause/resume.",
         "requestBody": {
           "required": true,
           "content": {
@@ -99,7 +99,7 @@ const openAPISpec = `{
       "post": {
         "tags": ["audio"],
         "summary": "Stream live audio from a URL or playlist to a camera",
-        "description": "Starts an ffmpeg process that reads a live stream or playlist (.pls/.m3u) and sends raw G.711 mu-law to the camera speaker. Currently supported for cameras with a real Stream implementation (e.g. Hikvision). Stop with POST /api/stop.",
+        "description": "Starts ffmpeg to read a live stream or playlist (.pls/.m3u) and send G.711 mu-law to the camera speaker. Requires live_stream capability (currently Hikvision). go2rtc, Reolink, and ONVIF continuous streaming is unsupported. Stop with POST /api/stop.",
         "requestBody": {
           "required": true,
           "content": {
@@ -300,7 +300,7 @@ const openAPISpec = `{
     "/cameras": {
       "get": {
         "tags": ["system"],
-        "summary": "List all cameras with online status",
+        "summary": "List enabled cameras with online status, saved gain, and supported operations",
         "responses": {
           "200": {"description": "OK", "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/Camera"}}}}}
         }
@@ -310,7 +310,7 @@ const openAPISpec = `{
       "get": {
         "tags": ["audio"],
         "summary": "Get current playback state for all cameras",
-        "description": "Returns a map of camera name to its current audio playback state. Each entry has a state field (\"playing\", \"paused\", or \"idle\"), a source field (\"stream\", \"speak\", \"play\", \"play-url\", \"beep\"), a detail string (the stream URL, TTS text, preset name, etc.), and timestamps for when playback started and when it was paused.",
+        "description": "Returns a map of enabled camera name to playback state: preparing, playing, paused, or idle. Use can_pause to decide whether to offer pause/resume; finite playback and AirPlay cannot be paused through this API. Detail identifies the source, and timestamps describe playback timing.",
         "responses": {
           "200": {
             "description": "OK",
@@ -338,6 +338,27 @@ const openAPISpec = `{
           "200": {"description": "OK", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CameraInfo"}}}},
           "404": {"description": "Camera not found"},
           "502": {"description": "Camera unreachable or query failed"}
+        }
+      }
+    },
+    "/cameras/{name}/volume": {
+      "put": {
+        "tags": ["audio"],
+        "summary": "Set and persist camera gain",
+        "description": "Updates the saved camera gain and applies it to the next audio chunk where supported. Zero mutes; values outside 0 through 10 are rejected.",
+        "parameters": [{"name": "name", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"type": "object", "properties": {
+            "gain": {"type": "number", "minimum": 0, "maximum": 10}
+          }}}}
+        },
+        "responses": {
+          "200": {"description": "Saved", "content": {"application/json": {"schema": {"type": "object", "properties": {
+            "camera": {"type": "string"}, "gain": {"type": "number", "minimum": 0, "maximum": 10}
+          }}}}},
+          "400": {"description": "Invalid JSON or gain outside 0 through 10"},
+          "404": {"description": "Camera not found"}
         }
       }
     },
@@ -379,7 +400,7 @@ const openAPISpec = `{
       "post": {
         "tags": ["library"],
         "summary": "Upload an audio file (any format, ffmpeg transcodes to G.711)",
-        "description": "Accepts a multipart upload, saves the temp file, and starts ffmpeg transcoding in the background. Returns a job_id immediately — poll GET /api/library/upload/jobs/{job_id} for transcoding progress.",
+        "description": "Accepts at most 64 MiB for the entire multipart request, including fields and multipart overhead. At most two uploads/transcodes run concurrently. Returns a job_id immediately; poll GET /api/library/upload/jobs/{job_id} until status is done before playing the returned preset. Status error indicates conversion or saving failed.",
         "requestBody": {
           "required": true,
           "content": {
@@ -397,7 +418,9 @@ const openAPISpec = `{
           }
         },
         "responses": {
-          "202": {"description": "Accepted — transcoding started", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/UploadJobAccepted"}}}}
+          "202": {"description": "Accepted — transcoding started", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/UploadJobAccepted"}}}},
+          "413": {"description": "Multipart request exceeds 64 MiB"},
+          "503": {"description": "Both upload slots are occupied or the server is shutting down; retry after an active upload finishes"}
         }
       }
     },
@@ -531,6 +554,7 @@ const openAPISpec = `{
       "put": {
         "tags": ["config"],
         "summary": "Update vision endpoint config (rebuilds vision client at runtime)",
+        "description": "An omitted or empty api_key preserves the saved key. Set clear_api_key to true with an empty key to remove it. Environment overrides remain authoritative. Responses omit the secret and expose has_api_key.",
         "requestBody": {
           "required": true,
           "content": {
@@ -585,20 +609,21 @@ const openAPISpec = `{
         "tags": ["config"],
         "summary": "List all TTS presets",
         "responses": {
-          "200": {"description": "OK"}
+          "200": {"description": "OK", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TTSPresetList"}}}}
         }
       },
       "post": {
         "tags": ["config"],
         "summary": "Create a TTS preset",
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TTSPreset"}}}},
-        "responses": {"200": {"description": "OK"}}
+        "responses": {"201": {"description": "Created", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TTSPreset"}}}}}
       }
     },
     "/config/tts/{name}": {
       "put": {
         "tags": ["config"],
         "summary": "Update a TTS preset",
+        "description": "An omitted or empty api_key preserves the saved key. Set clear_api_key to true with an empty key to remove it. Editing or activating the active preset refreshes the runtime client; environment overrides still win.",
         "parameters": [{"name": "name", "in": "path", "required": true, "schema": {"type": "string"}}],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TTSPreset"}}}},
         "responses": {"200": {"description": "OK"}}
@@ -735,7 +760,7 @@ const openAPISpec = `{
           "camera": {"type": "string", "description": "Camera name", "example": "backyard"},
           "text": {"type": "string", "description": "Text to speak", "example": "Hello world"},
           "voice": {"type": "string", "description": "TTS voice (empty = default)", "example": "af_sky"},
-          "gain": {"type": "number", "description": "Audio gain multiplier", "default": 3.0, "example": 3.0}
+          "gain": {"$ref": "#/components/schemas/PlaybackGain"}
         }
       },
       "BroadcastRequest": {
@@ -743,9 +768,9 @@ const openAPISpec = `{
         "properties": {
           "text": {"type": "string", "example": "Announcement text"},
           "voice": {"type": "string", "example": "af_sky"},
-          "preset": {"type": "string", "description": "Preset name (alternative to text)"},
+          "preset": {"type": "string", "description": "Preset name (alternative to text). Supply category when names are duplicated across categories."},
           "category": {"type": "string", "example": "alerts"},
-          "gain": {"type": "number", "default": 3.0},
+          "gain": {"$ref": "#/components/schemas/PlaybackGain"},
           "loop": {"type": "integer", "default": 0, "description": "Loop count: -1 = infinite (pausable/resumable), 0 = no loop (default), N = play N+1 times"}
         }
       },
@@ -754,9 +779,9 @@ const openAPISpec = `{
         "required": ["camera", "preset"],
         "properties": {
           "camera": {"type": "string", "example": "backyard"},
-          "preset": {"type": "string", "example": "person_detected"},
-          "category": {"type": "string", "example": "alerts"},
-          "gain": {"type": "number", "default": 3.0},
+          "preset": {"type": "string", "example": "person_detected", "description": "Preset name. Name-only lookup succeeds only when unique; ambiguous names require category."},
+          "category": {"type": "string", "example": "alerts", "description": "Category and preset name together identify the saved audio or stream."},
+          "gain": {"$ref": "#/components/schemas/PlaybackGain"},
           "loop": {"type": "integer", "default": 0, "description": "Loop count: -1 = infinite, 0 = no loop (default), N = play N+1 times. Uses ffmpeg -stream_loop, so the loop can be paused/resumed/stopped like a live stream via /api/pause, /api/resume, /api/stop."}
         }
       },
@@ -766,7 +791,7 @@ const openAPISpec = `{
         "properties": {
           "camera": {"type": "string", "example": "backyard"},
           "url": {"type": "string", "example": "http://host/audio.wav"},
-          "gain": {"type": "number", "default": 3.0}
+          "gain": {"$ref": "#/components/schemas/PlaybackGain"}
         }
       },
       "CameraRequest": {
@@ -811,7 +836,7 @@ const openAPISpec = `{
         "properties": {
           "camera": {"type": "string", "example": "backyard"},
           "prompt": {"type": "string", "example": "Describe what you see."},
-          "gain": {"type": "number", "default": 3.0}
+          "gain": {"$ref": "#/components/schemas/PlaybackGain"}
         }
       },
       "DescribeResponse": {
@@ -850,8 +875,37 @@ const openAPISpec = `{
         "properties": {
           "name": {"type": "string", "example": "backyard"},
           "type": {"type": "string", "example": "hikvision"},
-          "online": {"type": "boolean", "example": true}
+          "ip": {"type": "string"},
+          "online": {"type": "boolean", "example": true},
+          "gain": {"type": "number", "minimum": 0, "maximum": 10, "description": "Saved camera gain; zero is mute"},
+          "capabilities": {"$ref": "#/components/schemas/CameraCapabilities"},
+          "vision_prompt": {"type": "string"},
+          "vision_stream": {"type": "string"},
+          "vision_width": {"type": "integer"},
+          "snap_method": {"type": "string"},
+          "note": {"type": "string"},
+          "airplay_enabled": {"type": "boolean"},
+          "airplay_name": {"type": "string"},
+          "airplay_model": {"type": "string"},
+          "sort_order": {"type": "integer"}
         }
+      },
+      "CameraCapabilities": {
+        "type": "object",
+        "required": ["speak", "snapshot", "live_stream", "airplay"],
+        "properties": {
+          "speak": {"type": "boolean", "description": "Backend supports finite audio playback"},
+          "snapshot": {"type": "boolean", "description": "A snapshot capture path is configured"},
+          "live_stream": {"type": "boolean", "description": "Backend supports continuous audio streaming"},
+          "airplay": {"type": "boolean", "description": "Backend supports AirPlay audio streaming; enabling the receiver is separate"}
+        }
+      },
+      "PlaybackGain": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 10,
+        "description": "Optional digital gain multiplier. Omit to use each target camera's saved gain; explicit zero mutes. Applies to this playback request.",
+        "example": 3.0
       },
       "CameraConfig": {
         "type": "object",
@@ -864,6 +918,7 @@ const openAPISpec = `{
           "channel": {"type": "integer", "default": 1},
           "stream": {"type": "string"},
           "enabled": {"type": "boolean", "default": false},
+          "gain": {"type": "number", "minimum": 0, "maximum": 10, "description": "Saved digital gain; zero mutes"},
           "vision_prompt": {"type": "string"}
         }
       },
@@ -927,7 +982,9 @@ const openAPISpec = `{
         "properties": {
           "url": {"type": "string", "example": "http://10.0.0.x:8080/v1/chat/completions"},
           "model": {"type": "string", "example": "llama3.2-vision"},
-          "api_key": {"type": "string"},
+          "api_key": {"type": "string", "writeOnly": true, "description": "Omitted or empty preserves the saved key"},
+          "has_api_key": {"type": "boolean", "readOnly": true},
+          "clear_api_key": {"type": "boolean", "writeOnly": true, "description": "With an empty api_key, explicitly removes the saved key"},
           "prompt": {"type": "string", "description": "Global default vision prompt"}
         }
       },
@@ -946,6 +1003,10 @@ const openAPISpec = `{
           "name": {"type": "string"},
           "endpoint": {"type": "string"},
           "model": {"type": "string"},
+          "api_key": {"type": "string", "writeOnly": true, "description": "Omitted or empty preserves the saved key"},
+          "has_api_key": {"type": "boolean", "readOnly": true},
+          "clear_api_key": {"type": "boolean", "writeOnly": true},
+          "is_active": {"type": "boolean"},
           "default_voice": {"type": "string"},
           "description": {"type": "string"}
         }
@@ -953,12 +1014,29 @@ const openAPISpec = `{
       "PlaybackState": {
         "type": "object",
         "properties": {
-          "state": {"type": "string", "enum": ["playing", "paused", "idle"], "example": "playing"},
-          "source": {"type": "string", "enum": ["stream", "speak", "play", "play-url", "beep"], "example": "stream"},
+          "state": {"type": "string", "enum": ["preparing", "playing", "paused", "idle"], "example": "playing"},
+          "source": {"type": "string", "description": "Action or audio source, such as speak, play, play-url, stream, beep, describe, announce, or airplay", "example": "stream"},
+          "can_pause": {"type": "boolean", "description": "Whether this operation supports the pause/resume endpoints"},
           "detail": {"type": "string", "example": "http://liveatc.net/stream.m3u"},
           "started_at": {"type": "string", "format": "date-time"},
           "paused_at": {"type": "string", "format": "date-time", "description": "Present only when state is paused"},
           "level": {"type": "number", "minimum": 0, "maximum": 1, "description": "Current audio level for VU meter (streams/loops only)", "example": 0.42}
+        }
+      },
+      "TTSConfig": {
+        "type": "object",
+        "properties": {
+          "url": {"type": "string"},
+          "model": {"type": "string"},
+          "default_voice": {"type": "string"},
+          "has_api_key": {"type": "boolean", "readOnly": true}
+        }
+      },
+      "TTSPresetList": {
+        "type": "object",
+        "properties": {
+          "presets": {"type": "array", "items": {"$ref": "#/components/schemas/TTSPreset"}},
+          "active": {"$ref": "#/components/schemas/TTSConfig"}
         }
       }
     }

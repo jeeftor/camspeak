@@ -8,6 +8,7 @@ type Receiver interface {
 	Start() error
 	Stop()
 	SetLogLevel(level clog.Level)
+	IsRunning() bool
 }
 
 // Compile-time interface satisfaction checks.

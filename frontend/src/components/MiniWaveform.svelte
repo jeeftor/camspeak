@@ -1,3 +1,7 @@
+<script module lang="ts">
+  const peaksCache = new Map<string, { peaks: number[]; duration: number }>()
+</script>
+
 <script lang="ts">
   /**
    * MiniWaveform — generic canvas-based audio waveform player.
@@ -13,11 +17,8 @@
    */
 
   import { Play, Pause } from 'lucide-svelte'
+  import { untrack } from 'svelte'
   import { Button } from '$lib/components/ui/button'
-
-  // Module-level cache: key -> { peaks, duration }. Shared across all
-  // MiniWaveform instances so repeated mounts don't re-fetch.
-  const peaksCache = new Map<string, { peaks: number[]; duration: number }>()
 
   let {
     peaksUrl,
@@ -26,6 +27,7 @@
     cacheKey = '',
     visualMode = false,
     externalProgress = -1,
+    onAudio = () => {},
   }: {
     peaksUrl: string
     audioUrl?: string
@@ -33,10 +35,11 @@
     cacheKey?: string
     visualMode?: boolean
     externalProgress?: number
+    onAudio?: (audio: HTMLAudioElement | null) => void
   } = $props()
 
   // Cache key defaults to peaksUrl if not provided
-  const key = cacheKey || peaksUrl
+  let key = $derived(cacheKey || peaksUrl)
 
   // --- DOM refs ---
   let canvasEl: HTMLCanvasElement | null = $state(null)
@@ -44,7 +47,7 @@
 
   // --- State ---
   let peaks: number[] | null = $state(null)
-  let duration = $state(initialDuration)
+  let duration = $state(0)
   let playing = $state(false)
   let progress = $state(0) // 0..1 playback position
   let currentTime = $state(0) // seconds
@@ -54,11 +57,14 @@
   let raf = 0
   let decoded = false
   let io: IntersectionObserver | null = null
+  let peaksController: AbortController | null = null
+  let audioError = $state('')
 
   // --- Peaks fetching ---
   async function loadPeaks(): Promise<void> {
     if (decoded) return
     decoded = true
+    const sourceKey = key
     const cached = peaksCache.get(key)
     if (cached) {
       peaks = cached.peaks
@@ -66,11 +72,15 @@
       return
     }
     try {
-      const res = await fetch(peaksUrl)
+      const controller = new AbortController()
+      peaksController = controller
+      const res = await fetch(peaksUrl, { signal: controller.signal })
       if (!res.ok) return
       const data = await res.json()
-      if (data.peaks) {
-        peaksCache.set(key, { peaks: data.peaks, duration: data.duration })
+      if (sourceKey !== key || controller.signal.aborted) return
+      if (Array.isArray(data.peaks)) {
+        if (peaksCache.size >= 100) peaksCache.delete(peaksCache.keys().next().value!)
+        peaksCache.set(sourceKey, { peaks: data.peaks, duration: data.duration })
         peaks = data.peaks
         duration = data.duration
       }
@@ -130,6 +140,7 @@
   function ensureAudio(): HTMLAudioElement {
     if (audio) return audio
     audio = new Audio(audioUrl)
+    onAudio(audio)
     audio.preload = 'metadata'
     audio.addEventListener('loadedmetadata', () => {
       // Use the audio element's actual duration (more accurate than
@@ -145,6 +156,7 @@
       cancelRaf()
     })
     audio.addEventListener('pause', () => {
+      playing = false
       cancelRaf()
     })
     return audio
@@ -194,9 +206,14 @@
         progress = 0
         currentTime = 0
       }
-      await a.play()
-      playing = true
-      updateProgress()
+      try {
+        await a.play()
+        audioError = ''
+        playing = true
+        updateProgress()
+      } catch (error) {
+        audioError = error instanceof Error ? error.message : 'Could not play audio'
+      }
     } else {
       a.pause()
       playing = false
@@ -223,8 +240,46 @@
     }
   }
 
+  function seekWithKeyboard(event: KeyboardEvent): void {
+    if (visualMode || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+    event.preventDefault()
+    const a = ensureAudio()
+    const target = event.key === 'Home' ? 0 : event.key === 'End' ? duration
+      : currentTime + (event.key === 'ArrowRight' ? 5 : -5)
+    a.currentTime = Math.max(0, Math.min(duration, target))
+    currentTime = a.currentTime
+    progress = duration > 0 ? currentTime / duration : 0
+  }
+
   // --- Lifecycle ---
   $effect(() => {
+    void key
+    void audioUrl
+    const sourceDuration = initialDuration
+    untrack(() => {
+      peaksController?.abort()
+      cancelRaf()
+      if (audio) { audio.pause(); audio.src = ''; audio = null }
+      onAudio(null)
+      peaks = null
+      duration = sourceDuration
+      progress = 0
+      currentTime = 0
+      playing = false
+      decoded = false
+      audioError = ''
+    })
+    return () => {
+      peaksController?.abort()
+      cancelRaf()
+      if (audio) { audio.pause(); audio.src = ''; audio = null }
+      onAudio(null)
+    }
+  })
+
+  $effect(() => {
+    void key
+    void audioUrl
     const container = containerEl
     if (!container) return
     io = new IntersectionObserver(
@@ -249,21 +304,12 @@
     }
   })
 
-  $effect(() => {
-    return () => {
-      cancelRaf()
-      if (audio) {
-        audio.pause()
-        audio.src = ''
-        audio = null
-      }
-    }
-  })
 </script>
 
 <div class="flex items-center gap-2 w-full" bind:this={containerEl}>
   {#if !visualMode}
     <Button
+      type="button"
       variant="outline"
       size="icon"
       class="h-8 w-8 shrink-0"
@@ -281,6 +327,13 @@
   <canvas
     bind:this={canvasEl}
     onclick={visualMode ? undefined : seek}
+    onkeydown={seekWithKeyboard}
+    role={visualMode ? 'img' : 'slider'}
+    tabindex={visualMode ? undefined : 0}
+    aria-label={visualMode ? 'Audio waveform' : 'Audio playback position'}
+    aria-valuemin={visualMode ? undefined : 0}
+    aria-valuemax={visualMode ? undefined : 100}
+    aria-valuenow={visualMode ? undefined : Math.round(progress * 100)}
     class="flex-1 h-10 cursor-pointer block min-w-0 rounded {visualMode ? 'cursor-default' : ''}"
     title={visualMode ? '' : 'Click to seek'}
   ></canvas>
@@ -288,3 +341,4 @@
     {timeLabel}
   </span>
 </div>
+{#if audioError}<p role="alert" class="text-xs text-destructive">{audioError}</p>{/if}

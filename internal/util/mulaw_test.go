@@ -32,11 +32,10 @@ func TestApplyGainUnity(t *testing.T) {
 
 func TestApplyGainAmp(t *testing.T) {
 	// A mid-range sample should get louder with gain > 1.
-	buf := []byte{128} // 128 = 0 in µ-law (silence)
+	buf := []byte{255} // G.711 µ-law silence decodes to zero.
 	ApplyGainMulaw(buf, 3.0)
-	// Silence * 3 = silence, should still be 128 (or close).
-	if buf[0] != 128 {
-		t.Errorf("silence * 3.0 = %d, want 128", buf[0])
+	if MulawDecode(buf[0]) != 0 {
+		t.Errorf("silence * 3.0 decoded to %d", MulawDecode(buf[0]))
 	}
 
 	// A non-silence sample should change.
@@ -46,6 +45,19 @@ func TestApplyGainAmp(t *testing.T) {
 	amplified := MulawDecode(buf[0])
 	if math.Abs(float64(amplified)) <= math.Abs(float64(original)) {
 		t.Errorf("gain=3.0 did not amplify: %d → %d", original, amplified)
+	}
+}
+
+func TestMuteDecodesToZero(t *testing.T) {
+	buf := make([]byte, 256)
+	for i := range buf {
+		buf[i] = byte(i)
+	}
+	ApplyGainMulaw(buf, 0)
+	for i, sample := range buf {
+		if pcm := MulawDecode(sample); pcm != 0 {
+			t.Fatalf("input %d: mute decoded to %d", i, pcm)
+		}
 	}
 }
 

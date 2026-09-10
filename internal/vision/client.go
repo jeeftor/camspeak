@@ -4,6 +4,7 @@ package vision
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -71,9 +72,33 @@ func (c *Client) Describe(imageBytes []byte, mimeType, prompt string) (string, e
 	return c.DescribeWithModel(imageBytes, mimeType, prompt, "")
 }
 
+// DescribeContext describes an image with cancellation supplied by the caller.
+func (c *Client) DescribeContext(
+	ctx context.Context,
+	imageBytes []byte,
+	mimeType, prompt string,
+) (string, error) {
+	return c.DescribeWithModelContext(ctx, imageBytes, mimeType, prompt, "")
+}
+
 // DescribeWithModel is like Describe but uses modelOverride instead of the configured model.
 // Pass an empty string to use the configured model.
 func (c *Client) DescribeWithModel(
+	imageBytes []byte,
+	mimeType, prompt, modelOverride string,
+) (string, error) {
+	return c.DescribeWithModelContext(
+		context.Background(),
+		imageBytes,
+		mimeType,
+		prompt,
+		modelOverride,
+	)
+}
+
+// DescribeWithModelContext overrides the model and cancels the request with ctx.
+func (c *Client) DescribeWithModelContext(
+	ctx context.Context,
 	imageBytes []byte,
 	mimeType, prompt, modelOverride string,
 ) (string, error) {
@@ -115,7 +140,7 @@ func (c *Client) DescribeWithModel(
 		"temperature": 0.3
 	}`, model, prompt, dataURL)
 
-	req, err := http.NewRequest(http.MethodPost, c.url, bytes.NewBufferString(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, bytes.NewBufferString(body))
 	if err != nil {
 		return "", fmt.Errorf("building request: %w", err)
 	}
@@ -181,6 +206,21 @@ func (c *Client) DescribeWithModelTimed(
 	imageBytes []byte,
 	mimeType, prompt, modelOverride string,
 ) (string, DescribeTiming, error) {
+	return c.DescribeWithModelTimedContext(
+		context.Background(),
+		imageBytes,
+		mimeType,
+		prompt,
+		modelOverride,
+	)
+}
+
+// DescribeWithModelTimedContext measures streaming inference and cancels it with ctx.
+func (c *Client) DescribeWithModelTimedContext(
+	ctx context.Context,
+	imageBytes []byte,
+	mimeType, prompt, modelOverride string,
+) (string, DescribeTiming, error) {
 	if c.url == "" {
 		return "", DescribeTiming{}, fmt.Errorf("vision URL not configured")
 	}
@@ -212,7 +252,7 @@ func (c *Client) DescribeWithModelTimed(
 		"temperature": 0.3
 	}`, model, prompt, dataURL)
 
-	req, err := http.NewRequest(http.MethodPost, c.url, bytes.NewBufferString(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, bytes.NewBufferString(body))
 	if err != nil {
 		return "", DescribeTiming{}, fmt.Errorf("building request: %w", err)
 	}

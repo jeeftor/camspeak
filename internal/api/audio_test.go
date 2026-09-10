@@ -29,8 +29,9 @@ func TestResolveGainValue(t *testing.T) {
 		want    float64
 	}{
 		{"request overrides runtime", "front", 7.0, 7.0},
-		{"runtime gain used when no request", "front", 0, 2.5},
-		{"default 3.0 for unknown camera", "missing", 0, 3.0},
+		{"runtime gain used when no request", "front", -1, 2.5},
+		{"default 3.0 for unknown camera", "missing", -1, 3.0},
+		{"explicit zero mutes", "front", 0, 0},
 		{"request wins even for unknown camera", "missing", 4.0, 4.0},
 	}
 	for _, tc := range tests {
@@ -69,13 +70,13 @@ func TestGainForCall(t *testing.T) {
 	}
 
 	// No request → shared registry controller (so runtime volume changes apply).
-	gc = h.gainForCall("front", 0)
+	gc = h.gainForCall("front", -1)
 	if gc != runtimeGC {
 		t.Error("gainForCall without reqGain did not return the registry controller")
 	}
 
 	// Unknown camera → default 3.0 controller.
-	gc = h.gainForCall("missing", 0)
+	gc = h.gainForCall("missing", -1)
 	if gc == nil {
 		t.Fatal("gainForCall returned nil for unknown camera")
 	}

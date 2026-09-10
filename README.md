@@ -28,7 +28,7 @@ It is built to live alongside a [Frigate](https://frigate.video) NVR deployment:
 cameras can be auto-discovered from Frigate's config and go2rtc can be used for
 cameras that need a two-way audio bridge (especially Reolink doorbells).
 
-A built-in AirPlay v1 receiver also lets every camera appear as a separate
+A built-in AirPlay v1 receiver also lets each supported camera appear as a separate
 AirPlay target on your iPhone, so you can stream music, calls, or any iOS audio
 directly to a camera speaker.
 
@@ -67,7 +67,9 @@ and response data.
 - **Audio library** — generate TTS clips, upload audio files, and save them as
   reusable presets organized by category.
 - **Live audio streaming** — stream live URLs or `.pls`/`.m3u` playlists
-  (e.g. LiveATC, internet radio) directly to a camera speaker.
+  (e.g. LiveATC, internet radio) directly to a Hikvision camera speaker.
+  Continuous streams and AirPlay are currently unsupported by the
+  go2rtc, Reolink, and ONVIF backends; finite audio playback remains available.
 - **Broadcast** — send TTS or a preset to all enabled cameras at once.
 
 ### Vision (describe & announce)
@@ -108,7 +110,7 @@ and response data.
 
 ### AirPlay receiver
 
-- **AirPlay v1 target per camera** — every camera shows up as a separate AirPlay
+- **AirPlay v1 target per supported camera** — each enabled Hikvision receiver shows up as a separate AirPlay
   speaker in the iOS picker.
 - **iOS audio to camera** — stream music, calls, or any iOS audio to a camera
   speaker with per-camera gain, custom display name, and device icon model.
@@ -128,6 +130,20 @@ and response data.
   live in a single `camspeak.db` file.
 - **Multi-arch Docker** — `linux/amd64` and `linux/arm64` images published to GHCR.
 - **Pure Go** — SQLite via `modernc.org/sqlite`, no CGO required.
+
+## Camera dashboard
+
+Camera cards show connection status, current playback, volume, and an optional
+preview. Open **Audio controls** for a camera to speak, select a library preset,
+play a URL, or describe its view. Your drafts stay available while you switch
+modes or reopen a camera during the current dashboard session. Pause and
+live-stream controls appear only when supported by the current operation or
+camera backend.
+
+Use **Broadcast** beside the Cameras heading for announcements to all enabled
+cameras. Use **Arrange** to expose camera ordering controls. The **Diagnostics**
+page contains the vision playground, capture benchmark, and full matrix benchmark;
+connection settings remain under **Config**.
 
 ## Quick start with Docker
 
@@ -207,6 +223,7 @@ A `.env` file (gitignored) is loaded by godotenv at startup for local dev. Copy
 |---|---|---|
 | `CAMSPEAK_DATA_DIR` | Data directory (DB + library) | `./data` |
 | `CAMSPEAK_PORT` | HTTP server port | `8585` |
+| `CAMSPEAK_CORS_ORIGIN` | Comma-separated exact browser origins allowed in addition to the server's own origin; include scheme and port | (same-origin only) |
 | `CAMSPEAK_FRIGATE_URL` | Frigate NVR URL for auto-discovery | (none) |
 | `CAMSPEAK_TTS_URL` | TTS API endpoint (overrides active preset) | (from active preset) |
 | `CAMSPEAK_TTS_MODEL` | TTS model name | (from active preset) |
@@ -305,6 +322,31 @@ camspeak list presets
 
 All routes are under `/api`. The server listens on port `8585` by default.
 
+Browser requests are restricted to the server's own origin by default. To serve
+your frontend separately, set `CAMSPEAK_CORS_ORIGIN` to its exact origin, for
+example `http://localhost:5173`. Separate multiple origins with commas; wildcards
+are not supported. Clients without an `Origin` header, including Home Assistant
+and command-line tools, continue to work. This policy does not authenticate API
+clients; keep the service on a trusted network or behind your authenticated proxy.
+
+Audio requests accept an optional `gain` from `0` to `10`. Omit it to use the
+target camera's saved gain; explicitly send `0` to mute. For broadcasts, omission
+preserves each camera's own setting. Identify library presets using both
+`category` and `preset`, for example
+`{"camera":"backyard","category":"alerts","preset":"doorbell"}`. Name-only
+requests are supported when the name is unique; duplicate names require a category.
+
+TTS and vision configuration responses omit API keys and return `has_api_key`.
+When editing settings, an omitted or empty `api_key` preserves the saved key.
+To remove it, send `clear_api_key: true` with an empty key. Environment variables
+still override saved settings, including after activating a different TTS preset.
+
+Uploads return HTTP `202` with a `job_id`. Poll the job endpoint until `status`
+is `done`, then use the returned preset's category and name for playback. Handle
+`error` as a failed upload. The entire multipart request is limited to 64 MiB
+(HTTP `413` when exceeded), and two uploads/transcodes can run at once (HTTP `503`
+when capacity is occupied). Retry after an active upload finishes.
+
 ### Audio
 
 | Method | Path | Description |
@@ -317,7 +359,7 @@ All routes are under `/api`. The server listens on port `8585` by default.
 | `POST` | `/api/stop` | Stop audio, live streams, and reset AirPlay for a camera (or all cameras if body empty) |
 | `POST` | `/api/pause` | Pause a live `/api/play-stream` stream (camera or all) — suspends ffmpeg via SIGSTOP without tearing down the camera connection |
 | `POST` | `/api/resume` | Resume a paused stream (camera or all) via SIGCONT |
-| `GET` | `/api/playback` | Current playback state for all enabled cameras (playing/paused/idle + source, detail, timestamps) |
+| `GET` | `/api/playback` | Current playback state for all enabled cameras (preparing/playing/paused/idle, `can_pause`, source, detail, timestamps) |
 | `POST` | `/api/broadcast` | Broadcast TTS or a preset to all cameras |
 | `GET` | `/api/cameras` | List cameras with online status |
 | `GET` | `/api/cameras/:name/info` | Query camera device info & streaming settings (ISAPI/ONVIF, read-only) |
@@ -558,13 +600,15 @@ For **AirPlay**, iPhone audio is decoded by the built-in RAOP receiver or
 `shairport-sync`, transcoded by `ffmpeg`, and streamed to the camera in real time.
 For **live streams** (`/api/play-stream`), the URL is resolved if it is a `.pls`
 or `.m3u` playlist, then `ffmpeg` decodes the live stream to G.711ulaw and pipes
-it directly to the camera's `Stream()` implementation. This works best with
-Hikvision cameras; go2rtc/ONVIF cameras buffer to a temp file and are not yet
-fully supported for continuous live streams.
+it directly to the camera's streaming implementation. Continuous playback is
+supported by Hikvision; go2rtc, Reolink, and ONVIF reject continuous streams
+instead of buffering indefinitely. Check `/api/cameras` capabilities before
+offering live-stream or AirPlay controls.
 
-A per-camera **gain** value (default `3.0`) is applied as a digital volume factor
-in the `ffmpeg` filter chain for TTS, presets, URL playback, live streams, and
-AirPlay.
+A per-camera **gain** value (default `3.0`) controls the digital volume of TTS,
+presets, URL playback, live streams, and AirPlay. Setting it to `0` produces
+G.711 silence. Per-request gain overrides are optional; omission preserves the
+camera setting.
 
 ### Hikvision ISAPI flow
 

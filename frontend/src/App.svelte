@@ -9,10 +9,13 @@
   import McpDocs from './components/McpDocs.svelte'
   import HomeAssistant from './components/HomeAssistant.svelte'
   import { curlState, setCurlBaseUrl, resetCurlBaseUrl } from '$lib/curl.svelte'
-  import { Toaster } from '$lib/components/ui/toast'
+  import { Toaster, toast } from '$lib/components/ui/toast'
+  import Announce from './components/Announce.svelte'
+  import Diagnostics from './components/Diagnostics.svelte'
   import { apiClient } from '$lib/api'
 
   let tab = $state('cameras')
+  let routeReady = $state(false)
   let cameras = $state([])
   let voices = $state([])
   let presets = $state([])
@@ -29,15 +32,16 @@
     stoppingAll = true
     try {
       await apiClient.stopAll()
+      toast.success('All camera audio stopped')
     } catch (e) {
-      // ignore — best effort
+      toast.error('Could not stop all cameras: ' + e.message)
     } finally {
       stoppingAll = false
     }
   }
 
   // --- Hash-based SPA routing ---
-  const validTabs = ['cameras', 'library', 'events', 'ha', 'config', 'rest', 'swagger', 'mcp']
+  const validTabs = ['cameras', 'library', 'events', 'announce', 'diagnostics', 'ha', 'config', 'rest', 'swagger', 'mcp']
 
   function tabFromHash() {
     const h = window.location.hash.replace(/^#\/?/, '')
@@ -52,48 +56,61 @@
 
   // Sync tab → hash on change
   $effect(() => {
-    setHash(tab)
+    if (routeReady) setHash(tab)
   })
 
   // Sync hash → tab on back/forward
   onMount(() => {
     tab = tabFromHash()
+    routeReady = true
     const onHashChange = () => { tab = tabFromHash() }
     window.addEventListener('hashchange', onHashChange)
     loadAll()
-    return () => window.removeEventListener('hashchange', onHashChange)
+    let refreshing = false
+    let active = true
+    const cameraRefresh = setInterval(async () => {
+      if (refreshing || document.hidden) return
+      refreshing = true
+      try {
+        const data = await apiClient.getCameras()
+        if (active) cameras = data ?? []
+      } catch {
+        // Retain the last metadata snapshot during a transient disconnect.
+      } finally { refreshing = false }
+    }, 10000)
+    return () => {
+      active = false
+      clearInterval(cameraRefresh)
+      window.removeEventListener('hashchange', onHashChange)
+    }
   })
 
   async function loadAll() {
     loading = true
     loadError = ''
-    try {
-      const [camerasData, voicesData, presetsData, healthData] = await Promise.all([
-        apiClient.getCameras(),
-        apiClient.getVoices(),
-        apiClient.getPresets(),
-        apiClient.health(),
-      ])
-      cameras = camerasData ?? []
-      voices = voicesData ?? []
-      presets = presetsData ?? []
-      version = healthData.version ?? ''
-    } catch (e) {
-      loadError = 'Failed to load data: ' + e.message
-    } finally {
-      loading = false
-    }
+    const resources = [
+      ['Cameras', () => apiClient.getCameras().then(data => cameras = data ?? [])],
+      ['Voices', () => apiClient.getVoices().then(data => voices = data ?? [])],
+      ['Library', () => apiClient.getPresets().then(data => presets = data ?? [])],
+      ['Server version', () => apiClient.health().then(data => version = data.version ?? '')],
+    ]
+    const results = await Promise.allSettled(resources.map(([, load]) => load()))
+    loadError = results.flatMap((result, i) => result.status === 'rejected'
+      ? [`${resources[i][0]}: ${result.reason?.message ?? result.reason}`] : []).join(' · ')
+    loading = false
   }
 
   const tabs = [
     { id: 'cameras', label: 'Cameras' },
     { id: 'library', label: 'Library' },
     { id: 'events',  label: 'Events' },
+    { id: 'announce', label: 'Announce' },
     { id: 'config',  label: 'Config' },
   ]
 
   // API sub-menu items (shown in dropdown under "API" button)
   const apiTabs = [
+    { id: 'diagnostics', label: 'Diagnostics' },
     { id: 'ha',      label: 'Home Assistant' },
     { id: 'rest',    label: 'REST Docs' },
     { id: 'mcp',     label: 'MCP' },
@@ -137,7 +154,7 @@
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted'}"
             onclick={(e) => { apiMenuAnchor = e.currentTarget.getBoundingClientRect(); showApiMenu = !showApiMenu }}
           >
-            API ▾
+            Tools ▾
           </button>
         </div>
       </nav>
@@ -174,8 +191,7 @@
             <span class="font-mono max-w-[120px] truncate hidden sm:inline">{curlState.baseUrl.replace(/^https?:\/\//, '')}</span>
           </button>
           {#if showUrlEditor}
-            <!-- svelte-ignore a11y_click_events_have_key_handlers, a11y_no_static_element_interactions -->
-            <div class="fixed inset-0 z-40" onclick={() => showUrlEditor = false}></div>
+            <button class="fixed inset-0 z-40" aria-label="Close URL editor" onclick={() => showUrlEditor = false}></button>
             <div class="absolute right-0 top-full mt-1 z-50 w-72 rounded-lg border bg-card p-3 shadow-lg">
               <p class="text-xs text-muted-foreground mb-2">Base URL for curl commands</p>
               <input
@@ -226,15 +242,14 @@
             : 'text-muted-foreground hover:text-foreground hover:bg-muted'}"
         onclick={(e) => { apiMenuAnchor = e.currentTarget.getBoundingClientRect(); showApiMenu = !showApiMenu }}
       >
-        API ▾
+        Tools ▾
       </button>
     </nav>
   </header>
 
   <!-- API dropdown menu (portaled to body level, fixed position) -->
   {#if showApiMenu}
-    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-    <div class="fixed inset-0 z-[60]" onclick={() => showApiMenu = false}></div>
+    <button class="fixed inset-0 z-[60]" aria-label="Close tools menu" onclick={() => showApiMenu = false}></button>
     <div
       class="fixed z-[61] min-w-[10rem] rounded-lg border bg-card shadow-lg py-1"
       style="top: {apiMenuAnchor.bottom + 4}px; left: {apiMenuAnchor.left}px;"
@@ -270,14 +285,23 @@
           <Loader2 class="h-4 w-4 animate-spin" />
           Loading…
         </div>
-      {:else if loadError}
-        <p class="text-sm text-destructive">{loadError}</p>
-      {:else if tab === 'cameras'}
+      {/if}
+      {#if loadError}
+        <div role="alert" class="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-destructive/40 p-3 text-sm">
+          <p class="text-destructive">Some data could not load. {loadError}</p>
+          <button class="rounded-md border px-3 py-1 hover:bg-muted disabled:opacity-50" onclick={loadAll} disabled={loading}>Retry</button>
+        </div>
+      {/if}
+      {#if tab === 'cameras'}
         <CameraGrid {cameras} {voices} {presets} onRefresh={loadAll} />
       {:else if tab === 'library'}
         <Library {presets} {voices} onRefresh={loadAll} />
       {:else if tab === 'events'}
         <EventLog />
+      {:else if tab === 'announce'}
+        <Announce {cameras} />
+      {:else if tab === 'diagnostics'}
+        <Diagnostics {cameras} />
       {:else if tab === 'ha'}
         <HomeAssistant />
       {:else if tab === 'config'}

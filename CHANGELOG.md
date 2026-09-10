@@ -5,6 +5,30 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.1.0] — 2026-09-10
+
+### Changed
+- Simplified camera cards into an overview with selected-camera audio controls, shared playback monitoring, retained drafts, explicit camera arranging, and a separate Diagnostics page.
+- Camera summaries include saved gain and playback capabilities. Playback reports preparation and whether pause/resume is available.
+- Audio requests inherit saved camera gain when omitted; explicit zero mutes. Category and name identify presets, with ambiguous name-only lookup rejected.
+- TTS and vision responses expose key presence without returning secrets. Empty key edits preserve existing credentials; `clear_api_key` explicitly removes them. Runtime TTS clients refresh after settings changes.
+- Browser access defaults to the server's own origin, with explicit origins configurable through `CAMSPEAK_CORS_ORIGIN`. Upload requests are bounded to 64 MiB and two concurrent uploads/transcodes.
+- Continuous streams, looped playback, and AirPlay are rejected for backends without continuous audio support; finite audio remains available.
+
+### Fixed
+- Shared request rate limiting, library path validation, unsafe Markdown rendering, and G.711 mute samples.
+- Upload progress synchronization, asynchronous upload completion before playback, playback cancellation ownership, and AirPlay session lifecycle races.
+- Release publication waits for successful tests before promoting images.
+
+### Upgrade notes
+- Update the companion Home Assistant integration to v0.15.0 alongside this server.
+- Custom browser clients on another origin must set an exact `CAMSPEAK_CORS_ORIGIN`; wildcard browser access is no longer accepted.
+- Specify both category and name when preset names are duplicated. Omit gain to use the saved camera volume; use zero only for mute.
+- Live streams, loops, and AirPlay require a continuous-audio-capable backend (currently Hikvision). Finite playback remains available on other configured backends.
+- Automated and simulated-browser checks passed. Real camera, iPhone, and installed Home Assistant acceptance still require verification on your deployment.
+
+---
+
 ## [v2.10.0] — 2026-08-11
 
 ### Added

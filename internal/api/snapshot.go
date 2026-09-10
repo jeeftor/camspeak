@@ -773,6 +773,7 @@ func (h *Handlers) fetchSnapshot(
 
 	// Helper: try go2rtc.
 	tryGo2rtc := func() ([]byte, error) {
+		go2rtcURL := h.configSnapshot().Go2rtcURL
 		streamName := cam.VisionStream
 		if streamOverride != "" && streamOverride != "main" && streamOverride != "sub" {
 			streamName = streamOverride
@@ -780,14 +781,14 @@ func (h *Handlers) fetchSnapshot(
 		if streamName == "" {
 			streamName = cam.Stream
 		}
-		if streamName == "" || h.cfg.Go2rtcURL == "" {
+		if streamName == "" || go2rtcURL == "" {
 			return nil, fmt.Errorf("no go2rtc stream configured for camera %s", cameraName)
 		}
 		width := cam.VisionWidth
 		if width <= 0 {
 			width = 1280
 		}
-		return grabFrameFromStream(h.cfg.Go2rtcURL, streamName, width, 10*time.Second)
+		return grabFrameFromStream(go2rtcURL, streamName, width, 10*time.Second)
 	}
 
 	// Helper: try Frigate.

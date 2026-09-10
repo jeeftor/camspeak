@@ -268,8 +268,10 @@ func stripStreamSuffix(name string) string {
 
 // SaveToDB inserts or replaces the given cameras into the cameras table.
 func SaveToDB(db *sql.DB, cameras []DiscoveredCamera) error {
-	const q = `INSERT OR REPLACE INTO cameras ` +
-		`(name, type, ip, user, pass, channel, stream) VALUES (?, ?, ?, ?, ?, ?, ?)`
+	const q = `INSERT INTO cameras ` +
+		`(name, type, ip, user, pass, channel, stream) VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(name) DO UPDATE SET type=excluded.type, ip=excluded.ip,
+		user=excluded.user, pass=excluded.pass, channel=excluded.channel, stream=excluded.stream`
 
 	tx, err := db.Begin()
 	if err != nil {

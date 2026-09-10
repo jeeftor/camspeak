@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -88,7 +89,7 @@ func New(
 	e.HidePort = true
 	e.Use(middleware.Recover())
 	e.Use(middleware.RequestID())
-	e.Use(rateLimitMiddleware)
+	e.Use(newRateLimitMiddleware())
 	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
 		LogStatus:    true,
 		LogMethod:    true,
@@ -111,23 +112,21 @@ func New(
 		},
 	}))
 	corsOrigin := os.Getenv("CAMSPEAK_CORS_ORIGIN")
-	if corsOrigin == "" {
-		corsOrigin = "*"
+	e.Use(browserOriginMiddleware(corsOrigin))
+	if corsOrigin != "" {
+		e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+			AllowOrigins: strings.Split(corsOrigin, ","),
+			AllowMethods: []string{
+				http.MethodGet,
+				http.MethodPost,
+				http.MethodPut,
+				http.MethodPatch,
+				http.MethodDelete,
+				http.MethodOptions,
+			},
+			AllowHeaders: []string{"Content-Type", "Authorization"},
+		}))
 	}
-	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-		// LAN-only service — allow all origins so the SPA works from any
-		// host:port the browser uses (localhost, 127.0.0.1, LAN IP, etc.)
-		AllowOrigins: []string{corsOrigin},
-		AllowMethods: []string{
-			http.MethodGet,
-			http.MethodPost,
-			http.MethodPut,
-			http.MethodPatch,
-			http.MethodDelete,
-			http.MethodOptions,
-		},
-		AllowHeaders: []string{"Content-Type", "Authorization"},
-	}))
 
 	// REST routes
 	api := e.Group("/api")
@@ -265,7 +264,14 @@ func (s *Server) Start(addr string) error {
 
 // Stop gracefully shuts down the server.
 func (s *Server) Stop() error {
-	return s.echo.Close()
+	// Close connections first: an unfinished multipart Read can otherwise prevent
+	// Body.Close from returning while upload shutdown waits for its worker.
+	err := s.echo.Close()
+	s.handlers.shutdownUploads()
+	stopAllOperations()
+	stopAllStreams()
+	s.handlers.reg.StopAll()
+	return err
 }
 
 // rateLimiterEntry pairs a limiter with the last time it was used.
@@ -274,47 +280,64 @@ type rateLimiterEntry struct {
 	lastSeen time.Time
 }
 
-// rateLimitMiddleware limits each client IP to 10 requests per second with a
-// burst of 20. Excess requests receive HTTP 429. Stale entries are evicted
-// every 5 minutes to prevent unbounded memory growth.
-func rateLimitMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
+// newRateLimitMiddleware owns one limiter set per server. Expiry happens during
+// requests, so idle servers require no background goroutine or shutdown timer.
+func newRateLimitMiddleware() echo.MiddlewareFunc {
 	var (
-		mu       sync.Mutex
-		limiters = make(map[string]*rateLimiterEntry)
+		mu        sync.Mutex
+		limiters  = make(map[string]*rateLimiterEntry)
+		lastSweep = time.Now()
 	)
-
-	// Evict entries not seen in 5 minutes.
-	go func() {
-		ticker := time.NewTicker(5 * time.Minute)
-		defer ticker.Stop()
-		for range ticker.C {
-			mu.Lock()
-			cutoff := time.Now().Add(-5 * time.Minute)
-			for ip, entry := range limiters {
-				if entry.lastSeen.Before(cutoff) {
-					delete(limiters, ip)
-				}
-			}
-			mu.Unlock()
-		}
-	}()
-
-	getLimiter := func(ip string) *rate.Limiter {
+	allow := func(ip string) bool {
 		mu.Lock()
 		defer mu.Unlock()
+		now := time.Now()
+		if now.Sub(lastSweep) >= time.Minute {
+			for key, entry := range limiters {
+				if now.Sub(entry.lastSeen) > 5*time.Minute {
+					delete(limiters, key)
+				}
+			}
+			lastSweep = now
+		}
 		entry, ok := limiters[ip]
 		if !ok {
+			if len(limiters) >= 10000 {
+				return false
+			}
 			entry = &rateLimiterEntry{limiter: rate.NewLimiter(rate.Limit(10), 20)}
 			limiters[ip] = entry
 		}
-		entry.lastSeen = time.Now()
-		return entry.limiter
+		entry.lastSeen = now
+		return entry.limiter.AllowN(now, 1)
 	}
-	return func(c echo.Context) error {
-		ip := c.RealIP()
-		if !getLimiter(ip).Allow() {
-			return echo.NewHTTPError(http.StatusTooManyRequests, "rate limit exceeded")
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			// Keep the emergency stop available even when another operation floods requests.
+			if c.Request().URL.Path != "/api/stop" && !allow(c.RealIP()) {
+				c.Response().Header().Set("Retry-After", "1")
+				return echo.NewHTTPError(http.StatusTooManyRequests, "rate limit exceeded")
+			}
+			return next(c)
 		}
-		return next(c)
+	}
+}
+
+// browserOriginMiddleware rejects cross-origin browser access unless explicitly
+// configured. Non-browser clients without Origin (including Home Assistant) work normally.
+func browserOriginMiddleware(allowed string) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			origin := c.Request().Header.Get(echo.HeaderOrigin)
+			if origin == "" || origin == c.Scheme()+"://"+c.Request().Host {
+				return next(c)
+			}
+			for _, candidate := range strings.Split(allowed, ",") {
+				if candidate != "*" && strings.TrimSpace(candidate) == origin {
+					return next(c)
+				}
+			}
+			return echo.NewHTTPError(http.StatusForbidden, "browser origin is not allowed")
+		}
 	}
 }

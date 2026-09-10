@@ -31,7 +31,7 @@
   }
 </script>
 
-<span class="relative inline-flex" onmouseenter={show} onmouseleave={hide} onfocus={show} onblur={hide}>
+<span role="group" class="relative inline-flex" onmouseenter={show} onmouseleave={hide} onfocus={show} onblur={hide}>
   {@render children?.()}
   {#if visible}
     <span

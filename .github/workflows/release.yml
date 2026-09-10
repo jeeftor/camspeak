@@ -42,6 +42,9 @@ jobs:
       - name: Build
         run: go build ./...
 
+      - name: Check frontend
+        run: cd frontend && bun run check && bun run test
+
       - name: Vet
         run: go vet ./...
 
@@ -51,7 +54,7 @@ jobs:
           version: v2.12.2
 
       - name: Test
-        run: go test ./...
+        run: go test -race ./...
 
   # Build amd64 natively on x64 runner
   docker-amd64:
@@ -139,7 +142,7 @@ jobs:
 
   # Merge both arch images into a single multi-arch manifest
   manifest:
-    needs: [docker-amd64, docker-arm64]
+    needs: [test, docker-amd64, docker-arm64]
     runs-on: ubuntu-latest
     permissions:
       contents: read

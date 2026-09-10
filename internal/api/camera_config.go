@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/labstack/echo/v4"
@@ -10,6 +11,7 @@ import (
 	"github.com/jeeftor/camspeak/internal/cameras"
 	"github.com/jeeftor/camspeak/internal/config"
 	"github.com/jeeftor/camspeak/internal/frigate"
+	"github.com/jeeftor/camspeak/internal/util"
 )
 
 // ListCamerasConfig handles GET /api/config/cameras — returns all configured cameras.
@@ -18,8 +20,9 @@ func (h *Handlers) ListCamerasConfig(c echo.Context) error {
 	if h.airplayMgr != nil {
 		apStatus = h.airplayMgr.Status()
 	}
-	cameras := make([]map[string]interface{}, 0, len(h.cfg.Cameras))
-	for name, cam := range h.cfg.Cameras {
+	cfg := h.configSnapshot()
+	cameras := make([]map[string]interface{}, 0, len(cfg.Cameras))
+	for name, cam := range cfg.Cameras {
 		sc := cam.Sanitized()
 		cameras = append(cameras, map[string]interface{}{
 			"name":            name,
@@ -52,19 +55,16 @@ func (h *Handlers) sortedCameraNames() []string {
 		name  string
 		order int
 	}
-	cams := make([]camSort, 0, len(h.cfg.Cameras))
-	for name, cfg := range h.cfg.Cameras {
+	cfg := h.configSnapshot()
+	cams := make([]camSort, 0, len(cfg.Cameras))
+	for name, cfg := range cfg.Cameras {
 		cams = append(cams, camSort{name: name, order: cfg.SortOrder})
 	}
 	// Sort by order, then by name for ties (or when order is 0).
-	for i := 0; i < len(cams); i++ {
-		for j := i + 1; j < len(cams); j++ {
-			if cams[i].order > cams[j].order ||
-				(cams[i].order == cams[j].order && cams[i].name > cams[j].name) {
-				cams[i], cams[j] = cams[j], cams[i]
-			}
-		}
-	}
+	sort.Slice(cams, func(i, j int) bool {
+		return cams[i].order < cams[j].order ||
+			(cams[i].order == cams[j].order && cams[i].name < cams[j].name)
+	})
 	names := make([]string, len(cams))
 	for i, c := range cams {
 		names[i] = c.name
@@ -75,6 +75,8 @@ func (h *Handlers) sortedCameraNames() []string {
 // ReorderCameras handles POST /api/config/cameras/reorder — sets sort_order
 // for each camera based on the provided name list.
 func (h *Handlers) ReorderCameras(c echo.Context) error {
+	h.configEditMu.Lock()
+	defer h.configEditMu.Unlock()
 	var req struct {
 		Cameras []string `json:"cameras"`
 	}
@@ -94,10 +96,11 @@ func (h *Handlers) ReorderCameras(c echo.Context) error {
 			continue
 		}
 		cam.SortOrder = i + 1 // 1-based so 0 remains "unset"
-		h.cfg.Cameras[name] = cam
 		if err := config.SaveCamera(h.db, name, cam); err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
+		h.cfg.Cameras[name] = cam
+		h.reg.UpdateConfig(name, cam)
 	}
 
 	h.logger(c).Info("cameras reordered", "order", req.Cameras)
@@ -106,24 +109,27 @@ func (h *Handlers) ReorderCameras(c echo.Context) error {
 
 // CreateCamera handles POST /api/config/cameras — adds or updates a camera.
 func (h *Handlers) CreateCamera(c echo.Context) error {
+	h.configEditMu.Lock()
+	defer h.configEditMu.Unlock()
 	log := h.logger(c)
 	var req struct {
-		Name           string  `json:"name"`
-		Type           string  `json:"type"`
-		IP             string  `json:"ip"`
-		User           string  `json:"user"`
-		Pass           string  `json:"pass"`
-		Channel        int     `json:"channel"`
-		Stream         string  `json:"stream"`
-		Enabled        *bool   `json:"enabled"` // pointer so we can distinguish unset from false
-		AirPlayEnabled *bool   `json:"airplay_enabled"`
-		AirPlayName    string  `json:"airplay_name"`
-		AirPlayModel   string  `json:"airplay_model"`
-		Gain           float64 `json:"gain"`
-		VisionPrompt   string  `json:"vision_prompt"`
-		VisionStream   string  `json:"vision_stream"`
-		VisionWidth    int     `json:"vision_width"`
-		SnapMethod     string  `json:"snap_method"`
+		Name           string   `json:"name"`
+		Type           string   `json:"type"`
+		IP             string   `json:"ip"`
+		User           *string  `json:"user"`
+		Pass           string   `json:"pass"`
+		Channel        int      `json:"channel"`
+		Stream         *string  `json:"stream"`
+		Enabled        *bool    `json:"enabled"` // pointer so we can distinguish unset from false
+		AirPlayEnabled *bool    `json:"airplay_enabled"`
+		AirPlayName    *string  `json:"airplay_name"`
+		AirPlayModel   *string  `json:"airplay_model"`
+		Gain           *float64 `json:"gain"`
+		VisionPrompt   *string  `json:"vision_prompt"`
+		VisionStream   *string  `json:"vision_stream"`
+		VisionWidth    *int     `json:"vision_width"`
+		SnapMethod     *string  `json:"snap_method"`
+		ClearPassword  bool     `json:"clear_password"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid JSON body")
@@ -131,7 +137,7 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 	if req.Name == "" || req.IP == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "name and ip are required")
 	}
-	existing, hasExisting := h.cfg.Cameras[req.Name]
+	existing, hasExisting := h.configSnapshot().Cameras[req.Name]
 
 	// If editing an existing camera and enabled isn't specified, preserve current value.
 	enabled := false
@@ -147,12 +153,9 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 	if camType == "" && hasExisting {
 		camType = existing.Type
 	}
-	user := req.User
-	if user == "" && hasExisting {
-		user = existing.User
-	}
+	user := stringUpdate(req.User, existing.User)
 	pass := req.Pass
-	if pass == "" && hasExisting {
+	if pass == "" && hasExisting && !req.ClearPassword {
 		pass = existing.Pass
 	}
 	channel := req.Channel
@@ -162,10 +165,7 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 	if channel == 0 {
 		channel = 1
 	}
-	stream := req.Stream
-	if stream == "" && hasExisting {
-		stream = existing.Stream
-	}
+	stream := stringUpdate(req.Stream, existing.Stream)
 
 	// Auto-detect camera type only when adding a new camera and type is not provided.
 	if camType == "" {
@@ -179,7 +179,7 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 	}
 	// For Reolink cameras, default stream name to the camera name so audio can be
 	// routed through go2rtc if a go2rtc instance is reachable.
-	if camType == "reolink" && stream == "" {
+	if camType == "reolink" && stream == "" && !hasExisting && req.Stream == nil {
 		stream = req.Name
 	}
 
@@ -190,42 +190,30 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 	} else if hasExisting {
 		airPlayEnabled = existing.AirPlayEnabled
 	}
-	airPlayName := req.AirPlayName
-	if airPlayName == "" && hasExisting {
-		airPlayName = existing.AirPlayName
-	}
-	airPlayModel := req.AirPlayModel
-	if airPlayModel == "" && hasExisting {
-		airPlayModel = existing.AirPlayModel
-	}
-	gain := req.Gain
-	if gain == 0 && hasExisting {
+	airPlayName := stringUpdate(req.AirPlayName, existing.AirPlayName)
+	airPlayModel := stringUpdate(req.AirPlayModel, existing.AirPlayModel)
+	gain := 3.0
+	if hasExisting {
 		gain = existing.Gain
 	}
-	if gain == 0 {
-		gain = 3.0
+	if req.Gain != nil {
+		gain = *req.Gain
+	}
+	if gain < 0 || gain > 10 {
+		return echo.NewHTTPError(http.StatusBadRequest, "gain must be between 0 and 10")
 	}
 
 	// Preserve existing vision_prompt if not provided
-	visionPrompt := req.VisionPrompt
-	if visionPrompt == "" && hasExisting {
-		visionPrompt = existing.VisionPrompt
-	}
+	visionPrompt := stringUpdate(req.VisionPrompt, existing.VisionPrompt)
 	// Preserve existing vision_stream if not provided
-	visionStream := req.VisionStream
-	if visionStream == "" && hasExisting {
-		visionStream = existing.VisionStream
-	}
+	visionStream := stringUpdate(req.VisionStream, existing.VisionStream)
 	// Preserve existing vision_width if not provided
-	visionWidth := req.VisionWidth
-	if visionWidth == 0 && hasExisting {
-		visionWidth = existing.VisionWidth
+	visionWidth := existing.VisionWidth
+	if req.VisionWidth != nil {
+		visionWidth = *req.VisionWidth
 	}
 	// Preserve existing snap_method if not provided
-	snapMethod := req.SnapMethod
-	if snapMethod == "" && hasExisting {
-		snapMethod = existing.SnapMethod
-	}
+	snapMethod := stringUpdate(req.SnapMethod, existing.SnapMethod)
 	// Auto-set limitation note for Reolink cameras (native audio not implemented).
 	note := ""
 	if camType == "reolink" {
@@ -253,33 +241,16 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 		VisionWidth:    visionWidth,
 		SnapMethod:     snapMethod,
 		Note:           note,
+		SortOrder:      existing.SortOrder,
+	}
+	if err := h.reg.ValidateConfig(req.Name, cam); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 	if err := config.SaveCamera(h.db, req.Name, cam); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	// Update running config + registry
-	h.cfg.Cameras[req.Name] = cam
-	h.reg.UpdateConfig(req.Name, cam)
-	if cam.Enabled {
-		if err := h.reg.EnableCamera(req.Name, cam); err != nil {
-			h.logger(c).Error("camera enable failed", "name", req.Name, "err", err)
-		}
-	} else {
-		h.reg.DisableCamera(req.Name)
-		if h.airplayMgr != nil {
-			h.airplayMgr.Disable(req.Name)
-		}
-	}
-	// If AirPlay name/model/gain changed, restart the receiver so the new mDNS records are advertised
-	// and the new gain takes effect on the next stream.
-	airplayChanged := hasExisting &&
-		(existing.AirPlayName != cam.AirPlayName || existing.AirPlayModel != cam.AirPlayModel || existing.Gain != cam.Gain)
-	if h.airplayMgr != nil && cam.AirPlayEnabled && cam.Enabled && airplayChanged {
-		h.airplayMgr.Disable(req.Name)
-		if err := h.airplayMgr.Enable(req.Name); err != nil {
-			h.logger(c).
-				Warn("AirPlay restart after name/model/gain change failed", "camera", req.Name, "err", err)
-		}
+	if err := h.applyCamera(req.Name, cam); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	h.logger(c).Info(
 		"camera saved",
@@ -296,15 +267,50 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 	)
 	return c.JSON(http.StatusCreated, map[string]interface{}{
 		"name":          req.Name,
-		"type":          req.Type,
-		"ip":            req.IP,
-		"channel":       req.Channel,
-		"stream":        req.Stream,
+		"type":          cam.Type,
+		"ip":            cam.IP,
+		"channel":       cam.Channel,
+		"stream":        cam.Sanitized().Stream,
 		"enabled":       enabled,
 		"airplay_name":  cam.AirPlayName,
 		"airplay_model": cam.AirPlayModel,
 		"vision_prompt": visionPrompt,
 	})
+}
+
+func stringUpdate(value *string, previous string) string {
+	if value != nil {
+		return *value
+	}
+	return previous
+}
+
+// applyCamera synchronizes the runtime speaker and AirPlay receiver after persistence.
+// The caller serializes mutations with configEditMu.
+func (h *Handlers) applyCamera(name string, cam config.CameraConfig) error {
+	stopOperation(name)
+	stopStream(name)
+	effective := config.Config{Cameras: map[string]config.CameraConfig{name: cam}}
+	config.ApplyEnvOverrides(&effective)
+	cam = effective.Cameras[name]
+	if h.airplayMgr != nil {
+		h.airplayMgr.Disable(name)
+	}
+	if cam.Enabled {
+		if err := h.reg.EnableCamera(name, cam); err != nil {
+			return err
+		}
+	} else {
+		h.reg.DisableCamera(name)
+	}
+	h.reg.UpdateConfig(name, cam)
+	h.cfgMu.Lock()
+	h.cfg.Cameras[name] = cam
+	h.cfgMu.Unlock()
+	if h.airplayMgr != nil {
+		return h.airplayMgr.UpdateCamera(name, cam)
+	}
+	return nil
 }
 
 // DetectCameraType handles POST /api/config/cameras/detect — probes a camera
@@ -324,9 +330,10 @@ func (h *Handlers) DetectCameraType(c echo.Context) error {
 	}
 
 	detected := cameras.ProbeCameraType(req.IP, req.User, req.Pass)
-	go2rtcURL := h.cfg.Go2rtcURL
+	cfg := h.configSnapshot()
+	go2rtcURL := cfg.Go2rtcURL
 	if go2rtcURL == "" {
-		go2rtcURL = cameras.FindGo2rtcURL(h.cfg.FrigateURL)
+		go2rtcURL = cameras.FindGo2rtcURL(cfg.FrigateURL)
 	}
 	if go2rtcURL != "" {
 		log.Debug("detected go2rtc for camera probe", "url", go2rtcURL)
@@ -352,12 +359,22 @@ func (h *Handlers) DetectCameraType(c echo.Context) error {
 
 // DeleteCameraConfig handles DELETE /api/config/cameras/:name — removes a camera.
 func (h *Handlers) DeleteCameraConfig(c echo.Context) error {
+	h.configEditMu.Lock()
+	defer h.configEditMu.Unlock()
 	name := c.Param("name")
 	if err := config.DeleteCamera(h.db, name); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+	stopOperation(name)
+	stopStream(name)
+	clearPlayback(name)
+	if h.airplayMgr != nil {
+		h.airplayMgr.RemoveCamera(name)
+	}
+	h.reg.RemoveCamera(name)
+	h.cfgMu.Lock()
 	delete(h.cfg.Cameras, name)
-	h.reg.DisableCamera(name)
+	h.cfgMu.Unlock()
 	return c.JSON(http.StatusOK, map[string]string{"deleted": name})
 }
 
@@ -375,31 +392,43 @@ func (h *Handlers) SetCameraVolume(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid JSON body")
 	}
-	if req.Gain < 0 {
-		return echo.NewHTTPError(http.StatusBadRequest, "gain must be >= 0")
-	}
-
-	// Update runtime gain (takes effect on next audio chunk).
-	h.reg.SetGain(name, req.Gain)
-
-	// Persist to config so it survives restarts.
-	cam, ok := h.cfg.Cameras[name]
-	if ok {
-		cam.Gain = req.Gain
-		h.cfg.Cameras[name] = cam
-		if err := config.SaveCamera(h.db, name, cam); err != nil {
-			log.Warn("volume: failed to persist gain", "camera", name, "err", err)
-		}
+	if err := h.setCameraGain(name, req.Gain); err != nil {
+		return err
 	}
 
 	log.Info("volume: set", "camera", name, "gain", req.Gain)
 	return c.JSON(http.StatusOK, map[string]any{"camera": name, "gain": req.Gain})
 }
 
+// setCameraGain serializes both REST and MCP volume updates with camera edits.
+func (h *Handlers) setCameraGain(name string, gain float64) error {
+	h.configEditMu.Lock()
+	defer h.configEditMu.Unlock()
+	if gain < 0 || gain > 10 {
+		return echo.NewHTTPError(http.StatusBadRequest, "gain must be between 0 and 10")
+	}
+	cam, ok := h.configSnapshot().Cameras[name]
+	if !ok {
+		return echo.NewHTTPError(http.StatusNotFound, "camera not found")
+	}
+	cam.Gain = gain
+	if err := config.SaveCamera(h.db, name, cam); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	h.reg.UpdateConfig(name, cam)
+	h.cfgMu.Lock()
+	h.cfg.Cameras[name] = cam
+	h.cfgMu.Unlock()
+
+	return nil
+}
+
 // ToggleCamera handles PATCH /api/config/cameras/:name/toggle — enables/disables a camera.
 func (h *Handlers) ToggleCamera(c echo.Context) error {
+	h.configEditMu.Lock()
+	defer h.configEditMu.Unlock()
 	name := c.Param("name")
-	cam, ok := h.cfg.Cameras[name]
+	cam, ok := h.configSnapshot().Cameras[name]
 	if !ok {
 		return echo.NewHTTPError(http.StatusNotFound, "camera not found")
 	}
@@ -407,23 +436,8 @@ func (h *Handlers) ToggleCamera(c echo.Context) error {
 	if err := config.SaveCamera(h.db, name, cam); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	h.cfg.Cameras[name] = cam
-	h.reg.UpdateConfig(name, cam)
-	if cam.Enabled {
-		if err := h.reg.EnableCamera(name, cam); err != nil {
-			h.logger(c).Error("camera enable failed", "name", name, "err", err)
-			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-		}
-		if h.airplayMgr != nil && cam.AirPlayEnabled {
-			if err := h.airplayMgr.Enable(name); err != nil {
-				h.logger(c).Warn("AirPlay enable failed", "camera", name, "err", err)
-			}
-		}
-	} else {
-		h.reg.DisableCamera(name)
-		if h.airplayMgr != nil {
-			h.airplayMgr.Disable(name)
-		}
+	if err := h.applyCamera(name, cam); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	h.logger(c).Info("camera toggled", "name", name, "enabled", cam.Enabled)
 	return c.JSON(http.StatusOK, map[string]interface{}{
@@ -441,7 +455,7 @@ func (h *Handlers) ListGo2rtcStreams(c echo.Context) error {
 	h.cfgMu.Unlock()
 
 	if go2rtcURL == "" {
-		go2rtcURL = cameras.FindGo2rtcURL(h.cfg.FrigateURL)
+		go2rtcURL = cameras.FindGo2rtcURL(h.configSnapshot().FrigateURL)
 	}
 	if go2rtcURL == "" {
 		return c.JSON(http.StatusOK, map[string]interface{}{
@@ -470,7 +484,7 @@ func (h *Handlers) ListGo2rtcStreams(c echo.Context) error {
 	for name, src := range streams {
 		result = append(result, streamInfo{
 			Name:           name,
-			Source:         src,
+			Source:         util.RedactURLString(src),
 			HasBackchannel: strings.Contains(src, "backchannel"),
 		})
 	}
@@ -510,6 +524,8 @@ func (h *Handlers) CameraInfoHandler(c echo.Context) error {
 // DiscoverCameras handles POST /api/cameras/discover — queries Frigate for cameras,
 // saves them to the database, and returns the discovered list.
 func (h *Handlers) DiscoverCameras(c echo.Context) error {
+	h.configEditMu.Lock()
+	defer h.configEditMu.Unlock()
 	h.cfgMu.Lock()
 	frigateURL := h.cfg.FrigateURL
 	h.cfgMu.Unlock()
@@ -537,37 +553,18 @@ func (h *Handlers) DiscoverCameras(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	// Reload config so the new cameras are live
-	h.cfgMu.Lock()
-	for _, cam := range cameras {
-		stream := cam.Stream
-		note := ""
-		// For Reolink cameras, default the go2rtc stream name to the camera name.
-		if cam.Type == "reolink" {
-			note = "Limited — Reolink audio requires go2rtc with " +
-				"#backchannel=1 (doorbells only, firmware-dependent)"
-			if stream == "" {
-				stream = cam.Name
-			}
-		}
-		h.cfg.Cameras[cam.Name] = config.CameraConfig{
-			Type:    cam.Type,
-			IP:      cam.IP,
-			User:    cam.User,
-			Pass:    cam.Pass,
-			Channel: cam.Channel,
-			Stream:  stream,
-			Enabled: true,
-			Note:    note,
+	loaded, err := config.Load(h.db)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	for _, discovered := range cameras {
+		if err := h.applyCamera(discovered.Name, loaded.Cameras[discovered.Name]); err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 	}
-	h.cfgMu.Unlock()
-
-	// Persist the note for cameras that have one (SaveToDB doesn't include the note column).
-	for name, cam := range h.cfg.Cameras {
-		if cam.Note != "" {
-			_ = config.SaveCamera(h.db, name, cam)
-		}
+	for i := range cameras {
+		cameras[i].Pass = ""
+		cameras[i].Stream = util.RedactURLString(cameras[i].Stream)
 	}
 
 	h.logger(c).Info("cameras discovered via Frigate", "count", len(cameras), "frigate", frigateURL)

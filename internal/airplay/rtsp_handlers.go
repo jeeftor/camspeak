@@ -118,6 +118,7 @@ func (s *Server) handleAnnounce(req *rtspRequest, cseq string) *rtspResponse {
 
 	// Create new session
 	sess := &session{
+		done:           make(chan struct{}),
 		aesKey:         aesKey,
 		aesIV:          aesIV,
 		fmtp:           fmtp,

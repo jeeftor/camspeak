@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "test": "bun test",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"
@@ -11,11 +13,17 @@
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.2.0",
     "@tailwindcss/vite": "^4.3.3",
+    "@types/bun": "^1.4.2",
+    "@types/jsdom": "^30.0.0",
+    "jsdom": "^30.0.1",
     "svelte": "^5.57.0",
+    "svelte-check": "^4.7.6",
     "tailwindcss": "^4.3.3",
+    "typescript": "^6",
     "vite": "^8.2.2"
   },
   "dependencies": {
+    "dompurify": "^3.4.15",
     "lucide-svelte": "^1.0.1",
     "marked": "^18.0.12"
   }

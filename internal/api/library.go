@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -45,11 +47,11 @@ func (h *Handlers) TTSPreview(c echo.Context) error {
 
 	voice := req.Voice
 	if voice == "" {
-		voice = h.cfg.TTS.DefaultVoice
+		voice = h.configSnapshot().TTS.DefaultVoice
 	}
 
 	start := time.Now()
-	wav, err := h.tts.Speak(req.Text, voice)
+	wav, err := h.ttsClient().Speak(req.Text, voice)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("TTS failed: %s", err))
 	}
@@ -81,17 +83,20 @@ func (h *Handlers) GeneratePreset(c echo.Context) error {
 	if req.Category == "" {
 		req.Category = "default"
 	}
+	if err := library.ValidateIdentifier(req.Category, req.Name); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
 
 	voice := req.Voice
 	if voice == "" {
-		voice = h.cfg.TTS.DefaultVoice
+		voice = h.configSnapshot().TTS.DefaultVoice
 	}
 
 	start := time.Now()
 	t := NewStepTimings(2)
 
 	ttsStart := time.Now()
-	wav, err := h.tts.Speak(req.Text, voice)
+	wav, err := h.ttsClient().Speak(req.Text, voice)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("TTS failed: %s", err))
 	}
@@ -131,6 +136,9 @@ func (h *Handlers) createStreamPreset(c echo.Context, req genPresetReq) error {
 	if req.Category == "" {
 		req.Category = "streams"
 	}
+	if err := library.ValidateIdentifier(req.Category, req.Name); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
 
 	preset, err := h.store.SaveStream(req.Category, req.Name, req.URL)
 	if err != nil {
@@ -147,11 +155,39 @@ func (h *Handlers) createStreamPreset(c echo.Context, req genPresetReq) error {
 }
 
 // UploadPreset handles POST /api/library/upload — audio file → save preset.
-// The file upload (HTTP transfer) completes before this handler runs (Echo
-// parses the multipart body first). The handler saves the temp file, starts
-// ffmpeg transcoding in a goroutine, and returns a job ID immediately so the
+// The handler bounds multipart parsing, saves the temp file, starts ffmpeg
+// transcoding in a goroutine, and returns a job ID immediately so the
 // client can poll GET /api/library/upload/jobs/:id for transcoding progress.
 func (h *Handlers) UploadPreset(c echo.Context) error {
+	ctx, ok := h.uploads.acquire()
+	if !ok {
+		return echo.NewHTTPError(
+			http.StatusServiceUnavailable,
+			"upload capacity reached; retry after an active upload finishes",
+		)
+	}
+	background := false
+	defer func() {
+		if !background {
+			h.uploads.release()
+		}
+	}()
+	request := c.Request()
+	// Include multipart overhead in the limit so neither fields nor files can bypass it.
+	request.Body = http.MaxBytesReader(c.Response(), request.Body, 64<<20)
+	stopClose := context.AfterFunc(ctx, func() { _ = request.Body.Close() })
+	defer stopClose()
+	if err := request.ParseMultipartForm(1 << 20); err != nil {
+		var limitErr *http.MaxBytesError
+		if errors.As(err, &limitErr) {
+			return echo.NewHTTPError(
+				http.StatusRequestEntityTooLarge,
+				"upload request exceeds 64 MiB",
+			)
+		}
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid multipart upload")
+	}
+	defer func() { _ = request.MultipartForm.RemoveAll() }()
 	name := c.FormValue("name")
 	category := c.FormValue("category")
 
@@ -161,6 +197,9 @@ func (h *Handlers) UploadPreset(c echo.Context) error {
 
 	if category == "" {
 		category = "uploads"
+	}
+	if err := library.ValidateIdentifier(category, name); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	file, err := c.FormFile("file")
@@ -191,16 +230,24 @@ func (h *Handlers) UploadPreset(c echo.Context) error {
 			fmt.Sprintf("reading upload: %s", err),
 		)
 	}
-	tmp.Close()
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return echo.NewHTTPError(http.StatusInternalServerError, "closing upload file")
+	}
 
 	// Create a job and start transcoding in the background.
 	job := newUploadJob(name, category, file.Filename)
 	jobID := job.ID
+	log := h.logger(c)
+	background = true
 
 	go func() {
+		defer h.uploads.release()
 		defer os.Remove(tmpName)
+		transcodeCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+		defer cancel()
 
-		preset, err := h.store.SaveFileWithProgress(category, name, tmpName,
+		preset, err := h.store.SaveFileWithProgressContext(transcodeCtx, category, name, tmpName,
 			func(percent float64) {
 				step := "Transcoding"
 				if percent < 0 {
@@ -211,13 +258,13 @@ func (h *Handlers) UploadPreset(c echo.Context) error {
 			},
 		)
 		if err != nil {
-			h.log.Error("upload: transcode failed", "job", jobID, "name", name, "err", err)
+			log.Error("upload: transcode failed", "job", jobID, "name", name, "err", err)
 			failUploadJob(jobID, err.Error())
 			return
 		}
 
 		completeUploadJob(jobID, preset)
-		h.log.Info("upload: done", "job", jobID, "name", name, "category", category)
+		log.Info("upload: done", "job", jobID, "name", name, "category", category)
 	}()
 
 	// Clean up old completed jobs (keep for 10 minutes so clients can read
@@ -265,6 +312,16 @@ func (h *Handlers) RenamePreset(c echo.Context) error {
 
 	if body.Name == "" && body.Category == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "must provide name or category")
+	}
+	category, name := body.Category, body.Name
+	if category == "" {
+		category = c.Param("category")
+	}
+	if name == "" {
+		name = c.Param("name")
+	}
+	if err := library.ValidateIdentifier(category, name); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	preset, err := h.store.Rename(c.Param("category"), c.Param("name"), body.Category, body.Name)

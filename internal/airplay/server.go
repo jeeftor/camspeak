@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	clog "github.com/charmbracelet/log"
 	"github.com/grandcat/zeroconf"
@@ -43,6 +44,12 @@ type Server struct {
 	// Active session
 	sessionMu sync.Mutex
 	session   *session
+	requestMu sync.Mutex // serialize setup/record/teardown against shutdown
+	running   atomic.Bool
+	stopped   atomic.Bool
+	stopOnce  sync.Once
+	connMu    sync.Mutex
+	conns     map[net.Conn]struct{}
 
 	// FairPlay per-connection state (mode derived in step 1, session key in step 2)
 	fpMu         sync.Mutex
@@ -129,6 +136,9 @@ func (s *Server) SetLogLevel(level clog.Level) {
 
 // Start begins listening for RAOP connections and advertising via mDNS.
 func (s *Server) Start() error {
+	if s.stopped.Load() {
+		return fmt.Errorf("receiver is stopped")
+	}
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", s.port))
 	if err != nil {
 		return fmt.Errorf("listening on port %d: %w", s.port, err)
@@ -219,6 +229,7 @@ func (s *Server) Start() error {
 
 	s.log.Info("AirPlay receiver started", "port", s.port, "mDNS", raopName)
 
+	s.running.Store(true)
 	go s.acceptLoop()
 
 	return nil
@@ -226,23 +237,37 @@ func (s *Server) Start() error {
 
 // Stop shuts down the RAOP server.
 func (s *Server) Stop() {
-	if s.airplayZC != nil {
-		s.airplayZC.Shutdown()
-	}
-	if s.zeroconf != nil {
-		s.zeroconf.Shutdown()
-	}
-	if s.listener != nil {
-		s.listener.Close()
-	}
-	s.sessionMu.Lock()
-	if s.session != nil {
-		s.session.teardown()
-		s.session = nil
-	}
-	s.sessionMu.Unlock()
-	s.log.Info("AirPlay receiver stopped")
+	s.stopOnce.Do(func() {
+		s.stopped.Store(true)
+		s.running.Store(false)
+		if s.airplayZC != nil {
+			s.airplayZC.Shutdown()
+		}
+		if s.zeroconf != nil {
+			s.zeroconf.Shutdown()
+		}
+		if s.listener != nil {
+			s.listener.Close()
+		}
+		s.connMu.Lock()
+		for conn := range s.conns {
+			_ = conn.Close()
+		}
+		s.connMu.Unlock()
+		s.requestMu.Lock()
+		defer s.requestMu.Unlock()
+		s.sessionMu.Lock()
+		if s.session != nil {
+			s.session.teardown()
+			s.session = nil
+		}
+		s.sessionMu.Unlock()
+		s.log.Info("AirPlay receiver stopped")
+	})
 }
+
+// IsRunning reports whether the RTSP listener and advertisements are active.
+func (s *Server) IsRunning() bool { return s.running.Load() }
 
 func (s *Server) acceptLoop() {
 	for {
@@ -250,12 +275,28 @@ func (s *Server) acceptLoop() {
 		if err != nil {
 			return // listener closed
 		}
+		s.connMu.Lock()
+		if s.stopped.Load() {
+			s.connMu.Unlock()
+			_ = conn.Close()
+			return
+		}
+		if s.conns == nil {
+			s.conns = make(map[net.Conn]struct{})
+		}
+		s.conns[conn] = struct{}{}
+		s.connMu.Unlock()
 		go s.handleConn(conn)
 	}
 }
 
 func (s *Server) handleConn(conn net.Conn) {
 	defer conn.Close()
+	defer func() {
+		s.connMu.Lock()
+		delete(s.conns, conn)
+		s.connMu.Unlock()
+	}()
 	remote := conn.RemoteAddr().String()
 	s.log.Info("AirPlay: client connected", "from", remote)
 

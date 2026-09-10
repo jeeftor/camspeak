@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"sync"
 	"time"
 
 	clog "github.com/charmbracelet/log"
@@ -31,9 +32,10 @@ type session struct {
 	controlConn *net.UDPConn
 	timingConn  *net.UDPConn
 
-	decoder *alacDecoder
-	stream  *audioStream
-	done    chan struct{}
+	decoder  *alacDecoder
+	stream   *audioStream
+	done     chan struct{}
+	stopOnce sync.Once
 }
 
 // initDecoder creates an ALAC decoder from the fmtp parameters.
@@ -48,6 +50,9 @@ func (s *session) initDecoder() error {
 
 // setupAudioReceiver creates a UDP socket for receiving audio RTP packets.
 func (s *session) setupAudioReceiver() (int, error) {
+	if s.audioConn != nil {
+		return s.audioConn.LocalAddr().(*net.UDPAddr).Port, nil
+	}
 	addr, err := net.ResolveUDPAddr("udp4", ":0")
 	if err != nil {
 		return 0, err
@@ -62,13 +67,16 @@ func (s *session) setupAudioReceiver() (int, error) {
 
 // setupControlTiming creates UDP sockets for control and timing channels.
 func (s *session) setupControlTiming() (int, int, error) {
+	if s.controlConn != nil && s.timingConn != nil {
+		return s.controlConn.LocalAddr().(*net.UDPAddr).Port,
+			s.timingConn.LocalAddr().(*net.UDPAddr).Port, nil
+	}
 	// Control port
 	cAddr, _ := net.ResolveUDPAddr("udp4", ":0")
 	cConn, err := net.ListenUDP("udp4", cAddr)
 	if err != nil {
 		return 0, 0, err
 	}
-	s.controlConn = cConn
 	controlPort := cConn.LocalAddr().(*net.UDPAddr).Port
 
 	// Timing port
@@ -79,6 +87,7 @@ func (s *session) setupControlTiming() (int, int, error) {
 		return 0, 0, err
 	}
 	s.timingConn = tConn
+	s.controlConn = cConn
 	timingPort := tConn.LocalAddr().(*net.UDPAddr).Port
 
 	// Start timing and control listeners
@@ -90,12 +99,17 @@ func (s *session) setupControlTiming() (int, int, error) {
 
 // startStreaming begins the audio receive → decode → transcode → camera pipeline.
 func (s *session) startStreaming() error {
+	if s.stream != nil {
+		return nil
+	}
+	if s.audioConn == nil || s.controlConn == nil || s.timingConn == nil {
+		return fmt.Errorf("audio transport has not been set up")
+	}
 	stream, err := newAudioStream(s.speaker, s.log, s.primeSilenceMs, s.gain)
 	if err != nil {
 		return err
 	}
 	s.stream = stream
-	s.done = make(chan struct{})
 
 	go s.audioReceiveLoop()
 	return nil
@@ -253,7 +267,7 @@ func (s *session) timingLoop() {
 		if err != nil {
 			return
 		}
-		if n < 8 {
+		if n < 16 {
 			continue
 		}
 
@@ -309,24 +323,22 @@ func (s *session) flush() {}
 
 // teardown closes all connections and sends accumulated audio to the camera.
 func (s *session) teardown() {
-	if s.done != nil {
-		select {
-		case <-s.done:
-		default:
+	s.stopOnce.Do(func() {
+		if s.done != nil {
 			close(s.done)
 		}
-	}
 
-	if s.audioConn != nil {
-		s.audioConn.Close()
-	}
-	if s.controlConn != nil {
-		s.controlConn.Close()
-	}
-	if s.timingConn != nil {
-		s.timingConn.Close()
-	}
-	if s.stream != nil {
-		s.stream.finish()
-	}
+		if s.audioConn != nil {
+			s.audioConn.Close()
+		}
+		if s.controlConn != nil {
+			s.controlConn.Close()
+		}
+		if s.timingConn != nil {
+			s.timingConn.Close()
+		}
+		if s.stream != nil {
+			s.stream.finish()
+		}
+	})
 }

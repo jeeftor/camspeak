@@ -37,10 +37,13 @@
 </script>
 
 <div
+  role="group"
   class="copy-wrapper"
   class:preview-enabled={preview && !disabled}
   onmouseover={() => { if (preview && text && !disabled) showTooltip = true }}
   onmouseout={() => { showTooltip = false }}
+  onfocus={() => { if (preview && text && !disabled) showTooltip = true }}
+  onblur={() => { showTooltip = false }}
 >
   {#if size === 'sm'}
     <Button

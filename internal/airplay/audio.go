@@ -55,6 +55,8 @@ type audioStream struct {
 	streamDone chan error
 	quit       chan struct{} // closed by finish() to stop the reconnect loop
 	mu         sync.Mutex
+	finishOnce sync.Once
+	primePCM   []byte
 
 	bytesWritten int64 // bytes fed to ffmpeg stdin
 	reconnects   int64 // camera speaker reconnect attempts
@@ -77,10 +79,6 @@ func newAudioStream(
 		quit:       make(chan struct{}),
 	}
 
-	if gain == 0 {
-		gain = 1.0
-	}
-
 	cmd := exec.Command(
 		"ffmpeg",
 		"-f", "s16le",
@@ -100,6 +98,7 @@ func newAudioStream(
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		_ = stdin.Close()
 		return nil, fmt.Errorf("ffmpeg stdout: %w", err)
 	}
 	cmd.Stderr = &lineLogger{
@@ -110,25 +109,24 @@ func newAudioStream(
 	}
 
 	if err := cmd.Start(); err != nil {
+		_ = stdin.Close()
+		_ = stdout.Close()
 		return nil, fmt.Errorf("starting ffmpeg: %w", err)
 	}
 
 	as.ffmpegCmd = cmd
 	as.ffmpegIn = stdin
 
-	// Write prime silence — zero PCM S16LE at 44100 Hz stereo.
-	// This warms the camera's audio engine so the first real audio isn't choppy.
-	if primeMs > 0 {
-		primeSamples := (44100 * primeMs) / 1000
-		silence := make([]byte, primeSamples*4) // 4 bytes per stereo frame
-		_, _ = stdin.Write(silence)
-	}
-
 	// Reconnect loop: pass ffmpeg stdout directly to speaker.Stream.
 	// If the camera closes the session (idle timeout, network blip), reopen it
 	// so the next audio burst reaches the camera without a manual restart.
 	go func() {
-		defer func() { _ = cmd.Wait() }()
+		defer close(as.streamDone)
+		defer func() {
+			_ = stdin.Close()
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		}()
 		backoff := 2 * time.Second
 		const maxBackoff = 30 * time.Second
 		const successResetThreshold = 10 * time.Second
@@ -180,6 +178,13 @@ func newAudioStream(
 		}
 	}()
 
+	// Prime on the first write so startup returns a cancellable stream before
+	// any pipe I/O can block behind an unavailable camera.
+	if primeMs > 0 {
+		primeSamples := (44100 * primeMs) / 1000
+		as.primePCM = make([]byte, primeSamples*4)
+	}
+
 	return as, nil
 }
 
@@ -188,12 +193,22 @@ func newAudioStream(
 // silently dropped rather than spinning on a dead process.
 func (as *audioStream) writePCM(pcm []byte) {
 	as.mu.Lock()
-	defer as.mu.Unlock()
-	if as.ffmpegIn != nil {
-		if n, err := as.ffmpegIn.Write(pcm); err != nil {
+	input := as.ffmpegIn
+	prime := as.primePCM
+	as.primePCM = nil
+	as.mu.Unlock()
+	if input != nil {
+		if len(prime) > 0 {
+			pcm = append(prime, pcm...)
+		}
+		if n, err := input.Write(pcm); err != nil {
 			as.log.Warn("ffmpeg pipe write failed, closing pipe", "err", err)
-			_ = as.ffmpegIn.Close()
-			as.ffmpegIn = nil
+			_ = input.Close()
+			as.mu.Lock()
+			if as.ffmpegIn == input {
+				as.ffmpegIn = nil
+			}
+			as.mu.Unlock()
 		} else {
 			atomic.AddInt64(&as.bytesWritten, int64(n))
 		}
@@ -202,23 +217,21 @@ func (as *audioStream) writePCM(pcm []byte) {
 
 // finish signals the reconnect loop to stop and waits for it to exit.
 func (as *audioStream) finish() {
-	as.mu.Lock()
-	if as.ffmpegIn != nil {
-		_ = as.ffmpegIn.Close()
-		as.ffmpegIn = nil
-	}
-	as.mu.Unlock()
-
-	// Signal reconnect loop to stop, then kill ffmpeg so stdout closes
-	// and speaker.Stream returns promptly even if mid-session.
-	select {
-	case <-as.quit:
-	default:
+	as.finishOnce.Do(func() {
 		close(as.quit)
-	}
-	if as.ffmpegCmd != nil && as.ffmpegCmd.Process != nil {
-		_ = as.ffmpegCmd.Process.Kill()
-	}
+		as.mu.Lock()
+		input := as.ffmpegIn
+		as.ffmpegIn = nil
+		as.mu.Unlock()
+		// Cancellation must be able to break a blocked write without acquiring
+		// a lock held by that writer. Only this stream's child is terminated.
+		if as.ffmpegCmd != nil && as.ffmpegCmd.Process != nil {
+			_ = as.ffmpegCmd.Process.Kill()
+		}
+		if input != nil {
+			_ = input.Close()
+		}
+	})
 
 	select {
 	case <-as.streamDone:

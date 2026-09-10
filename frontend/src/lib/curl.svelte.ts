@@ -4,6 +4,7 @@
 //
 // Uses a reactive object pattern for Svelte 5 runes in .svelte.ts files:
 // components read `curlState.baseUrl` which is reactive.
+import { buildCurlCommand } from './curl-command'
 
 const STORAGE_KEY = 'camspeak_curl_base_url'
 
@@ -17,7 +18,7 @@ function getInitial() {
 
 export const curlState = $state({ baseUrl: getInitial() })
 
-export function setCurlBaseUrl(url) {
+export function setCurlBaseUrl(url: string) {
   curlState.baseUrl = url
   try { localStorage.setItem(STORAGE_KEY, url) } catch {}
 }
@@ -28,18 +29,12 @@ export function resetCurlBaseUrl() {
 }
 
 // Build a curl command string for a given API call.
-export function buildCurl(method, path, body) {
-  const url = `${curlState.baseUrl}${path}`
-  const parts = [`curl -X ${method} '${url}'`]
-  if (body && Object.keys(body).length > 0) {
-    parts.push(`  -H 'Content-Type: application/json'`)
-    parts.push(`  -d '${JSON.stringify(body)}'`)
-  }
-  return parts.join(' \\\n  ')
+export function buildCurl(method: string, path: string, body?: Record<string, unknown>) {
+  return buildCurlCommand(curlState.baseUrl, method, path, body)
 }
 
 // Copy text to clipboard, returns true on success.
-export async function copyToClipboard(text) {
+export async function copyToClipboard(text: string) {
   try {
     await navigator.clipboard.writeText(text)
     return true

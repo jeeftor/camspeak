@@ -1,866 +1,183 @@
-<script>
+<script lang="ts">
   import { onDestroy } from 'svelte'
-  import { Eye, Bell, Play, Pause, Loader2, FileAudio, X, MessageSquare, Square, Info, Airplay, Video, VideoOff } from 'lucide-svelte'
+  import { Airplay, Bell, Info, Loader2, SlidersHorizontal, Video, VideoOff } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
-  import { Input } from '$lib/components/ui/input'
-  import { Textarea } from '$lib/components/ui/textarea'
-  import { Card } from '$lib/components/ui/card'
-  import { Badge } from '$lib/components/ui/badge'
-  import CopyButton from '$lib/components/CopyButton.svelte'
-  import VoiceSelect from '$lib/components/VoiceSelect.svelte'
-  import PromptEditor from '$lib/components/PromptEditor.svelte'
   import GainSlider from '$lib/components/GainSlider.svelte'
   import CameraInfoModal from './CameraInfoModal.svelte'
-  import AudioPlayer from './AudioPlayer.svelte'
-  import { buildCurl } from '$lib/curl.svelte'
+  import PlaybackStrip from './PlaybackStrip.svelte'
   import { apiClient } from '$lib/api'
-  import { Tooltip } from '$lib/components/ui/tooltip'
-  import { formatTimingSummary, timingTooltipContent, isMobile, formatSeconds } from '$lib/utils'
+  import { saveCameraGain, uploadAudioToCamera } from '$lib/audio-actions'
+  import type { CameraSummary } from '$lib/types'
+  import type { AudioDraft } from '$lib/audio-draft'
+  import type { PlaybackMonitor } from '$lib/playback.svelte'
 
-  let { camera, voices = [], presets = [] } = $props()
-
-  let text = $state('')
-  let voice = $state('')
-  let preset = $state('')
-  let loopPreset = $state(0)
-  let selectedPresetIsStream = $derived(!!presets.find(x => x.name === preset)?.url)
-  let url = $state('')
-  let gain = $state(camera.gain ?? 3.0)
-  let busy = $state(false)
-  let streaming = $state(false)
-  let paused = $state(false)
-  let playbackDetail = $state('')
+  let { camera, draft = $bindable(), monitor, onOpen }: {
+    camera: CameraSummary
+    draft: AudioDraft
+    monitor: PlaybackMonitor
+    onOpen: () => void
+  } = $props()
+  let preview = $state(false)
+  let previewSrc = $state('')
+  let previewError = $state('')
+  let previewLoading = $state(false)
+  let previewTime = $state('')
+  let previewTimer: ReturnType<typeof setTimeout> | undefined
+  let previewController: AbortController | undefined
+  let uploadController: AbortController | undefined
+  let showInfo = $state(false)
   let status = $state('')
-  let statusType = $state('ok')
-  let snapshot = $state('')
-  let description = $state('')
-  let describeTiming = $state('')
-  let describeTimingsRaw = $state(undefined)
-  let describeTotalMs = $state(undefined)
-  let describeTtfsMs = $state(undefined)
-  let desktop = $state(!isMobile())
-  // Pre-fill from saved camera default; user can override per-session
-  const savedPrompt = camera.vision_prompt ?? ''
-  let visionPrompt = $state(savedPrompt)
-  let showPromptPopup = $state(false)
-  let showInfoModal = $state(false)
-  let isDragOver = $state(false)
-  let statusTimeout
+  let failed = $state(false)
+  let dragOver = $state(false)
+  let statusTimer: ReturnType<typeof setTimeout> | undefined
 
-  // Live JPEG preview: fetches /api/snapshot/:camera every 2s
-  let livePreview = $state(false)
-  let livePreviewSrc = $state('')
-  let livePreviewTimer = null
-  let livePreviewLoading = $state(false)
+  function feedback(message: string, error = false) {
+    clearTimeout(statusTimer)
+    status = message
+    failed = error
+    if (!error) statusTimer = setTimeout(() => { status = '' }, 5000)
+  }
 
-  async function fetchSnapshot() {
-    if (!camera.online) return
-    livePreviewLoading = true
+  async function snapshot() {
+    if (!preview) return
+    const controller = new AbortController()
+    previewController = controller
+    previewLoading = true
     try {
-      const res = await fetch(`/api/snapshot/${encodeURIComponent(camera.name)}`)
-      if (!res.ok) return
-      const blob = await res.blob()
-      if (livePreviewSrc) URL.revokeObjectURL(livePreviewSrc)
-      livePreviewSrc = URL.createObjectURL(blob)
-    } catch {
-      // keep last frame on error
+      const response = await apiClient.snapshot(camera.name, undefined, undefined, controller.signal)
+      const blob = await response.blob()
+      if (!preview || controller.signal.aborted) return
+      if (previewSrc) URL.revokeObjectURL(previewSrc)
+      previewSrc = URL.createObjectURL(blob)
+      previewTime = new Date().toLocaleTimeString()
+      previewError = ''
+    } catch (cause) {
+      if (!controller.signal.aborted) previewError = cause instanceof Error ? cause.message : String(cause)
     } finally {
-      livePreviewLoading = false
-    }
-  }
-
-  function startLivePreview() {
-    livePreview = true
-    fetchSnapshot()
-    livePreviewTimer = setInterval(fetchSnapshot, 2000)
-  }
-
-  function stopLivePreview() {
-    livePreview = false
-    if (livePreviewTimer) {
-      clearInterval(livePreviewTimer)
-      livePreviewTimer = null
-    }
-    if (livePreviewSrc) {
-      URL.revokeObjectURL(livePreviewSrc)
-      livePreviewSrc = ''
-    }
-  }
-
-  function toggleLivePreview() {
-    if (livePreview) stopLivePreview()
-    else startLivePreview()
-  }
-
-  // Waveform progress for the selected preset (0..1).
-  // Driven by a timer when playing to the camera — the actual audio
-  // plays on the camera speaker, not the browser, so we simulate progress
-  // based on the preset's known duration.
-  let waveformProgress = $state(-1) // -1 = not playing, 0..1 = playing
-  let waveformTimer = null
-  let waveformStartTime = 0
-  let waveformDuration = 0 // seconds
-
-  // Selected preset info for waveform
-  let selectedPreset = $derived(presets.find(x => x.name === preset))
-  let selectedPresetDuration = $derived(selectedPreset?.duration ?? 0)
-
-  function startWaveformProgress(durationSec) {
-    stopWaveformProgress()
-    if (durationSec <= 0) return
-    waveformDuration = durationSec
-    waveformStartTime = Date.now()
-    waveformProgress = 0
-    waveformTimer = setInterval(() => {
-      const elapsed = (Date.now() - waveformStartTime) / 1000
-      waveformProgress = Math.min(1, elapsed / durationSec)
-      if (waveformProgress >= 1) {
-        stopWaveformProgress()
+      if (!controller.signal.aborted) {
+        previewLoading = false
+        // Schedule after completion so slow cameras never overlap requests.
+        if (preview) previewTimer = setTimeout(snapshot, 2000)
       }
-    }, 100)
-  }
-
-  function stopWaveformProgress() {
-    if (waveformTimer) {
-      clearInterval(waveformTimer)
-      waveformTimer = null
-    }
-    waveformProgress = -1
-  }
-
-  // Stop waveform when playback ends (detected via poll)
-  $effect(() => {
-    if (!streaming && waveformProgress >= 0) {
-      stopWaveformProgress()
-    }
-  })
-
-  // VU meter: audio level (0.0–1.0) from SSE stream-levels endpoint
-  let audioLevel = $state(0)
-  let levelSSE = $state(null)
-
-  // Connect to stream-levels SSE when streaming, disconnect when not.
-  $effect(() => {
-    if (!streaming) {
-      audioLevel = 0
-      if (levelSSE) {
-        levelSSE.close()
-        levelSSE = null
-      }
-      return
-    }
-    if (levelSSE) return // already connected
-    const es = new EventSource('/api/stream-levels')
-    levelSSE = es
-    es.onmessage = (e) => {
-      try {
-        const levels = JSON.parse(e.data)
-        audioLevel = levels[camera.name] ?? 0
-      } catch { /* ignore parse errors */ }
-    }
-    es.onerror = () => {
-      // Will reconnect automatically; reset level to avoid stuck bar.
-      audioLevel = 0
-    }
-  })
-
-  onDestroy(() => {
-    if (snapshot) URL.revokeObjectURL(snapshot)
-    clearTimeout(statusTimeout)
-    if (levelSSE) levelSSE.close()
-    stopWaveformProgress()
-    stopLivePreview()
-  })
-
-  // Poll the server for playback state so the UI stays in sync even when
-  // playback is started/stopped from another client (REST, HA, etc.).
-  // Skipped while busy to avoid racing with in-flight requests.
-  $effect(() => {
-    const interval = setInterval(async () => {
-      if (busy) return
-      try {
-        const states = await apiClient.getPlayback()
-        const ps = states[camera.name]
-        if (ps) {
-          streaming = ps.state !== 'idle'
-          paused = ps.state === 'paused'
-          playbackDetail = ps.detail ?? ''
-        } else {
-          streaming = false
-          paused = false
-          playbackDetail = ''
-        }
-      } catch { /* server unreachable — keep last known state */ }
-    }, 3000)
-    return () => clearInterval(interval)
-  })
-
-  function setStatus(msg, type = 'ok') {
-    status = msg
-    statusType = type
-    if (!busy) {
-      clearTimeout(statusTimeout)
-      statusTimeout = setTimeout(() => (status = ''), 4000)
     }
   }
 
-  async function speak() {
-    if (!text) return
-    busy = true; status = ''
-    streaming = true; paused = false
-    playbackDetail = text.length > 40 ? text.slice(0, 40) + '…' : text
-    try {
-      const data = await apiClient.speak({ camera: camera.name, text, voice, gain })
-      const timing = formatTimingSummary(data.timings, data.total_ms, data.ttfs_ms)
-      setStatus(timing ? `✓ sent (${timing})` : '✓ sent')
-    } catch (e) {
-      streaming = false
-      setStatus('✗ ' + e.message, 'err')
-    } finally {
-      busy = false
-    }
+  function stopPreview() {
+    preview = false
+    clearTimeout(previewTimer)
+    previewController?.abort()
+    if (previewSrc) URL.revokeObjectURL(previewSrc)
+    previewSrc = ''
+    previewError = ''
+    previewLoading = false
   }
 
-  async function play() {
-    if (!preset) {
-      setStatus('select a preset first', 'warn')
-      return
-    }
-    const selected = presets.find(x => x.name === preset)
-    const isStream = !!selected?.url
-    busy = true; status = ''
-    streaming = true; paused = false
-    // Show immediate playback indicator — don't wait for the synchronous
-    // API call to return (which blocks for the entire audio duration).
-    playbackDetail = selected?.category ? `${selected.category}/${preset}` : preset
-    // Start waveform animation for non-stream presets
-    if (!isStream && selected?.duration > 0) {
-      startWaveformProgress(selected.duration)
-    }
-    try {
-      const data = await apiClient.play({ camera: camera.name, preset, gain, loop: isStream ? 0 : loopPreset })
-      if (isStream) {
-        setStatus('✓ streaming')
-      } else if (loopPreset !== 0) {
-        setStatus('✓ looping')
-      } else {
-        const timing = formatTimingSummary(data.timings, data.total_ms, data.ttfs_ms)
-        setStatus(timing ? `✓ playing (${timing})` : '✓ playing')
-      }
-    } catch (e) {
-      if (isStream) streaming = false
-      setStatus('✗ ' + e.message, 'err')
-    } finally {
-      busy = false
-    }
+  function togglePreview() {
+    if (preview) stopPreview()
+    else { preview = true; void snapshot() }
   }
-
-  let gainSaveTimeout
 
   async function saveGain() {
-    try {
-      await apiClient.setVolume(camera.name, gain)
-    } catch (e) {
-      setStatus('✗ gain save failed: ' + e.message, 'err')
-    }
-  }
-
-  function onGainChange() {
-    clearTimeout(gainSaveTimeout)
-    gainSaveTimeout = setTimeout(saveGain, 500)
-  }
-
-  function looksLikeStream(u) {
-    if (!u) return false
-    const s = u.toLowerCase()
-    return s.endsWith('.pls') || s.endsWith('.m3u') || s.endsWith('.m3u8') ||
-           s.includes('liveatc.net') || s.includes('/play/') ||
-           s.includes('shoutcast') || s.includes('icecast')
-  }
-
-  async function playUrl() {
-    if (!url) return
-    busy = true; status = ''
-    streaming = true; paused = false
-    playbackDetail = looksLikeStream(url) ? url : 'playing URL'
-    try {
-      await apiClient.playURL({ camera: camera.name, url, gain })
-      setStatus('✓ playing')
-    } catch (e) {
-      streaming = false
-      setStatus('✗ ' + e.message, 'err')
-    } finally {
-      busy = false
-    }
-  }
-
-  async function playStream() {
-    if (!url) return
-    streaming = true; paused = false; status = ''
-    playbackDetail = url
-    try {
-      await apiClient.playStream({ camera: camera.name, url, gain })
-      setStatus('✓ streaming')
-    } catch (e) {
-      streaming = false
-      setStatus('✗ ' + e.message, 'err')
-    }
-  }
-
-  async function playFromUrl() {
-    if (!url) return
-    if (looksLikeStream(url)) {
-      await playStream()
-    } else {
-      await playUrl()
-    }
-  }
-
-  async function pauseStream() {
-    busy = true; status = ''
-    try {
-      await apiClient.pause(camera.name)
-      paused = true
-      setStatus('⏸ paused')
-    } catch (e) {
-      setStatus('✗ ' + e.message, 'err')
-    } finally {
-      busy = false
-    }
-  }
-
-  async function resumeStream() {
-    busy = true; status = ''
-    try {
-      await apiClient.resume(camera.name)
-      paused = false
-      setStatus('✓ streaming')
-    } catch (e) {
-      setStatus('✗ ' + e.message, 'err')
-    } finally {
-      busy = false
-    }
-  }
-
-  async function stopStream() {
-    busy = true; status = ''
-    try {
-      await apiClient.stop(camera.name)
-      streaming = false
-      paused = false
-      setStatus('⏹ stopped')
-    } catch (e) {
-      setStatus('✗ ' + e.message, 'err')
-    } finally {
-      busy = false
-    }
+    try { await saveCameraGain(camera.name, draft) }
+    catch (cause) { feedback(`Volume could not be saved: ${cause instanceof Error ? cause.message : String(cause)}`, true) }
   }
 
   async function beep() {
-    busy = true; status = ''
-    streaming = true; paused = false
-    try {
-      await apiClient.beep({ camera: camera.name })
-      setStatus('✓ beep')
-    } catch (e) {
-      streaming = false
-      setStatus('✗ ' + e.message, 'err')
-    } finally {
-      busy = false
-    }
-  }
-
-  async function stop() {
-    try {
-      await apiClient.stop(camera.name)
-      setStatus('⏹ stopped')
-    } catch (e) {
-      setStatus('✗ ' + e.message, 'err')
-    }
-  }
-
-  async function describe() {
-    busy = true; status = ''
-    if (snapshot) URL.revokeObjectURL(snapshot)
-    snapshot = ''; description = ''; describeTiming = ''
-    describeTimingsRaw = undefined; describeTotalMs = undefined; describeTtfsMs = undefined
-    try {
-      setStatus('Capturing screenshot…')
-      const snapRes = await apiClient.snapshot(camera.name)
-      const snapBlob = await snapRes.blob()
-      snapshot = URL.createObjectURL(snapBlob)
-
-      setStatus('Describing → speaking…')
-      streaming = true; paused = false
-      const body = { camera: camera.name, gain }
-      if (visionPrompt) body.prompt = visionPrompt
-      const data = await apiClient.describe(body)
-      description = data.description || ''
-      describeTimingsRaw = data.timings
-      describeTotalMs = data.total_ms
-      describeTtfsMs = data.ttfs_ms
-      describeTiming = formatTimingSummary(data.timings, data.total_ms, data.ttfs_ms)
-    } catch (e) {
-      streaming = false
-      setStatus('✗ ' + e.message, 'err')
-    } finally {
-      busy = false
-      if (description) {
-        setStatus(describeTiming ? `✓ described (${describeTiming})` : '✓ described & spoken')
-      }
-    }
-  }
-
-  async function replayDescription() {
-    if (!description) return
-    busy = true; status = ''
-    try {
-      await apiClient.speak({ camera: camera.name, text: description, voice, gain })
-      setStatus('✓ replaying')
-    } catch (e) {
-      setStatus('✗ ' + e.message, 'err')
-    } finally {
-      busy = false
-    }
-  }
-
-  function clearSnapshot() {
-    if (snapshot) URL.revokeObjectURL(snapshot)
-    snapshot = ''
-    description = ''
-    describeTiming = ''
-    describeTimingsRaw = undefined
-    describeTotalMs = undefined
-    describeTtfsMs = undefined
+    if (draft.busy) return
+    clearTimeout(statusTimer)
     status = ''
+    draft.busy = true
+    try { await apiClient.beep({ camera: camera.name }); feedback('Test tone sent') }
+    catch (cause) { feedback(cause instanceof Error ? cause.message : String(cause), true) }
+    finally { draft.busy = false; void monitor.refresh() }
   }
 
-  // WAV / audio file drag-and-drop
-  function onDragOver(e) {
-    const hasAudio = [...(e.dataTransfer?.items ?? [])].some(
-      it => it.kind === 'file' && (it.type.startsWith('audio/') || it.type === 'application/octet-stream')
-    )
-    if (hasAudio) {
-      e.preventDefault()
-      isDragOver = true
+  function drag(event: DragEvent) {
+    if (!draft.busy && Array.from(event.dataTransfer?.items ?? []).some(item => item.kind === 'file')) {
+      event.preventDefault()
+      dragOver = true
     }
   }
 
-  function onDragLeave() {
-    isDragOver = false
-  }
-
-  async function onDrop(e) {
-    e.preventDefault()
-    isDragOver = false
-    const file = e.dataTransfer?.files?.[0]
-    if (!file) return
-    if (!file.name.match(/\.(wav|mp3|m4a|aac|flac|ogg|opus)$/i) && !file.type.startsWith('audio/')) {
-      setStatus('Drop an audio file', 'warn')
+  async function drop(event: DragEvent) {
+    event.preventDefault()
+    dragOver = false
+    const file = event.dataTransfer?.files[0]
+    if (!file || draft.busy || camera.capabilities?.speak === false) return
+    if (!file.type.startsWith('audio/') && !/\.(wav|mp3|m4a|aac|flac|ogg|opus)$/i.test(file.name)) {
+      feedback('Choose an audio file to play on your camera.', true)
       return
     }
-
-    busy = true
-    setStatus('Uploading…')
+    draft.busy = true
+    clearTimeout(statusTimer)
+    failed = false
+    status = 'Uploading your audio…'
+    uploadController = new AbortController()
     try {
-      const dropName = `drop_${Date.now()}`
-      const fd = new FormData()
-      fd.append('name', dropName)
-      fd.append('category', 'drops')
-      fd.append('file', file)
-
-      await apiClient.uploadPreset(fd)
-
-      setStatus('Playing…')
-      await apiClient.play({ camera: camera.name, preset: dropName, category: 'drops', gain })
-      setStatus(`✓ playing ${file.name}`)
-    } catch (err) {
-      setStatus('✗ ' + err.message, 'err')
-    } finally {
-      busy = false
-    }
+      await uploadAudioToCamera(camera.name, file, progress => {
+        status = `${progress.step} (${Math.round(progress.percent)}%)`
+      }, uploadController.signal)
+      feedback(`Audio sent: ${file.name}`)
+    } catch (cause) {
+      if (!uploadController.signal.aborted) {
+        if (cause instanceof DOMException && cause.name === 'AbortError') feedback('Audio canceled')
+        else feedback(cause instanceof Error ? cause.message : String(cause), true)
+      }
+    } finally { draft.busy = false; void monitor.refresh() }
   }
+
+  onDestroy(() => {
+    stopPreview()
+    uploadController?.abort()
+    clearTimeout(statusTimer)
+  })
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
-  ondragover={onDragOver}
-  ondragleave={onDragLeave}
-  ondrop={onDrop}
->
-  <Card class="flex flex-col gap-2.5 p-4 transition-colors
-    {!camera.online ? 'opacity-50' : ''}
-    {isDragOver ? 'border-primary border-dashed bg-primary/5 scale-[1.01]' : 'hover:border-primary/50'}">
-
-    <!-- Camera header -->
-    <div class="flex items-center justify-between gap-2">
-      <div class="flex items-center gap-2 min-w-0">
-        {#if camera.airplay_enabled}
-          <Tooltip content={'AirPlay active' + (camera.airplay_name ? ` — "${camera.airplay_name}"` : '') + (camera.online ? '' : ' (camera offline)')}>
-            <Airplay class="h-4 w-4 flex-shrink-0 {camera.online ? 'text-violet-500' : 'text-violet-500/40'}" />
-          </Tooltip>
-        {:else}
-          <span class="h-2.5 w-2.5 rounded-full flex-shrink-0 {camera.online
-            ? 'bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.5)]'
-            : 'bg-muted-foreground/40'}"></span>
-        {/if}
-        <span class="font-semibold">{camera.name}</span>
-        <Badge variant="secondary" class="text-xs flex-shrink-0">{camera.type}</Badge>
-        {#if camera.note}
-          <Badge variant="outline" class="text-xs flex-shrink-0 text-amber-500 border-amber-500/30" title={camera.note}>
-            ⚠ Limited
-          </Badge>
-        {/if}
-      </div>
-      <div class="flex gap-1 flex-shrink-0">
-        <Button
-          variant={livePreview ? 'default' : 'outline'} size="icon"
-          onclick={toggleLivePreview}
-          disabled={!camera.online}
-          title={livePreview ? 'Turn off live preview' : 'Turn on live preview (JPEG every 2s)'} aria-label="Live preview"
-          class="h-8 w-8"
-        >
-          {#if livePreviewLoading}
-            <Loader2 class="h-4 w-4 animate-spin" />
-          {:else if livePreview}
-            <Video class="h-4 w-4" />
-          {:else}
-            <VideoOff class="h-4 w-4" />
-          {/if}
-        </Button>
-        <Button
-          variant="outline" size="icon"
-          onclick={() => showInfoModal = true}
-          title="Camera settings — device info, streams, codecs" aria-label="Camera info"
-          class="h-8 w-8"
-        >
-          <Info class="h-4 w-4" />
-        </Button>
-        <Button
-          variant="outline" size="icon"
-          onclick={describe} disabled={busy}
-          title="Describe — snapshot → vision → TTS → speak" aria-label="Describe"
-          class="h-8 w-8"
-        >
-          {#if busy && status.toLowerCase().includes('describ')}
-            <Loader2 class="h-4 w-4 animate-spin" />
-          {:else}
-            <Eye class="h-4 w-4" />
-          {/if}
-        </Button>
-        <Button
-          variant={visionPrompt ? 'default' : 'outline'} size="icon"
-          onclick={() => showPromptPopup = true}
-          title="Edit vision prompt" aria-label="Vision prompt"
-          class="h-8 w-8"
-        >
-          <MessageSquare class="h-4 w-4" />
-        </Button>
-        <Button
-          variant="outline" size="icon"
-          onclick={beep} disabled={busy}
-          title="Test beep (800 Hz)" aria-label="Test beep"
-          class="h-8 w-8"
-        >
-          <Bell class="h-4 w-4" />
-        </Button>
-        <Button
-          variant="outline" size="icon"
-          onclick={stop}
-          title="Stop audio on this camera" aria-label="Stop"
-          class="h-8 w-8 hover:bg-destructive/10 hover:text-destructive hover:border-destructive/50"
-        >
-          <Square class="h-4 w-4 fill-current" />
-        </Button>
-      </div>
-    </div>
-
-    <!-- TTS row -->
-    <div class="flex flex-col gap-1.5">
-      <Textarea
-        bind:value={text}
-        placeholder="Say something..."
-        onkeydown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), speak())}
-        disabled={busy}
-        rows="2"
-        class="flex-1 text-sm min-w-0 resize-y"
-      />
-      <div class="flex gap-1.5">
-        <VoiceSelect bind:value={voice} {voices} {busy} class="w-[100px] flex-shrink-0" />
-        <Button size="sm" onclick={speak} disabled={busy || !text} aria-label="Speak" title="Send TTS to camera" class="flex-shrink-0">
-          <Play class="h-4 w-4" />
-        </Button>
-        <CopyButton
-          text={buildCurl('POST', '/api/speak', { camera: camera.name, text, voice: voice || undefined, gain })}
-          disabled={!text} label="Copy curl — speak endpoint"
-          preview={!!text} previewType="curl"
-          class="flex-shrink-0"
-        />
-      </div>
-    </div>
-
-    <!-- Volume row -->
-    <GainSlider bind:value={gain} {busy} onchange={onGainChange} class="px-1" />
-
-    <!-- Preset row -->
-    {#if presets.length > 0}
-      <div class="flex gap-1.5 items-center">
-        <select bind:value={preset} disabled={busy}
-          class="flex-1 min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-sm disabled:opacity-50">
-          <option value="">— play preset —</option>
-          {#each presets as p}
-            <option value={p.name}>{p.url ? '📡 ' : ''}{p.category}/{p.name}{p.url ? '' : ` (${formatSeconds(p.duration)})`}</option>
-          {/each}
-        </select>
-        <label class="flex items-center gap-1 text-xs text-muted-foreground whitespace-nowrap flex-shrink-0" title={selectedPresetIsStream ? 'Loop is not applicable to stream presets' : 'Loop count: -1 = infinite, 0 = no loop (default), N = play N+1 times (pausable)'}>
-          <input type="number" bind:value={loopPreset} min="-1" step="1" disabled={busy || selectedPresetIsStream} class="w-14 rounded-md border border-input bg-transparent px-1.5 py-1 text-sm disabled:opacity-50" placeholder="0" />
-          loop
-        </label>
-        {#if streaming && playbackDetail?.includes('(loop')}
-          {#if paused}
-            <Button size="sm" onclick={resumeStream} disabled={busy} aria-label="Resume" title="Resume looped preset" class="flex-shrink-0">
-              <Play class="h-4 w-4" />
-            </Button>
-          {:else}
-            <Button size="sm" onclick={pauseStream} disabled={busy} aria-label="Pause" title="Pause looped preset" class="flex-shrink-0">
-              <Pause class="h-4 w-4" />
-            </Button>
-          {/if}
-          <Button size="sm" onclick={stopStream} disabled={busy} aria-label="Stop" title="Stop looped preset" class="flex-shrink-0">
-            <Square class="h-4 w-4" />
-          </Button>
-        {:else}
-          <Button size="sm" onclick={play} disabled={busy || !preset} aria-label="Play preset" title="Play preset on camera" class="flex-shrink-0">
-            <Play class="h-4 w-4" />
-          </Button>
-        {/if}
-        <CopyButton
-          text={buildCurl('POST', '/api/play', { camera: camera.name, preset, category: presets.find(x => x.name === preset)?.category, gain, loop: loopPreset })}
-          disabled={!preset} label="Copy curl — play preset endpoint"
-          preview={!!preset} previewType="curl"
-          class="flex-shrink-0"
-        />
-      </div>
-      {#if preset && !selectedPresetIsStream && selectedPresetDuration > 0}
-        <div class="mt-1">
-          <AudioPlayer
-            peaksUrl={`/api/library/${encodeURIComponent(selectedPreset.category)}/${encodeURIComponent(preset)}/peaks`}
-            audioUrl={`/api/library/${encodeURIComponent(selectedPreset.category)}/${encodeURIComponent(preset)}/preview`}
-            duration={selectedPresetDuration}
-            visualMode={true}
-            externalProgress={waveformProgress}
-            audioLevel={audioLevel}
-            title={preset}
-            subtitle={selectedPreset.category}
-          />
-        </div>
-      {/if}
-    {/if}
-
-    <!-- URL row -->
-    <div class="flex gap-1.5">
-      <Input
-        bind:value={url}
-        placeholder="Play from URL or stream..."
-        onkeydown={e => e.key === 'Enter' && (streaming ? stopStream() : playFromUrl())}
-        disabled={busy}
-        class="flex-1 text-sm min-w-0"
-      />
-      {#if streaming}
-        {#if paused}
-          <Button size="sm" onclick={resumeStream} disabled={busy} aria-label="Resume stream" title="Resume paused stream" class="flex-shrink-0">
-            <Play class="h-4 w-4" />
-          </Button>
-        {:else}
-          <Button size="sm" onclick={pauseStream} disabled={busy} aria-label="Pause stream" title="Pause live stream" class="flex-shrink-0">
-            <Pause class="h-4 w-4" />
-          </Button>
-        {/if}
-        <Button size="sm" onclick={stopStream} disabled={busy} aria-label="Stop stream" title="Stop live stream" class="flex-shrink-0">
-          <Square class="h-4 w-4" />
-        </Button>
-      {:else}
-        <Button size="sm" onclick={playFromUrl} disabled={busy || !url} aria-label="Play from URL" title={looksLikeStream(url) ? 'Stream live audio from URL' : 'Download and play audio from URL'} class="flex-shrink-0">
-          <Play class="h-4 w-4" />
-        </Button>
-      {/if}
-      <CopyButton
-        text={buildCurl('POST', looksLikeStream(url) ? '/api/play-stream' : '/api/play-url', { camera: camera.name, url, gain })}
-        disabled={!url} label={looksLikeStream(url) ? 'Copy curl — play stream endpoint' : 'Copy curl — play URL endpoint'}
-        preview={!!url} previewType="curl"
-        class="flex-shrink-0"
-      />
-    </div>
-
-    <!-- Drag overlay hint -->
-    {#if isDragOver}
-      <div class="flex items-center justify-center gap-2 rounded-lg border border-dashed border-primary py-3 text-sm text-primary">
-        <FileAudio class="h-4 w-4" />
-        Drop to play on {camera.name}
-      </div>
-    {/if}
-
-    <!-- Live preview -->
-    {#if livePreview && livePreviewSrc}
-      <div class="rounded-lg border border-primary/30 overflow-hidden relative">
-        <img src={livePreviewSrc} alt="Live preview of {camera.name}" class="w-full" />
-        <span class="absolute top-1.5 left-1.5 text-[10px] bg-background/80 backdrop-blur px-1.5 py-0.5 rounded text-primary font-mono">LIVE</span>
-      </div>
-    {/if}
-
-    <!-- Status -->
-    {#if status}
-      <div class="text-sm {statusType === 'err' ? 'text-destructive' : statusType === 'warn' ? 'text-yellow-500' : 'text-primary'}">
-        {status}
-      </div>
-    {/if}
-
-    <!-- Playback indicator (from server state, survives page refresh) -->
-    {#if streaming && playbackDetail}
-      <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
-        {#if paused}
-          <Pause class="h-3 w-3" />
-        {:else}
-          <Play class="h-3 w-3" />
-        {/if}
-        <span class="truncate">{playbackDetail}</span>
-      </div>
-    {/if}
-
-    <!-- VU meter: always visible — flat when idle, live during playback -->
-    <!-- Shown via AudioPlayer when a preset is selected, standalone otherwise -->
-    {#if !preset || selectedPresetIsStream || selectedPresetDuration === 0}
-      <div class="flex items-center gap-1.5">
-        <div class="flex h-2 w-32 overflow-hidden rounded-full bg-muted gap-px" title="Audio level">
-          {#each Array(20) as _, i}
-            {@const lit = (i + 1) / 20 <= audioLevel}
-            {@const segClass = lit ? (i < 12 ? 'bg-green-500' : i < 17 ? 'bg-yellow-500' : 'bg-red-500') : 'bg-muted-foreground/20'}
-            <div class="flex-1 transition-colors duration-75 {segClass}"></div>
-          {/each}
-        </div>
-        <span class="text-[10px] tabular-nums text-muted-foreground">{Math.round(audioLevel * 100)}%</span>
-      </div>
-    {/if}
-
-    <!-- Snapshot + description -->
-    {#if snapshot}
-      <div class="rounded-lg border border-primary/30 overflow-hidden relative">
-        <img src={snapshot} alt="Camera snapshot" class="w-full" />
-        <Button
-          variant="outline" size="icon"
-          onclick={clearSnapshot} disabled={busy}
-          title="Clear snapshot and description" aria-label="Clear"
-          class="absolute top-2 right-2 h-7 w-7 bg-background/80 backdrop-blur"
-        >
-          <X class="h-4 w-4" />
-        </Button>
-        {#if description}
-          <div class="flex flex-col gap-2 p-2 bg-muted/30">
-            <p class="text-xs text-muted-foreground">{description}</p>
-            {#if describeTiming}
-              {#if desktop}
-                <Tooltip
-                  content={timingTooltipContent(describeTimingsRaw, describeTotalMs, describeTtfsMs)}
-                  multiline
-                  side="bottom"
-                  class="text-xs"
-                >
-                  <span class="text-xs text-primary/70 cursor-help inline-flex items-center gap-1 w-fit">
-                    ⏱ {describeTiming}
-                  </span>
-                </Tooltip>
-              {:else}
-                <span class="text-xs text-primary/70 inline-flex items-center gap-1 w-fit">
-                  ⏱ {describeTiming}
-                </span>
-              {/if}
-            {/if}
-            <div class="flex items-center gap-1.5">
-              <Button
-                variant="outline" size="icon"
-                onclick={replayDescription} disabled={busy}
-                title="Re-play description via TTS" aria-label="Re-play"
-                class="h-7 w-7 flex-shrink-0"
-              >
-                <Play class="h-3.5 w-3.5" />
-              </Button>
-              <CopyButton
-                text={buildCurl('POST', '/api/speak', { camera: camera.name, text: description, voice: voice || undefined, gain })}
-                label="Copy curl — re-play description as TTS"
-                preview previewType="curl"
-                class="h-7 w-7 flex-shrink-0"
-              />
-              <CopyButton
-                text={buildCurl('POST', '/api/describe', { camera: camera.name, gain, ...(visionPrompt ? { prompt: visionPrompt } : {}) })}
-                label="Copy curl — describe endpoint"
-                preview previewType="curl"
-                class="h-7 w-7 flex-shrink-0"
-              />
-            </div>
-          </div>
-        {/if}
-        <!-- Re-describe button (prompt is edited via the popup) -->
-        <div class="flex justify-end p-2 border-t bg-muted/20">
-          <Button
-            variant="secondary" size="sm"
-            onclick={describe} disabled={busy}
-            title="Re-describe with current prompt" class="text-xs"
-          >
-            {#if busy && status.toLowerCase().includes('describ')}
-              <Loader2 class="h-3.5 w-3.5 animate-spin" />
-            {:else}
-              <Eye class="h-3.5 w-3.5" />
-            {/if}
-            Re-describe
-          </Button>
-        </div>
-      </div>
-    {/if}
-  </Card>
-
-  <!-- Vision prompt popup -->
-  {#if showPromptPopup}
-    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-    <!-- Backdrop: dims page and closes popup on click -->
-    <div class="fixed inset-0 z-[100] bg-black/60" onclick={() => showPromptPopup = false}></div>
-    <div class="fixed z-[101] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-card shadow-2xl p-4 flex flex-col gap-3 w-[400px] max-w-[calc(100vw-2rem)]">
-      <div class="flex items-center justify-between">
-        <h4 class="text-sm font-semibold text-foreground">Vision Prompt</h4>
-        <Button variant="ghost" size="icon" class="h-6 w-6" onclick={() => showPromptPopup = false} title="Close">
-          <X class="h-3.5 w-3.5" />
-        </Button>
-      </div>
-      <p class="text-xs text-muted-foreground">
-        Custom prompt for this camera's describe action. Overrides the global default.
-        Leave empty to use the global vision prompt.
+<article ondragover={drag} ondragleave={() => dragOver = false} ondrop={drop}
+  class="flex h-full min-w-0 flex-col gap-4 rounded-xl border bg-card p-4 shadow-sm transition-colors {dragOver ? 'border-dashed border-primary bg-primary/5' : 'hover:border-primary/40'}">
+  <div class="flex min-w-0 items-start justify-between gap-3">
+    <div class="min-w-0">
+      <h3 class="break-words text-base font-semibold leading-snug">{camera.name}</h3>
+      <p class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+        <span class="flex items-center gap-1.5"><span class="h-1.5 w-1.5 rounded-full {camera.online ? 'bg-green-500' : 'bg-muted-foreground'}"></span>{camera.online ? 'Online' : 'Offline'}</span>
+        <span>{camera.type}</span>
+        {#if camera.airplay_enabled}<span class="flex items-center gap-1" title={camera.airplay_name}><Airplay class="h-3 w-3" /> AirPlay</span>{/if}
       </p>
-      <PromptEditor
-        bind:value={visionPrompt}
-        placeholder="e.g. How many people do you see? Describe any vehicles."
-        disabled={busy}
-      />
-      <div class="flex gap-2 justify-end">
-        {#if visionPrompt !== savedPrompt}
-          <Button variant="ghost" size="sm" onclick={() => visionPrompt = savedPrompt} title="Reset to saved camera prompt">
-            Reset
-          </Button>
-        {/if}
-        <Button variant="secondary" size="sm" onclick={() => { showPromptPopup = false; describe() }} disabled={busy}>
-          <Eye class="h-3.5 w-3.5" />
-          Apply & Describe
-        </Button>
-        <Button variant="default" size="sm" onclick={() => showPromptPopup = false}>
-          Done
-        </Button>
+    </div>
+    <details class="relative shrink-0">
+      <summary aria-label={`More actions for ${camera.name}`} class="cursor-pointer rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent">More</summary>
+      <div class="absolute right-0 z-20 mt-2 flex w-44 flex-col gap-1 rounded-lg border bg-popover p-2 shadow-lg">
+        <Button size="sm" variant="ghost" class="justify-start" onclick={() => showInfo = true}><Info class="h-4 w-4" /> Device information</Button>
+        <Button size="sm" variant="ghost" class="justify-start" onclick={beep} disabled={draft.busy || camera.capabilities?.speak === false}><Bell class="h-4 w-4" /> Test speaker</Button>
+        {#if camera.note}<p class="break-words px-2 py-1 text-xs text-muted-foreground">{camera.note}</p>{/if}
       </div>
+    </details>
+  </div>
+
+  {#if preview}
+    <div class="flex flex-col gap-1.5">
+      {#if previewSrc}<img src={previewSrc} alt={`${camera.name} preview`} class="aspect-video w-full rounded-lg object-contain bg-muted" />
+      {:else}<div class="flex aspect-video items-center justify-center rounded-lg bg-muted text-sm text-muted-foreground">{previewLoading ? 'Loading preview…' : 'Preview unavailable'}</div>{/if}
+      <p class="text-xs text-muted-foreground">{previewError ? `Preview unavailable: ${previewError}` : `Updated ${previewTime || '…'}`}</p>
     </div>
   {/if}
 
-  <!-- Camera info modal -->
-  <CameraInfoModal
-    cameraName={camera.name}
-    cameraType={camera.type}
-    show={showInfoModal}
-    onClose={() => showInfoModal = false}
-  />
-</div>
+  <PlaybackStrip cameraName={camera.name} playback={monitor.state.cameras[camera.name]} preparing={draft.busy} level={monitor.state.levels[camera.name]} onRefresh={monitor.refresh} />
+
+  <div class="mt-auto flex flex-col gap-3">
+    <GainSlider bind:value={draft.gain} onchange={saveGain} aria-label={`${camera.name} volume`} />
+    <div class="flex flex-wrap gap-2">
+      <Button class="flex-1" size="sm" onclick={onOpen}><SlidersHorizontal class="h-4 w-4" /> Audio controls</Button>
+      {#if camera.capabilities?.snapshot !== false}
+        <Button size="sm" variant="outline" onclick={togglePreview} aria-pressed={preview} aria-label={`${preview ? 'Hide' : 'Show'} ${camera.name} preview`}>
+          {#if preview}<VideoOff class="h-4 w-4" />{:else}<Video class="h-4 w-4" />{/if} Preview
+        </Button>
+      {/if}
+    </div>
+    {#if draft.busy}<p class="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 class="h-3 w-3 animate-spin" /> Sending audio…</p>{/if}
+    {#if status}<p role={failed ? 'alert' : 'status'} class="break-words text-xs {failed ? 'text-destructive' : 'text-primary'}">{status}</p>{/if}
+  </div>
+</article>
+
+<CameraInfoModal cameraName={camera.name} cameraType={camera.type} show={showInfo} onClose={() => showInfo = false} />

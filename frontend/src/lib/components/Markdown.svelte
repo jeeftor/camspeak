@@ -1,17 +1,12 @@
 <script>
   // Lightweight markdown renderer using marked.
-  // Sanitizes via marked's built-in escaping (no raw HTML passed through).
+  // Model output is untrusted: sanitize generated HTML before rendering it.
   // Theme-aware via CSS variables — no hardcoded colors.
-  import { marked } from 'marked'
+  import { renderMarkdown } from '$lib/markdown'
 
   let { content, class: klass = '' } = $props()
 
-  marked.setOptions({
-    breaks: true,
-    gfm: true,
-  })
-
-  let html = $derived(marked.parse(content || ''))
+  let html = $derived(renderMarkdown(content || ''))
 </script>
 
 <div class="md {klass}">{@html html}</div>

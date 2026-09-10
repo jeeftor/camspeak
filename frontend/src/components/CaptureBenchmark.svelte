@@ -87,9 +87,9 @@
   <!-- Custom prompt (only relevant with vision) -->
   {#if withVision}
     <div class="rounded-lg border p-3 flex flex-col gap-1.5">
-      <label class="text-xs font-semibold text-muted-foreground">
+      <p class="text-xs font-semibold text-muted-foreground">
         Custom Prompt <span class="font-normal">(optional — overrides camera/global prompt)</span>
-      </label>
+      </p>
       <PromptEditor bind:value={customPrompt} disabled={running}
         placeholder="Leave empty to use the camera's configured prompt" />
     </div>

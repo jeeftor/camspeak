@@ -32,7 +32,7 @@
     clearTimeout(genTimeout)
     clearTimeout(statusTimeout)
     clearTimeout(uploadTimeout)
-    clearTimeout(uploadPollTimer)
+    uploadController?.abort()
   })
 
   let uploadName = $state('')
@@ -48,7 +48,7 @@
 
   // Upload progress dialog state
   let uploadProgress = $state(null) // null = no dialog, {step, percent, label} = active
-  let uploadPollTimer = null
+  let uploadController = null
 
   let sortBy = $state('name')
   let sortOrder = $state('asc')
@@ -175,55 +175,23 @@
     uploadBusy = true; uploadStatus = ''
     uploadProgress = { step: 'uploading', percent: 0, label: 'Uploading' }
     try {
-      const fd = new FormData()
-      fd.append('name', uploadName)
-      fd.append('category', uploadCategory)
-      fd.append('file', uploadFile)
-
-      // Phase 1: upload the file (XHR gives us byte-level progress).
-      const res = await apiClient.uploadPresetWithProgress(fd, (pct) => {
-        uploadProgress = { step: 'uploading', percent: pct, label: 'Uploading' }
-      })
-
-      // Phase 2: poll the transcoding job.
-      const jobId = res.job_id
-      uploadProgress = { step: 'transcoding', percent: 0, label: 'Converting' }
-
-      await new Promise((resolve, reject) => {
-        const poll = async () => {
-          try {
-            const job = await apiClient.getUploadJob(jobId)
-            if (job.status === 'done') {
-              uploadProgress = { step: 'done', percent: 100, label: 'Done' }
-              resolve(job)
-            } else if (job.status === 'error') {
-              reject(new Error(job.error || 'transcoding failed'))
-            } else {
-              uploadProgress = {
-                step: 'transcoding',
-                percent: job.percent < 0 ? 0 : job.percent,
-                label: job.step || 'Converting',
-              }
-              uploadPollTimer = setTimeout(poll, 500)
-            }
-          } catch (e) {
-            reject(e)
-          }
-        }
-        poll()
-      })
+      uploadController = new AbortController()
+      await apiClient.uploadAndWait(uploadFile, uploadName, uploadCategory,
+        (progress) => { uploadProgress = progress }, uploadController.signal)
 
       uploadStatus = '✓ Uploaded'
       toast.success(`Preset "${uploadName}" uploaded`)
       clearUpload()
       onRefresh()
     } catch (e) {
+      if (e.name === 'AbortError') return
       uploadStatus = '✗ ' + e.message
       toast.error(`Upload failed: ${e.message}`)
     } finally {
       // Keep the dialog visible briefly so the user sees "Done", then close.
       setTimeout(() => { uploadProgress = null }, 800)
       uploadBusy = false
+      uploadController = null
       clearTimeout(uploadTimeout); uploadTimeout = setTimeout(() => (uploadStatus = ''), 4000)
     }
   }

@@ -123,6 +123,14 @@ func writeRTSPResponse(w io.Writer, resp *rtspResponse) error {
 }
 
 func (s *Server) handleRequest(req *rtspRequest) *rtspResponse {
+	s.requestMu.Lock()
+	defer s.requestMu.Unlock()
+	if s.stopped.Load() {
+		return &rtspResponse{
+			status: 503, reason: "Service Unavailable", close: true,
+			headers: map[string]string{"CSeq": req.headers["CSeq"]},
+		}
+	}
 	cseq := req.headers["CSeq"]
 
 	switch req.method {
