@@ -1,21 +1,21 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
-  import { Airplay, Bell, Info, Loader2, SlidersHorizontal, Video, VideoOff } from 'lucide-svelte'
+  import { Airplay, Bell, Info, Loader2, Video, VideoOff } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
-  import GainSlider from '$lib/components/GainSlider.svelte'
   import CameraInfoModal from './CameraInfoModal.svelte'
-  import PlaybackStrip from './PlaybackStrip.svelte'
+  import AudioComposer from './AudioComposer.svelte'
   import { apiClient } from '$lib/api'
-  import { saveCameraGain, uploadAudioToCamera } from '$lib/audio-actions'
-  import type { CameraSummary } from '$lib/types'
+  import { uploadAudioToCamera } from '$lib/audio-actions'
+  import type { CameraSummary, Preset } from '$lib/types'
   import type { AudioDraft } from '$lib/audio-draft'
   import type { PlaybackMonitor } from '$lib/playback.svelte'
 
-  let { camera, draft = $bindable(), monitor, onOpen }: {
+  let { camera, voices, presets, draft = $bindable(), monitor }: {
     camera: CameraSummary
+    voices: string[]
+    presets: Preset[]
     draft: AudioDraft
     monitor: PlaybackMonitor
-    onOpen: () => void
   } = $props()
   let preview = $state(false)
   let previewSrc = $state('')
@@ -77,11 +77,6 @@
     else { preview = true; void snapshot() }
   }
 
-  async function saveGain() {
-    try { await saveCameraGain(camera.name, draft) }
-    catch (cause) { feedback(`Volume could not be saved: ${cause instanceof Error ? cause.message : String(cause)}`, true) }
-  }
-
   async function beep() {
     if (draft.busy) return
     clearTimeout(statusTimer)
@@ -134,7 +129,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<article ondragover={drag} ondragleave={() => dragOver = false} ondrop={drop}
+<article aria-label={camera.name} ondragover={drag} ondragleave={() => dragOver = false} ondrop={drop}
   class="flex h-full min-w-0 flex-col gap-4 rounded-xl border bg-card p-4 shadow-sm transition-colors {dragOver ? 'border-dashed border-primary bg-primary/5' : 'hover:border-primary/40'}">
   <div class="flex min-w-0 items-start justify-between gap-3">
     <div class="min-w-0">
@@ -163,18 +158,17 @@
     </div>
   {/if}
 
-  <PlaybackStrip cameraName={camera.name} playback={monitor.state.cameras[camera.name]} preparing={draft.busy} level={monitor.state.levels[camera.name]} onRefresh={monitor.refresh} />
-
-  <div class="mt-auto flex flex-col gap-3">
-    <GainSlider bind:value={draft.gain} onchange={saveGain} aria-label={`${camera.name} volume`} />
-    <div class="flex flex-wrap gap-2">
-      <Button class="flex-1" size="sm" onclick={onOpen}><SlidersHorizontal class="h-4 w-4" /> Audio controls</Button>
+  <AudioComposer {camera} {voices} {presets} bind:draft {monitor}>
+    {#snippet previewControl()}
       {#if camera.capabilities?.snapshot !== false}
-        <Button size="sm" variant="outline" onclick={togglePreview} aria-pressed={preview} aria-label={`${preview ? 'Hide' : 'Show'} ${camera.name} preview`}>
+        <Button size="sm" variant="ghost" onclick={togglePreview} aria-pressed={preview} aria-label={`${preview ? 'Hide' : 'Show'} ${camera.name} preview`}>
           {#if preview}<VideoOff class="h-4 w-4" />{:else}<Video class="h-4 w-4" />{/if} Preview
         </Button>
       {/if}
-    </div>
+    {/snippet}
+  </AudioComposer>
+
+  <div class="flex flex-col gap-3">
     {#if draft.busy}<p class="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 class="h-3 w-3 animate-spin" /> Sending audio…</p>{/if}
     {#if status}<p role={failed ? 'alert' : 'status'} class="break-words text-xs {failed ? 'text-destructive' : 'text-primary'}">{status}</p>{/if}
   </div>

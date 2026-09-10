@@ -163,7 +163,7 @@
 
       <!-- STOP ALL button -->
       <button
-        class="flex items-center gap-1.5 flex-shrink-0 rounded-md bg-destructive px-3 py-1.5 text-sm font-bold
+        class="flex min-h-11 items-center gap-1.5 flex-shrink-0 rounded-md bg-destructive px-3 py-1.5 text-sm font-bold
                text-destructive-foreground hover:bg-destructive/90 transition-colors
                disabled:opacity-50"
         onclick={stopAll}
@@ -175,14 +175,14 @@
         {:else}
           <Square class="h-3.5 w-3.5 fill-current" />
         {/if}
-        <span class="hidden sm:inline">STOP</span>
+        <span>STOP</span>
       </button>
 
       <!-- Curl base URL + version -->
       <div class="flex items-center gap-2 flex-shrink-0">
         <div class="relative">
           <button
-            class="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground
+            class="hidden sm:flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground
                    bg-muted/60 border px-2 py-0.5 rounded-full transition-colors"
             onclick={() => { urlEditValue = curlState.baseUrl; showUrlEditor = !showUrlEditor }}
             title="Base URL for curl commands"
@@ -193,7 +193,11 @@
           {#if showUrlEditor}
             <button class="fixed inset-0 z-40" aria-label="Close URL editor" onclick={() => showUrlEditor = false}></button>
             <div class="absolute right-0 top-full mt-1 z-50 w-72 rounded-lg border bg-card p-3 shadow-lg">
-              <p class="text-xs text-muted-foreground mb-2">Base URL for curl commands</p>
+              <div class="mb-2 flex items-center justify-between gap-2">
+                <p class="text-xs text-muted-foreground">Base URL for curl commands</p>
+                <button class="min-h-11 rounded-md border px-2 text-xs" aria-label="Close automation URL"
+                  onclick={() => showUrlEditor = false}>Close</button>
+              </div>
               <input
                 type="text"
                 bind:value={urlEditValue}
@@ -221,11 +225,11 @@
       </div>
     </div>
 
-    <!-- Mobile tab bar (second row, scrollable) -->
-    <nav class="flex md:hidden gap-0.5 px-4 pb-2 overflow-x-auto" style="scrollbar-width:none;-webkit-overflow-scrolling:touch;">
-      {#each tabs as t}
+    <!-- Keep every mobile destination reachable without horizontal scrolling. -->
+    <nav aria-label="Mobile navigation" class="grid grid-cols-3 gap-1 px-4 pb-2 md:hidden">
+      {#each tabs.slice(0, 2) as t}
         <button
-          class="px-2.5 py-1.5 text-xs rounded-md font-medium whitespace-nowrap transition-colors flex-shrink-0
+          class="min-h-11 px-2 py-1.5 text-sm rounded-md font-medium transition-colors
             {tab === t.id
               ? 'bg-primary text-primary-foreground'
               : 'text-muted-foreground hover:text-foreground hover:bg-muted'}"
@@ -234,16 +238,23 @@
           {t.label}
         </button>
       {/each}
-      <!-- API dropdown trigger (mobile) -->
-      <button
-        class="px-2.5 py-1.5 text-xs rounded-md font-medium whitespace-nowrap transition-colors flex-shrink-0
-          {apiTabIds.has(tab)
-            ? 'bg-primary text-primary-foreground'
-            : 'text-muted-foreground hover:text-foreground hover:bg-muted'}"
-        onclick={(e) => { apiMenuAnchor = e.currentTarget.getBoundingClientRect(); showApiMenu = !showApiMenu }}
-      >
-        Tools ▾
-      </button>
+      <select aria-label="More pages" value={['cameras', 'library'].includes(tab) ? '' : tab}
+        class="min-h-11 min-w-0 rounded-md border bg-card px-2 text-sm"
+        onchange={event => {
+          const destination = event.currentTarget.value
+          if (destination === 'curl') { urlEditValue = curlState.baseUrl; showUrlEditor = true }
+          else if (destination === 'swagger') window.open('/swagger', '_blank', 'noopener')
+          else if (destination) tab = destination
+          event.currentTarget.value = ['cameras', 'library'].includes(tab) ? '' : tab
+        }}>
+        <option value="" disabled>More…</option>
+        {#each tabs.slice(2) as t}<option value={t.id}>{t.label}</option>{/each}
+        <optgroup label="Tools">
+          {#each apiTabs as t}<option value={t.id}>{t.label}</option>{/each}
+          <option value="swagger">Swagger UI ↗</option>
+          <option value="curl">Automation URL</option>
+        </optgroup>
+      </select>
     </nav>
   </header>
 

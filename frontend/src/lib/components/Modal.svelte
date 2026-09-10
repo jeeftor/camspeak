@@ -37,7 +37,7 @@
     <button
       type="button"
       onclick={() => open = false}
-      class="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+      class="flex h-11 w-11 shrink-0 items-center justify-center rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground sm:h-8 sm:w-8"
       aria-label="Close"
     >
       <X class="h-4 w-4" />

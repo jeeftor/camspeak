@@ -2,7 +2,6 @@
   import { onMount } from 'svelte'
   import { RefreshCw, ArrowUp, ArrowDown, Radio, ArrowUpDown } from 'lucide-svelte'
   import CameraCard from './CameraCard.svelte'
-  import AudioComposer from './AudioComposer.svelte'
   import Broadcast from './Broadcast.svelte'
   import Modal from '$lib/components/Modal.svelte'
   import { Button } from '$lib/components/ui/button'
@@ -27,10 +26,7 @@
   let reordering = $state(false)
   let refreshing = $state(false)
   let error = $state('')
-  let selected = $state('')
-  let panelOpen = $state(false)
   let broadcastOpen = $state(false)
-  const selectedCamera = $derived(localCameras.find(camera => camera.name === selected))
 
   $effect(() => {
     if (!reordering) localCameras = cameras
@@ -72,10 +68,11 @@
   }
 </script>
 
-<div class="mb-5 flex flex-wrap items-center justify-between gap-3">
+<section class="camera-dashboard" aria-label="Camera audio">
+<div class="mb-4 flex flex-wrap items-center justify-between gap-3">
   <div>
     <h2 class="text-lg font-semibold">Cameras <span class="ml-1 text-sm font-normal text-muted-foreground">{cameras.length}</span></h2>
-    <p class="mt-0.5 text-sm text-muted-foreground">Your speakers at a glance. Select a camera to send audio.</p>
+    <p class="mt-0.5 text-sm text-muted-foreground">Speak, play a preset, or start a stream on your camera.</p>
   </div>
   <div class="flex flex-wrap items-center gap-2">
     <Button size="sm" onclick={() => broadcastOpen = true} disabled={!cameras.length}><Radio class="h-4 w-4" /> Broadcast</Button>
@@ -103,18 +100,14 @@
               </div>
             </div>
           {/if}
-          <CameraCard {camera} bind:draft={drafts[camera.name]} {monitor} onOpen={() => { selected = camera.name; panelOpen = true }} />
+          <CameraCard {camera} {voices} {presets} bind:draft={drafts[camera.name]} {monitor} />
         </div>
       {/if}
     {/each}
   </div>
 {/if}
 
-<Modal bind:open={panelOpen} title={selectedCamera ? `${selectedCamera.name} · Audio controls` : 'Audio controls'}>
-  {#if panelOpen && selectedCamera && drafts[selectedCamera.name]}
-    <AudioComposer camera={selectedCamera} {voices} {presets} bind:draft={drafts[selectedCamera.name]} {monitor} />
-  {/if}
-</Modal>
 <Modal bind:open={broadcastOpen} title="Broadcast">
   {#if broadcastOpen}<Broadcast {voices} {presets} bind:draft={broadcastDraft} {monitor} />{/if}
 </Modal>
+</section>

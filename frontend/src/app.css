@@ -90,3 +90,28 @@
     font-family: system-ui, -apple-system, sans-serif;
   }
 }
+
+/* Camera tasks stay touch-sized without expanding every desktop settings form. */
+@media (max-width: 767px) {
+  .camera-dashboard button,
+  .camera-dashboard summary,
+  .camera-dashboard select,
+  .camera-dashboard input {
+    min-height: 44px;
+  }
+
+  .camera-dashboard summary {
+    align-content: center;
+  }
+
+  .camera-dashboard button {
+    min-width: 44px;
+    gap: 6px;
+  }
+
+  .camera-dashboard input,
+  .camera-dashboard textarea,
+  .camera-dashboard select {
+    font-size: 16px;
+  }
+}

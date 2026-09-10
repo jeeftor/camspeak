@@ -10,6 +10,6 @@
   <Volume2 class="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
   <input type="range" min="0" max="10" step="0.5" bind:value {disabled} aria-label={label}
     onchange={() => onchange(value)}
-    class="flex-1 accent-primary" />
+    class="min-w-0 flex-1 accent-primary" />
   <span class="text-xs text-muted-foreground font-mono w-8 text-right flex-shrink-0">{value}×</span>
 </div>

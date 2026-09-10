@@ -133,12 +133,15 @@ and response data.
 
 ## Camera dashboard
 
-Camera cards show connection status, current playback, volume, and an optional
-preview. Open **Audio controls** for a camera to speak, select a library preset,
-play a URL, or describe its view. Your drafts stay available while you switch
-modes or reopen a camera during the current dashboard session. Pause and
-live-stream controls appear only when supported by the current operation or
-camera backend.
+Camera cards keep **Speak**, **Presets**, and **Streams** directly on the main
+screen. Type a message and speak, select an audio preset, or choose a saved stream
+or paste its URL. **Files**, **Describe**, and **Preview** remain on each card.
+Voice options, local audio preview, and custom repeat counts stay beside the
+relevant action; zero additional repeats plays once and -1 repeats until stopped.
+Your drafts stay available while you switch modes during the current dashboard
+session. Volume and supported playback controls remain available on the card.
+On phones, **More…** exposes the remaining pages and automation tools without
+horizontal navigation scrolling.
 
 Use **Broadcast** beside the Cameras heading for announcements to all enabled
 cameras. Use **Arrange** to expose camera ordering controls. The **Diagnostics**
