@@ -1,4 +1,5 @@
 <script>
+  import ErrorNotice from '$lib/components/ErrorNotice.svelte'
   import { onMount, onDestroy } from 'svelte'
   import { Pencil, X, Check } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
@@ -150,7 +151,7 @@
 
 </script>
 
-{#if error}<p role="alert" class="mb-3 text-sm text-destructive">{error} <button class="underline" onclick={loadTTS}>Retry</button></p>{/if}
+{#if error}<ErrorNotice message={error} /><button class="underline" onclick={loadTTS}>Retry loading TTS presets</button>{/if}
 {#if loading}
   <p class="text-sm text-muted-foreground">Loading your TTS presets…</p>
 {:else}

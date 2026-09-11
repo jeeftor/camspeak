@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorNotice from '$lib/components/ErrorNotice.svelte'
   import { onMount } from 'svelte'
   import { Loader2, Volume2, ArrowRight, Camera } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
@@ -170,9 +171,7 @@
 
   <!-- Error -->
   {#if error}
-    <div role="alert" class="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-      {error}
-    </div>
+    <ErrorNotice message={error} />
   {/if}
 
   <!-- Result -->

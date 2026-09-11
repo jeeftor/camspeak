@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toast } from '$lib/components/ui/toast'
   import { onDestroy, onMount, untrack } from 'svelte'
   import { Airplay, Bell, Info, Settings, Video, VideoOff } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
@@ -78,6 +79,7 @@
 
   function feedback(message: string, error = false) {
     clearTimeout(statusTimer)
+    if (error) { status = ''; toast.error(message); return }
     status = message
     failed = error
     if (!error) statusTimer = setTimeout(() => { status = '' }, 5000)
@@ -208,9 +210,13 @@
   {#snippet previewPanel()}
     <div use:swipe class="camera-swipe flex flex-col gap-1.5" aria-label={`${camera.name} preview area`}>
       <div class="flex items-center justify-between gap-2"><span class="text-xs text-muted-foreground">Camera preview</span>
+        <div class="flex items-center gap-1" role="group" aria-label="Camera settings and preview">
+        <Button size="icon" variant="ghost" title="Device info" aria-label="Device info" onclick={() => showInfo = true}><Info class="h-4 w-4" /></Button>
+        <Button size="icon" variant="ghost" title="Settings" aria-label="Settings" onclick={() => onOpenSettings?.(camera.name)}><Settings class="h-4 w-4" /></Button>
         {#if camera.capabilities?.snapshot !== false}<Button size="sm" variant="ghost" class="gap-1.5" onclick={togglePreview} aria-pressed={draft.previewEnabled} aria-label={`${draft.previewEnabled ? 'Hide' : 'Show'} ${camera.name} preview`}>
           {#if draft.previewEnabled}<VideoOff class="h-4 w-4" /> Hide{:else}<Video class="h-4 w-4" /> Show{/if}
         </Button>{/if}
+        </div>
       </div>
       {#if camera.capabilities?.snapshot === false}<p class="text-xs text-muted-foreground">Preview is unavailable for this camera connection.</p>
       {:else if preview}
@@ -222,9 +228,7 @@
   {/snippet}
   {#snippet toolsPanel()}
     <div class="flex flex-wrap gap-2 border-t pt-2" role="group" aria-label="Camera tools">
-      <Button size="sm" variant="ghost" class="gap-1.5" onclick={() => showInfo = true}><Info class="h-4 w-4" /> Device info</Button>
       <Button size="sm" variant="ghost" class="gap-1.5" onclick={beep} disabled={draft.busy || camera.capabilities?.speak === false}><Bell class="h-4 w-4" /> Test speaker</Button>
-      <Button size="sm" variant="ghost" class="gap-1.5" onclick={() => onOpenSettings?.(camera.name)}><Settings class="h-4 w-4" /> Settings</Button>
     </div>
     {#if camera.note}<p class="mt-2 break-words text-xs text-muted-foreground">{camera.note}</p>{/if}
     {#if status}<p role={failed ? 'alert' : 'status'} class="mt-2 break-words text-xs {failed ? 'text-destructive' : 'text-primary'}">{status}</p>{/if}

@@ -3,6 +3,7 @@
   import { Button } from '$lib/components/ui/button'
   import { apiClient } from '$lib/api'
   import { formatMs } from '$lib/utils'
+  import SpeakerBenchmark from './SpeakerBenchmark.svelte'
 
   let { presets = [], initialRate = 24000, initialChannels = 1, onFormatChange }: { presets: { name: string; model: string; default_voice: string }[]; initialRate?: number; initialChannels?: number; onFormatChange?: (rate: number, channels: number) => void } = $props()
   let preset = $state('')
@@ -12,6 +13,7 @@
   let channels = $state(1)
   $effect(() => { rate = initialRate; channels = initialChannels })
   let busy = $state(false)
+  let speakerBusy = $state(false)
   let status = $state('')
   let results = $state<{ mode: string; first_byte_ms?: number; total_ms?: number; bytes?: number; audio?: string; error?: string }[]>([])
   let controller: AbortController | undefined
@@ -20,7 +22,7 @@
   onDestroy(() => controller?.abort())
 
   async function run(modes: ('buffered' | 'streaming')[]) {
-    if (busy || !selected) return
+    if (busy || speakerBusy || !selected) return
     const request = { preset, text, voice: voice || selected.default_voice, sample_rate: rate, channels }
     controller = new AbortController()
     const signal = controller.signal
@@ -42,6 +44,7 @@
 </script>
 
 <section class="mt-4 flex flex-col gap-3 rounded-lg border bg-card p-4">
+  <fieldset disabled={speakerBusy} class="contents">
   <h3 class="font-semibold text-primary">TTS streaming test · experimental</h3>
   <p class="text-sm text-muted-foreground">Compare this saved endpoint/model. These tests do not change playback mode or play on cameras. Local previews require pressing Play.</p>
   <div class="flex flex-wrap gap-3">
@@ -75,4 +78,6 @@
       </article>
     {/each}
   </div>
+  </fieldset>
 </section>
+<SpeakerBenchmark {preset} {text} voice={voice || selected?.default_voice || ''} {rate} channels={Number(channels)} disabled={busy} bind:busy={speakerBusy} />

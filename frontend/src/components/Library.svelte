@@ -1,4 +1,5 @@
 <script>
+  import ErrorNotice from '$lib/components/ErrorNotice.svelte'
   import { onDestroy, untrack } from 'svelte'
   import { Sparkles, Save, Upload, Play, Pause, X, Loader2, Pencil, ArrowUp, ArrowDown, Radio, Wand2, Gauge, Plus, Square } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
@@ -370,7 +371,7 @@
 </script>
 
 <div class="flex flex-col gap-4">
-  {#if libError}<p class="text-sm text-destructive">{libError}</p>{/if}
+  <ErrorNotice message={libError} />
     <div class="flex flex-wrap items-center gap-2">
       <Button onclick={openAdd}><Plus class="h-4 w-4" />{busy ? 'Adding preset…' : 'Add preset'}</Button>
       <span class="text-sm text-muted-foreground">Sort by</span>

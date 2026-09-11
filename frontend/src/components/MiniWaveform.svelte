@@ -3,6 +3,7 @@
 </script>
 
 <script lang="ts">
+  import ErrorNotice from '$lib/components/ErrorNotice.svelte'
   /**
    * MiniWaveform — generic canvas-based audio waveform player.
    *
@@ -341,4 +342,4 @@
     {timeLabel}
   </span>
 </div>
-{#if audioError}<p role="alert" class="text-xs text-destructive">{audioError}</p>{/if}
+<ErrorNotice message={audioError} />

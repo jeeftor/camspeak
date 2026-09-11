@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorNotice from '$lib/components/ErrorNotice.svelte'
   import { Pause, Play, Square } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { apiClient } from '$lib/api'
@@ -52,4 +53,4 @@
     {/if}
   </div>
 {/if}
-{#if error}<p role="alert" class="text-xs text-destructive">{error}</p>{/if}
+<ErrorNotice message={error} />

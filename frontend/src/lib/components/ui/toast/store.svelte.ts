@@ -12,6 +12,7 @@ let toasts = $state<Toast[]>([])
 let nextId = 0
 
 function add(message: string, variant: Toast['variant'] = 'default', duration = 3000) {
+  if (toasts.some(t => t.message === message && t.variant === variant)) return
   const id = nextId++
   toasts = [...toasts, { id, message, variant, duration }]
   if (duration > 0) {
@@ -26,7 +27,7 @@ function dismiss(id: number) {
 export const toast = {
   show: (message: string, duration?: number) => add(message, 'default', duration),
   success: (message: string, duration?: number) => add(message, 'success', duration),
-  error: (message: string, duration?: number) => add(message, 'error', duration ?? 5000),
+  error: (message: string, duration?: number) => add(message, 'error', duration ?? 0),
   warning: (message: string, duration?: number) => add(message, 'warning', duration ?? 4000),
   dismiss,
 }

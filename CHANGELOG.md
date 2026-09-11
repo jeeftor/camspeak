@@ -5,6 +5,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.9.0] — 2026-09-11
+
+### Added
+- End-to-end speaker comparison inside the TTS preset editor: explicitly confirm sound playback, select a Hikvision camera, and compare buffered versus streaming delivery with the same message, voice and starting gain.
+- Reuse background jobs for WAN-safe progress, shared timing bars/tables, first-audio latency comparison, reversed run order and job-scoped Stop. Errors stop subsequent playback and retain partial results; saved settings are not changed.
+- Move camera Info and Settings into the preview toolbar. Show playback and configuration errors as persistent, dismissible notifications rather than duplicate inline error blocks.
+
+---
+
 ## [v4.8.1] — 2026-09-11
 
 ### Fixed

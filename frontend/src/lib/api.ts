@@ -164,13 +164,16 @@ async function describeAndWait(
   req: DescribeRequest,
   onProgress?: (job: DescribeJob) => void,
   signal?: AbortSignal,
+  startPath = '/api/describe/jobs',
+  statusPath = '/api/describe/jobs',
 ): Promise<DescribeJob> {
+  const operation = startPath === '/api/describe/jobs' ? 'Describe' : 'Speaker benchmark'
   let job: DescribeJob
   try {
-    job = await describeRequest('/api/describe/jobs', { method: 'POST', body: JSON.stringify(req) }, signal)
+    job = await describeRequest(startPath, { method: 'POST', body: JSON.stringify(req) }, startPath === '/api/describe/jobs' ? signal : undefined)
   } catch (cause) {
     signal?.throwIfAborted()
-    throw new Error(`${cause instanceof Error ? cause.message : String(cause)} Describe was not retried. Check Camera Output before trying again.`)
+    throw new Error(`${cause instanceof Error ? cause.message : String(cause)} ${operation} was not retried. Check Camera Output before trying again.`)
   }
   const id = job.id
   let failures = 0
@@ -181,15 +184,15 @@ async function describeAndWait(
     if (job.status !== 'running') return job
     await waitForDescribePoll(signal)
     try {
-      if (Date.now() - started > 15 * 60_000) throw new Error('Describe status monitoring expired')
-      job = await describeRequest(`/api/describe/jobs/${encodeURIComponent(id)}`, {}, signal)
+      if (Date.now() - started > 15 * 60_000) throw new Error(`${operation} status monitoring expired`)
+      job = await describeRequest(`${statusPath}/${encodeURIComponent(id)}`, {}, signal)
       if (job.id !== id) throw new Error('The server returned a different Describe job')
       failures = 0
     } catch (cause) {
       signal?.throwIfAborted()
       failures++
       if (failures <= 3 && (!(cause instanceof HTTPError) || cause.status >= 500 || [408, 429].includes(cause.status))) continue
-      throw new Error(`Cannot read Describe progress. ${cause instanceof Error ? cause.message : String(cause)} Audio may still be running; use Stop or check Camera Output before trying again.`)
+      throw new Error(`Cannot read ${operation} progress. ${cause instanceof Error ? cause.message : String(cause)} Audio may still be running; use Stop or check Camera Output before trying again.`)
     }
   }
 }
@@ -245,6 +248,9 @@ export const apiClient = {
   getConfig: () => api<AppConfig>('/api/config'),
   benchmarkTTS: (request: { preset: string; mode: 'buffered' | 'streaming'; text: string; voice: string; sample_rate: number; channels: number }, signal?: AbortSignal) =>
     api<{ mode: string; first_byte_ms: number; total_ms: number; bytes: number; duration: number; audio: string }>('/api/config/tts/benchmark', { method: 'POST', body: JSON.stringify(request), signal }),
+  benchmarkSpeaker: (request: { camera: string; preset: string; text: string; voice: string; sample_rate: number; channels: number; confirm_playback: boolean; streaming_first: boolean }, progress: (job: DescribeJob) => void, signal?: AbortSignal) =>
+    describeAndWait(request, progress, signal, '/api/config/tts/benchmark/speaker', '/api/config/tts/benchmark/jobs'),
+  cancelSpeakerBenchmark: (id: string) => api(`/api/config/tts/benchmark/jobs/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   getSettings: () => api<Settings>('/api/config/settings'),
   saveSettings: (settings: Partial<Settings>) =>
     api('/api/config/settings', { method: 'PUT', body: JSON.stringify(settings) }),

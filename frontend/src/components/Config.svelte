@@ -1,4 +1,5 @@
 <script>
+  import ErrorNotice from '$lib/components/ErrorNotice.svelte'
   import { onMount } from 'svelte'
   import { Bell, Pencil, X, Loader2, ScanLine, GripVertical, ArrowUp, ArrowDown } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
@@ -503,7 +504,7 @@
   <p class="flex items-center gap-2 text-muted-foreground"><Loader2 class="h-4 w-4 animate-spin" /> Loading config…</p>
 {:else}
   <div class="flex flex-col gap-4">
-    {#if configError}<p role="alert" class="text-sm text-destructive">{configError} <button class="underline" onclick={loadConfig}>Retry</button></p>{/if}
+    {#if configError}<ErrorNotice message={configError} /><button class="underline" onclick={loadConfig}>Retry loading configuration</button>{/if}
     <div class="flex gap-1 overflow-x-auto" style="scrollbar-width:none;">
       {#each configTabs as t}
         <Button

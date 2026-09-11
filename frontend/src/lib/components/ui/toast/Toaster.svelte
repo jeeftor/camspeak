@@ -15,12 +15,12 @@
   const styles = {
     default: 'border-border bg-card text-card-foreground',
     success: 'border-green-500/50 bg-green-500/10 text-green-600 dark:text-green-400',
-    error: 'border-red-500/50 bg-red-500/10 text-red-600 dark:text-red-400',
+    error: 'border-red-500/50 bg-card text-red-600 dark:text-red-400',
     warning: 'border-yellow-500/50 bg-yellow-500/10 text-yellow-600 dark:text-yellow-400',
   }
 </script>
 
-<div class="fixed bottom-4 right-4 z-[100] flex w-[calc(100%_-_2rem)] max-w-md flex-col gap-2">
+<div class="fixed bottom-4 right-4 z-[100] flex max-h-[80dvh] w-[calc(100%_-_2rem)] max-w-md flex-col gap-2 overflow-y-auto">
   {#each toasts as t (t.id)}
     {@const Icon = icons[t.variant]}
     <div

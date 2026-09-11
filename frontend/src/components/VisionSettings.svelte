@@ -1,4 +1,5 @@
 <script>
+  import ErrorNotice from '$lib/components/ErrorNotice.svelte'
   import { onMount, onDestroy } from 'svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
@@ -100,7 +101,7 @@
 
 </script>
 
-{#if error}<p role="alert" class="mb-3 text-sm text-destructive">{error} <button class="underline" onclick={loadVision}>Retry</button></p>{/if}
+{#if error}<ErrorNotice message={error} /><button class="underline" onclick={loadVision}>Retry loading vision settings</button>{/if}
 {#if loading}
   <p class="text-sm text-muted-foreground">Loading your vision settings…</p>
 {:else}

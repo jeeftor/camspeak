@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toast } from '$lib/components/ui/toast'
   import { onDestroy, type Snippet } from 'svelte'
   import { Eye, Loader2, Play, Radio, Send, Square, Upload } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
@@ -84,6 +85,7 @@
 
   function feedback(message: string, error = false) {
     clearTimeout(statusTimer)
+    if (error) { status = ''; toast.error(message); return }
     status = message
     failed = error
     if (!error) statusTimer = setTimeout(() => { status = '' }, 5000)

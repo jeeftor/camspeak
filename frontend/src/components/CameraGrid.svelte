@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorNotice from '$lib/components/ErrorNotice.svelte'
   import { onMount } from 'svelte'
   import { RefreshCw, Radio, ChevronLeft, ChevronRight } from 'lucide-svelte'
   import CameraCard from './CameraCard.svelte'
@@ -69,7 +70,7 @@
   </div>
 </div>
 
-{#if error}<p role="alert" class="mb-4 text-sm text-destructive">{error}</p>{/if}
+<ErrorNotice message={error} />
 {#if monitor.state.error}<p role="status" class="mb-4 text-sm text-muted-foreground">{monitor.state.error}</p>{/if}
 
 {#if localCameras.length === 0}

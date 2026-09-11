@@ -79,7 +79,6 @@
       {#if steps.length}
         <p class="text-xs text-muted-foreground">Stages track audio sent to the camera, not confirmation of audible sound.</p>
       {/if}
-      {#if result.label === 'Describe' && draft.describeError}<p role="alert" class="break-words text-xs text-destructive">{draft.describeError}</p>{/if}
       {#if result.description}<Markdown content={result.description} />{/if}
       {#if result.capture_source}<p class="text-xs text-muted-foreground">Captured using {result.capture_source}</p>{/if}
       {#if !steps.length && !job && result.total_ms == null && !draft.busy}<p class="text-xs text-muted-foreground">This action did not return timing details.</p>{/if}

@@ -639,6 +639,23 @@ const openAPISpec = `{
         }
       }
     },
+    "/config/tts/benchmark/speaker": {
+      "post": {
+        "tags": ["config"], "summary": "Play buffered and streaming TTS on one Hikvision speaker",
+        "description": "Explicitly confirmed sound playback. Interrupts existing audio. Returns a background job; poll status with short requests. Same saved preset, text, voice and initial gain are used for both runs. Stops on error or cancellation; never automatically retries or changes saved settings. First audio sent measures delivery, not audible sound.",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["preset", "camera", "text", "sample_rate", "channels", "confirm_playback"], "properties": {
+          "preset": {"type": "string"}, "camera": {"type": "string"}, "text": {"type": "string", "maxLength": 2000}, "voice": {"type": "string"},
+          "sample_rate": {"type": "integer", "minimum": 8000, "maximum": 96000}, "channels": {"type": "integer", "enum": [1, 2]},
+          "confirm_playback": {"type": "boolean", "enum": [true]}, "streaming_first": {"type": "boolean", "default": false}
+        }}}}},
+        "responses": {"202": {"description": "Job accepted; result contains buffered/streaming timing objects"}, "400": {"description": "Unconfirmed playback, invalid inputs or unsupported camera"}, "404": {"description": "Missing camera or preset"}, "503": {"description": "Worker busy"}}
+      }
+    },
+    "/config/tts/benchmark/jobs/{id}": {
+      "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}],
+      "get": {"tags": ["config"], "summary": "Read speaker comparison progress and retained timings", "responses": {"200": {"description": "Job with status, stage and result; result.buffered and result.streaming include timings, ttfs_ms and total_ms"}, "404": {"description": "Job missing or expired"}}},
+      "delete": {"tags": ["config"], "summary": "Cancel this speaker comparison without stopping replacement audio", "responses": {"200": {"description": "Cancellation requested"}, "404": {"description": "Job not found"}}}
+    },
     "/config/tts/benchmark": {
       "post": {
         "tags": ["config"],

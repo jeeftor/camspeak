@@ -24,6 +24,7 @@ type DescribeJob struct {
 	Error     string         `json:"error,omitempty"`
 	startedAt time.Time
 	doneAt    time.Time
+	cancel    context.CancelFunc
 }
 
 // describeJobs reuses the bounded upload worker lifecycle, with isolated job state.
@@ -97,7 +98,7 @@ func (j *describeJobs) finish(id string, result map[string]any, err error) {
 		}
 		if errors.Is(err, context.Canceled) {
 			job.Status = "canceled"
-			job.Error = "Describe was stopped or replaced by another action."
+			job.Error = "Playback was stopped or replaced by another action."
 		}
 	}
 	job.Stage = job.Status
