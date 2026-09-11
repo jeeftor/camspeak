@@ -51,10 +51,16 @@ func setPlaybackPaused(camera string, paused bool) {
 		return
 	}
 	if paused {
+		if ps.PausedAt != nil {
+			return
+		}
 		now := time.Now()
 		ps.PausedAt = &now
 		ps.State = "paused"
 	} else {
+		if ps.PausedAt != nil {
+			ps.StartedAt = ps.StartedAt.Add(time.Since(*ps.PausedAt))
+		}
 		ps.PausedAt = nil
 		ps.State = "playing"
 	}

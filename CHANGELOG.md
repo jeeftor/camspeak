@@ -5,7 +5,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [v4.2.2] — 2026-09-10
+## [v4.3.0] — 2026-09-10
+
+### Added
+- Unified Add preset dialog for file uploads, tested streams, and generated TTS in the Library browser.
+- Playback Events with reusable cURL and JSON requests, copy controls, stable history IDs, and redacted stream credentials.
+- Estimated preset waveform progress and a fixed-width VU percentage display.
+
+### Changed
+- Moved camera ordering into camera configuration, with drag handles and arrow controls.
+- Promoted the existing vision and capture benchmark tools into the main Benchmark navigation.
 
 ### Fixed
 - Triggered Describe, speech, preset, beep, and stream actions now reserve the speaker before preparation, interrupt active AirPlay, and prevent AirPlay from reconnecting over the triggered action.
@@ -13,7 +22,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - Discard superseded AirPlay audio during triggered playback and resume only with fresh input afterward. INFO logs identify speaker reservations, releases, and AirPlay yielding.
 
 ### Upgrade notes
-- No REST API changes; the existing Home Assistant integration remains compatible.
+- Event replay metadata is additive; the companion Home Assistant client adds event history support in v0.15.2.
 - Camera, AirPlay, and API race regressions passed with local test doubles. Test real iPhone/camera interruption after upgrading.
 
 ---

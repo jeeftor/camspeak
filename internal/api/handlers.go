@@ -387,7 +387,14 @@ func (h *Handlers) doPlayURLContext(
 		"elapsed", time.Since(start),
 	)
 	h.events.publish(
-		event{Camera: camera, Action: "play-url", Text: redactedURL, At: time.Now()},
+		event{
+			Camera: camera, Action: "play-url", Text: redactedURL, At: time.Now(),
+			Replay: playbackReplay(
+				"/api/play-url",
+				map[string]any{"camera": camera, "url": rawURL},
+				gain,
+			),
+		},
 	)
 
 	return nil
@@ -711,6 +718,8 @@ func (h *Handlers) Events(c echo.Context) error {
 	c.Response().Header().Set("Content-Type", "text/event-stream")
 	c.Response().Header().Set("Cache-Control", "no-cache")
 	c.Response().WriteHeader(http.StatusOK)
+	ch := h.events.subscribe()
+	defer h.events.unsubscribe(ch)
 
 	// Send recent history on connect
 	if recent, err := h.events.recentEvents(50); err == nil {
@@ -725,9 +734,6 @@ func (h *Handlers) Events(c echo.Context) error {
 
 		c.Response().Flush()
 	}
-
-	ch := h.events.subscribe()
-	defer h.events.unsubscribe(ch)
 
 	for {
 		select {

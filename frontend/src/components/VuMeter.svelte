@@ -12,5 +12,5 @@
       <div class="flex-1 transition-colors duration-75 {lit ? (index < 12 ? 'bg-green-500' : index < 17 ? 'bg-yellow-500' : 'bg-red-500') : 'bg-muted-foreground/20'}"></div>
     {/each}
   </div>
-  <span class="text-xs tabular-nums text-muted-foreground">{Math.round(value * 100)}%</span>
+  <span class="inline-block w-9 shrink-0 text-right text-xs tabular-nums text-muted-foreground">{Math.round(value * 100)}%</span>
 </div>

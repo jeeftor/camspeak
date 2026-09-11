@@ -1,6 +1,6 @@
 <script>
-  import { onDestroy } from 'svelte'
-  import { Sparkles, Save, Upload, Play, Pause, X, Loader2, Pencil, ArrowUp, ArrowDown, Radio, Wand2, Gauge } from 'lucide-svelte'
+  import { onDestroy, untrack } from 'svelte'
+  import { Sparkles, Save, Upload, Play, Pause, X, Loader2, Pencil, ArrowUp, ArrowDown, Radio, Wand2, Gauge, Plus, Square } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Select } from '$lib/components/ui/select'
@@ -10,10 +10,69 @@
   import { formatMs, formatTimingSummary, formatSeconds } from '$lib/utils'
   import AudioPlayer from './AudioPlayer.svelte'
   import VoiceSelect from '$lib/components/VoiceSelect.svelte'
+  import Modal from '$lib/components/Modal.svelte'
 
   let { presets = [], voices = [], onRefresh } = $props()
 
-  let tab = $state('browse')
+  let addOpen = $state(false)
+  let tab = $state('upload')
+  let cameras = $state([])
+  let testCamera = $state('')
+  let testingCamera = $state('')
+  let testBusy = $state(false)
+  let testStatus = $state('')
+  let streamTestRequest = null
+  let busy = $derived(genBusy || uploadBusy || streamBusy)
+
+  async function openAdd() {
+    currentAudio?.pause()
+    playingKey = ''
+    addOpen = true
+    try { cameras = (await apiClient.getCameras()).filter(camera => camera.enabled !== false) }
+    catch (e) { testStatus = `Camera list unavailable: ${e.message}` }
+  }
+
+  async function stopTest() {
+    const camera = testingCamera
+    if (!camera) return
+    testBusy = true
+    try {
+      // Wait for the start request so a late response cannot restart a closed test.
+      await streamTestRequest?.catch(() => {})
+      await apiClient.stop(camera)
+      testingCamera = ''
+      testStatus = 'Test stopped'
+    } catch (e) {
+      testStatus = `Could not stop test: ${e.message}. Use Stop on the Cameras screen.`
+      toast.error(testStatus)
+    } finally { testBusy = false }
+  }
+
+  async function testStream() {
+    if (!testCamera || !streamURL.trim() || testingCamera) return
+    testingCamera = testCamera
+    testBusy = true
+    testStatus = 'Starting stream test…'
+    try {
+      streamTestRequest = apiClient.playStream({ camera: testCamera, url: streamURL.trim() })
+      await streamTestRequest
+      testStatus = `Stream sent to ${testingCamera}. Listen to the speaker, then stop the test.`
+    } catch (e) {
+      // A network error does not prove that playback failed; retain the Stop action.
+      testStatus = `Test status unknown: ${e.message}. Stop the test before retrying.`
+    } finally { testBusy = false; streamTestRequest = null }
+  }
+
+  $effect(() => {
+    if (!addOpen) {
+      untrack(() => {
+        genAudioEl?.pause()
+        uploadAudioEl?.pause()
+        genPlaying = false
+        if (testingCamera) void stopTest()
+      })
+    }
+  })
   let genName = $state('')
   let genText = $state('')
   let genCategory = $state('alerts')
@@ -33,12 +92,15 @@
     clearTimeout(statusTimeout)
     clearTimeout(uploadTimeout)
     uploadController?.abort()
+    currentAudio?.pause()
+    if (testingCamera) void stopTest()
   })
 
   let uploadName = $state('')
   let uploadCategory = $state('uploads')
   let uploadFile = $state(null)
   let uploadPreview = $state(null)
+  let uploadAudioEl = $state(null)
   let uploadDragging = $state(false)
   let uploadBusy = $state(false)
   let uploadStatus = $state('')
@@ -86,6 +148,7 @@
   async function generate() {
     if (!genText) return
     genBusy = true; genStatus = ''
+    genAudioEl?.pause()
     if (genAudio) { URL.revokeObjectURL(genAudio); genAudio = null }
     genPlaying = false
     try {
@@ -94,11 +157,9 @@
       const blob = await res.blob()
       genAudio = URL.createObjectURL(blob)
       const ms = ttsMs ? formatMs(Number(ttsMs)) : ''
-      genStatus = ms ? `✓ Playing… (${ms})` : '✓ Playing…'
+      genStatus = ms ? `✓ Generated (${ms}) — ready to preview or save` : '✓ Generated — ready to preview or save'
       genAudioEl = new Audio(genAudio)
       genAudioEl.onended = () => { genPlaying = false }
-      genAudioEl.play()
-      genPlaying = true
     } catch (e) {
       genStatus = '✗ ' + e.message
     } finally {
@@ -107,10 +168,13 @@
     }
   }
 
-  function togglePreview() {
+  async function togglePreview() {
     if (!genAudio || !genAudioEl) return
     if (genPlaying) { genAudioEl.pause(); genPlaying = false }
-    else { genAudioEl.play(); genPlaying = true }
+    else {
+      try { await genAudioEl.play(); genPlaying = true }
+      catch (e) { genStatus = `Preview failed: ${e.message}` }
+    }
   }
 
   async function save() {
@@ -122,6 +186,7 @@
       genStatus = timing ? `✓ Saved (${timing})` : '✓ Saved'
       toast.success(`Preset "${genName}" saved`)
       genName = ''; genText = ''
+      genAudioEl?.pause()
       if (genAudio) { URL.revokeObjectURL(genAudio); genAudio = null }
       genPlaying = false
       onRefresh()
@@ -188,8 +253,7 @@
       uploadStatus = '✗ ' + e.message
       toast.error(`Upload failed: ${e.message}`)
     } finally {
-      // Keep the dialog visible briefly so the user sees "Done", then close.
-      setTimeout(() => { uploadProgress = null }, 800)
+      uploadProgress = null
       uploadBusy = false
       uploadController = null
       clearTimeout(uploadTimeout); uploadTimeout = setTimeout(() => (uploadStatus = ''), 4000)
@@ -299,30 +363,16 @@
   }
 
   const libTabs = [
-    { id: 'browse', label: 'Browse' },
+    { id: 'upload', label: 'Upload file' },
+    { id: 'stream', label: 'Stream' },
     { id: 'generate', label: 'Generate TTS' },
-    { id: 'upload', label: 'Upload' },
-    { id: 'stream', label: 'Add Stream' },
   ]
 </script>
 
 <div class="flex flex-col gap-4">
   {#if libError}<p class="text-sm text-destructive">{libError}</p>{/if}
-  <div class="flex gap-1 overflow-x-auto" style="scrollbar-width:none;">
-    {#each libTabs as t}
-      <Button
-        variant={tab === t.id ? 'default' : 'ghost'}
-        size="sm"
-        onclick={() => tab = t.id}
-        class="flex-shrink-0"
-      >
-        {t.label}
-      </Button>
-    {/each}
-  </div>
-
-  {#if tab === 'browse'}
     <div class="flex flex-wrap items-center gap-2">
+      <Button onclick={openAdd}><Plus class="h-4 w-4" />{busy ? 'Adding preset…' : 'Add preset'}</Button>
       <span class="text-sm text-muted-foreground">Sort by</span>
       <Select bind:value={sortBy} class="w-32">
         <option value="name">Name</option>
@@ -333,7 +383,7 @@
       </Button>
     </div>
     {#if presets.length === 0}
-      <p class="italic text-muted-foreground">No presets yet. Generate or upload one.</p>
+      <p class="italic text-muted-foreground">No presets yet. Add a file, stream, or generated speech.</p>
     {:else}
       {#each Object.entries(grouped) as [cat, items]}
         <div class="mb-4">
@@ -439,7 +489,17 @@
       {/each}
     {/if}
 
-  {:else if tab === 'generate'}
+  <Modal bind:open={addOpen} title="Add preset">
+    <div class="mb-4 flex flex-wrap gap-1" aria-label="Preset source">
+      {#each libTabs as t}
+        <Button variant={tab === t.id ? 'default' : 'ghost'} size="sm" aria-pressed={tab === t.id}
+          disabled={busy || testBusy || !!testingCamera}
+          onclick={() => { genAudioEl?.pause(); uploadAudioEl?.pause(); genPlaying = false; tab = t.id }}>{t.label}</Button>
+      {/each}
+    </div>
+    {#if busy}<p class="mb-3 text-xs text-muted-foreground" role="status">Your preset is being prepared. You can close this dialog and reopen it to check progress; stay on the Library screen.</p>{/if}
+    <fieldset disabled={busy} class="min-w-0 border-0 p-0">
+  {#if tab === 'generate'}
     <div class="flex max-w-2xl flex-col gap-3">
       <h3 class="text-base font-semibold text-primary">Generate TTS Preset</h3>
       <label class="flex flex-col gap-1 text-sm text-muted-foreground">
@@ -453,10 +513,10 @@
       <div class="flex gap-2">
         <Button onclick={generate} disabled={genBusy || !genText}>
           {#if genBusy}<Loader2 class="h-4 w-4 animate-spin" />{:else}<Sparkles class="h-4 w-4" />{/if}
-          Generate & Preview
+          Generate audio
         </Button>
         {#if genAudio}
-          <Button variant="outline" onclick={togglePreview}>
+          <Button variant="outline" onclick={togglePreview} aria-label={genPlaying ? 'Pause generated audio' : 'Preview generated audio'}>
             {#if genPlaying}<Pause class="h-4 w-4" />{:else}<Play class="h-4 w-4" />{/if}
           </Button>
         {/if}
@@ -507,7 +567,8 @@
         <input
           type="file"
           accept="audio/*"
-          class="hidden"
+          aria-label="Audio file"
+          class="absolute inset-0 h-full w-full cursor-pointer opacity-0"
           onchange={(e) => { handleUploadFile(e.currentTarget.files?.[0] ?? null) }}
         />
         {#if uploadFile}
@@ -521,7 +582,7 @@
       {#if uploadPreview}
         <div class="rounded-lg border bg-background p-3">
           <p class="mb-2 text-xs text-muted-foreground">Preview before saving</p>
-          <audio src={uploadPreview} controls class="w-full"></audio>
+          <audio bind:this={uploadAudioEl} src={uploadPreview} controls class="w-full"></audio>
         </div>
       {/if}
       <Button onclick={upload} disabled={uploadBusy || !uploadName || !uploadFile} class="w-fit">
@@ -547,18 +608,34 @@
         Category
         <Input bind:value={streamCategory} placeholder="streams" />
       </label>
-      <Button onclick={saveStream} disabled={streamBusy || !streamName || !streamURL} class="w-fit">
+      <div class="flex flex-col gap-2 rounded-lg border p-3">
+        <label class="flex flex-col gap-1 text-sm text-muted-foreground">
+          Test on camera
+          <Select bind:value={testCamera} disabled={testBusy || !!testingCamera}>
+            <option value="">Choose a camera…</option>
+            {#each cameras as camera}<option value={camera.name}>{camera.name}</option>{/each}
+          </Select>
+        </label>
+        <p class="text-xs text-muted-foreground">Testing plays aloud on the selected camera and interrupts its current audio. Saving alone does not play audio.</p>
+        {#if testingCamera}
+          <Button variant="destructive" onclick={stopTest} disabled={testBusy} class="w-fit"><Square class="h-4 w-4" />Stop test</Button>
+        {:else}
+          <Button variant="outline" onclick={testStream} disabled={testBusy || !testCamera || !streamURL.trim()} class="w-fit"><Play class="h-4 w-4" />Test stream</Button>
+        {/if}
+        {#if testStatus}<p class="text-sm break-words" role="status">{testStatus}</p>{/if}
+      </div>
+      <Button onclick={saveStream} disabled={streamBusy || testBusy || !!testingCamera || !streamName || !streamURL} class="w-fit">
         {#if streamBusy}<Loader2 class="h-4 w-4 animate-spin" />{:else}<Radio class="h-4 w-4" />{/if}
         Save Stream Preset
       </Button>
       {#if streamStatus}<p class="text-sm text-primary">{streamStatus}</p>{/if}
     </div>
   {/if}
+    </fieldset>
 
   <!-- Upload progress dialog -->
   {#if uploadProgress}
-    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div class="rounded-lg border bg-card p-6 shadow-lg w-96 max-w-[90vw]">
+      <div class="mt-4 rounded-lg border bg-card p-4" role="status" aria-live="polite">
         <div class="flex items-center gap-3 mb-4">
           {#if uploadProgress.step === 'done'}
             <span class="text-primary text-lg font-semibold">✓</span>
@@ -594,6 +671,6 @@
           {/if}
         </div>
       </div>
-    </div>
   {/if}
+  </Modal>
 </div>

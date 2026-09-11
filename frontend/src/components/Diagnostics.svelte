@@ -25,15 +25,15 @@
     }
   }
   const tabs = [
-    { id: 'vision', label: 'Vision playground' },
-    { id: 'capture', label: 'Capture benchmark' },
-    { id: 'matrix', label: 'Full matrix' },
+    { id: 'vision', label: 'Vision models' },
+    { id: 'capture', label: 'Capture methods' },
+    { id: 'matrix', label: 'Advanced matrix' },
   ]
 </script>
 
-<h1 class="mb-2 text-xl font-semibold">Diagnostics</h1>
+<h1 class="mb-2 text-xl font-semibold">Benchmark</h1>
 <p class="mb-4 text-sm text-muted-foreground">Test snapshots and compare vision models before changing your camera settings.</p>
-<div class="mb-4 flex gap-2 overflow-x-auto">
+<div class="mb-4 flex flex-wrap gap-2">
   {#each tabs as item}
     <Button variant={tab === item.id ? 'default' : 'outline'} onclick={() => tab = item.id}>{item.label}</Button>
   {/each}

@@ -135,7 +135,15 @@ func migrate(db *sql.DB) {
 			`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name=?`,
 			table, column,
 		).Scan(&col); err != nil {
-			log.Warn("migration: failed to check column", "table", table, "column", column, "err", err)
+			log.Warn(
+				"migration: failed to check column",
+				"table",
+				table,
+				"column",
+				column,
+				"err",
+				err,
+			)
 			return false
 		}
 		if col > 0 {
@@ -143,7 +151,15 @@ func migrate(db *sql.DB) {
 		}
 		stmt := fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, table, column, def)
 		if _, err := db.Exec(stmt); err != nil {
-			log.Warn("migration: failed to add column", "table", table, "column", column, "err", err)
+			log.Warn(
+				"migration: failed to add column",
+				"table",
+				table,
+				"column",
+				column,
+				"err",
+				err,
+			)
 			return false
 		}
 		log.Info("migration: added column", "table", table, "column", column)
@@ -177,6 +193,7 @@ func migrate(db *sql.DB) {
 	addColumn("cameras", "vision_width", "INTEGER DEFAULT 0")
 	// Add 'voice' column to events if missing (added in v2.13.0).
 	addColumn("events", "voice", "TEXT DEFAULT ''")
+	addColumn("events", "replay", "TEXT DEFAULT ''")
 	// Add 'url' column to presets if missing (added in v2.14.0).
 	// Stream presets store a live stream/playlist URL here; audio presets
 	// leave it empty and use raw_path instead.

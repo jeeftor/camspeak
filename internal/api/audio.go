@@ -146,7 +146,14 @@ func (h *Handlers) speakTextContext(
 	)
 
 	h.events.publish(
-		event{Camera: cameraName, Action: "speak", Text: text, Voice: voice, At: time.Now()},
+		event{
+			Camera: cameraName, Action: "speak", Text: text, Voice: voice, At: time.Now(),
+			Replay: playbackReplay(
+				"/api/speak",
+				map[string]any{"camera": cameraName, "text": text, "voice": voice},
+				gain,
+			),
+		},
 	)
 
 	return t, nil
@@ -198,6 +205,28 @@ func (h *Handlers) playPresetContext(
 		return t, err
 	}
 	t.Add("load_ms", loadStart)
+	replay := playbackReplay(
+		"/api/play",
+		map[string]any{
+			"camera":   cameraName,
+			"preset":   preset.Name,
+			"category": preset.Category,
+			"loop":     loop,
+		},
+		gain,
+	)
+	// Record the original preset request once; applying preset gain must not alter replay gain.
+	publish := func() {
+		h.events.publish(
+			event{
+				Camera: cameraName,
+				Action: "play",
+				Text:   preset.Name,
+				At:     time.Now(),
+				Replay: replay,
+			},
+		)
+	}
 
 	// Stream preset: resolve playlist URL and start ffmpeg → camera stream.
 	if preset.IsStream() {
@@ -224,6 +253,7 @@ func (h *Handlers) playPresetContext(
 			return t, err
 		}
 		streamStarted = true
+		publish()
 		log.Info(
 			"play: stream preset started",
 			"camera",
@@ -255,6 +285,9 @@ func (h *Handlers) playPresetContext(
 		// ffmpeg asynchronously and returns, so a defer os.Remove would
 		// delete the temp file before ffmpeg could read it.)
 		result, loopErr := h.playPresetLooped(log, op, preset, sendPath, t, gain, loop)
+		if loopErr == nil {
+			publish()
+		}
 		streamStarted = loopErr == nil
 		return result, loopErr
 	}
@@ -301,8 +334,7 @@ func (h *Handlers) playPresetContext(
 		"playback_ms",
 		sendTiming.PlaybackMs,
 	)
-
-	h.events.publish(event{Camera: cameraName, Action: "play", Text: preset.Name, At: time.Now()})
+	publish()
 
 	return t, nil
 }
@@ -391,7 +423,6 @@ func (h *Handlers) playPresetLooped(
 	operationsMu.Unlock()
 
 	log.Info("play: looped preset started", "camera", cameraName, "preset", preset.Name)
-	h.events.publish(event{Camera: cameraName, Action: "play", Text: detail, At: time.Now()})
 
 	// Wrap stdout with a level tap so the VU meter can sample audio levels.
 	tap := &levelTapReader{r: stdout, session: session, gain: h.gainForCall(cameraName, gain)}
@@ -543,7 +574,18 @@ func (h *Handlers) broadcastToCameras(
 			record(op.camera, err)
 			if err == nil {
 				h.events.publish(
-					event{Camera: op.camera, Action: "speak", Text: req.Text, Voice: voice, At: time.Now()},
+					event{
+						Camera: op.camera,
+						Action: "speak",
+						Text:   req.Text,
+						Voice:  voice,
+						At:     time.Now(),
+						Replay: playbackReplay(
+							"/api/speak",
+							map[string]any{"camera": op.camera, "text": req.Text, "voice": voice},
+							requestGain(req.Gain),
+						),
+					},
 				)
 			}
 		})

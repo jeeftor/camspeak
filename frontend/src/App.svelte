@@ -42,10 +42,11 @@
   }
 
   // --- Hash-based SPA routing ---
-  const validTabs = ['cameras', 'library', 'events', 'announce', 'diagnostics', 'ha', 'config', 'rest', 'swagger', 'mcp']
+  const validTabs = ['cameras', 'library', 'events', 'announce', 'benchmark', 'ha', 'config', 'rest', 'swagger', 'mcp']
 
   function tabFromHash() {
     const h = window.location.hash.replace(/^#\/?/, '')
+    if (h === 'diagnostics') return 'benchmark'
     return validTabs.includes(h) ? h : 'cameras'
   }
 
@@ -106,12 +107,12 @@
     { id: 'library', label: 'Library' },
     { id: 'events',  label: 'Events' },
     { id: 'announce', label: 'Announce' },
+    { id: 'benchmark', label: 'Benchmark' },
     { id: 'config',  label: 'Config' },
   ]
 
   // API sub-menu items (shown in dropdown under "API" button)
   const apiTabs = [
-    { id: 'diagnostics', label: 'Diagnostics' },
     { id: 'ha',      label: 'Home Assistant' },
     { id: 'rest',    label: 'REST Docs' },
     { id: 'mcp',     label: 'MCP' },
@@ -312,7 +313,7 @@
         <EventLog />
       {:else if tab === 'announce'}
         <Announce {cameras} />
-      {:else if tab === 'diagnostics'}
+      {:else if tab === 'benchmark'}
         <Diagnostics {cameras} />
       {:else if tab === 'ha'}
         <HomeAssistant />

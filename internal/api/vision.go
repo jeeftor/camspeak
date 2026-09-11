@@ -100,7 +100,13 @@ func (h *Handlers) Vision(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "vision model not configured")
 	}
 
-	imageBytes, err := h.fetchSnapshot(c.Request().Context(), req.Camera, cam, frigateURL, req.Stream)
+	imageBytes, err := h.fetchSnapshot(
+		c.Request().Context(),
+		req.Camera,
+		cam,
+		frigateURL,
+		req.Stream,
+	)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
 	}
@@ -118,10 +124,6 @@ func (h *Handlers) Vision(c echo.Context) error {
 	}
 
 	log.Info("vision: done", "camera", req.Camera, "text", description)
-	h.events.publish(
-		event{Camera: req.Camera, Action: "describe", Text: description, At: time.Now()},
-	)
-
 	return c.JSON(http.StatusOK, map[string]string{"description": description})
 }
 
@@ -439,7 +441,14 @@ func (h *Handlers) runDescribe(
 		t.TTFS(),
 	)
 	h.events.publish(
-		event{Camera: req.Camera, Action: "describe", Text: description, At: time.Now()},
+		event{
+			Camera: req.Camera, Action: "describe", Text: description, At: time.Now(),
+			Replay: playbackReplay(
+				"/api/describe",
+				map[string]any{"camera": req.Camera, "stream": req.Stream, "prompt": req.Prompt},
+				requestGain(req.Gain),
+			),
+		},
 	)
 
 	snapB64 := base64.StdEncoding.EncodeToString(imageBytes)
@@ -541,7 +550,10 @@ func (h *Handlers) Announce(c echo.Context) error {
 	transcodeStart := time.Now()
 	rawPath, err := wavBytesToRawWithPrimeContext(op.ctx, wav, h.tmpDir, 1.0, cfg.PrimeSilenceMs)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("transcoding: %s", err))
+		return echo.NewHTTPError(
+			http.StatusInternalServerError,
+			fmt.Sprintf("transcoding: %s", err),
+		)
 	}
 	t.Add("transcode_ms", transcodeStart)
 	defer os.Remove(rawPath)
@@ -566,6 +578,17 @@ func (h *Handlers) Announce(c echo.Context) error {
 	)
 	h.events.publish(event{
 		Camera: req.TargetCamera, Action: "announce", Text: description, At: time.Now(),
+		Replay: playbackReplay(
+			"/api/announce",
+			map[string]any{
+				"source_camera": req.SourceCamera,
+				"target_camera": req.TargetCamera,
+				"stream":        req.Stream,
+				"prompt":        req.Prompt,
+				"voice":         req.Voice,
+			},
+			requestGain(req.Gain),
+		),
 	})
 
 	return c.JSON(http.StatusOK, map[string]any{
@@ -854,7 +877,12 @@ func (h *Handlers) VisionTestAllStream(c echo.Context) error {
 	} else {
 		modelsURL = strings.TrimRight(modelsURL, "/") + "/v1/models"
 	}
-	httpReq, err := http.NewRequestWithContext(c.Request().Context(), http.MethodGet, modelsURL, nil)
+	httpReq, err := http.NewRequestWithContext(
+		c.Request().Context(),
+		http.MethodGet,
+		modelsURL,
+		nil,
+	)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}

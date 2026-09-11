@@ -2,17 +2,49 @@ package api
 
 import (
 	"database/sql"
+	"encoding/json"
+	"net/url"
 	"sync"
 	"time"
 )
 
-// event represents a single speak action for the SSE log.
+// event represents playback activity for the persisted history and SSE log.
 type event struct {
-	Camera string    `json:"camera"`
-	Action string    `json:"action"` // "speak", "play", "beep"
-	Text   string    `json:"text,omitempty"`
-	Voice  string    `json:"voice,omitempty"`
-	At     time.Time `json:"at"`
+	ID     int64        `json:"id,omitempty"`
+	Replay *eventReplay `json:"replay,omitempty"`
+	Camera string       `json:"camera"`
+	Action string       `json:"action"` // "speak", "play", "beep"
+	Text   string       `json:"text,omitempty"`
+	Voice  string       `json:"voice,omitempty"`
+	At     time.Time    `json:"at"`
+}
+
+// eventReplay records only the public playback request, never authentication headers.
+type eventReplay struct {
+	Method   string         `json:"method"`
+	Path     string         `json:"path"`
+	Body     map[string]any `json:"body"`
+	Redacted bool           `json:"redacted,omitempty"`
+}
+
+func playbackReplay(path string, body map[string]any, gain float64) *eventReplay {
+	if gain >= 0 {
+		body["gain"] = gain
+	}
+	r := &eventReplay{Method: "POST", Path: path, Body: body}
+	if raw, ok := body["url"].(string); ok {
+		if u, err := url.Parse(raw); err != nil {
+			body["url"] = "[invalid URL removed]"
+			r.Redacted = true
+		} else if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+			u.User = nil
+			u.RawQuery = ""
+			u.Fragment = ""
+			body["url"] = u.String()
+			r.Redacted = true
+		}
+	}
+	return r
 }
 
 // eventBus is a simple pub/sub for SSE clients with SQLite persistence.
@@ -47,12 +79,34 @@ func (b *eventBus) unsubscribe(ch chan event) {
 
 // publish persists the event to SQLite and broadcasts to SSE subscribers.
 func (b *eventBus) publish(ev event) {
+	if ev.Replay == nil {
+		switch ev.Action {
+		case "stop", "pause", "resume", "beep":
+			ev.Replay = playbackReplay("/api/"+ev.Action, map[string]any{"camera": ev.Camera}, -1)
+		case "stop-all":
+			ev.Replay = playbackReplay("/api/stop", map[string]any{}, -1)
+		}
+	}
+	if ev.Action == "play-url" || ev.Action == "play-stream" || ev.Action == "pause" ||
+		ev.Action == "resume" {
+		clean := playbackReplay("", map[string]any{"url": ev.Text}, -1)
+		ev.Text, _ = clean.Body["url"].(string)
+	}
 	// Persist to SQLite (best-effort, don't block on DB errors)
 	if b.db != nil {
-		_, _ = b.db.Exec(
-			`INSERT INTO events (camera, action, text, voice, created) VALUES (?, ?, ?, ?, ?)`,
-			ev.Camera, ev.Action, ev.Text, ev.Voice, ev.At,
+		replay, _ := json.Marshal(ev.Replay)
+		result, err := b.db.Exec(
+			`INSERT INTO events (camera, action, text, voice, created, replay) VALUES (?, ?, ?, ?, ?, ?)`,
+			ev.Camera,
+			ev.Action,
+			ev.Text,
+			ev.Voice,
+			ev.At,
+			string(replay),
 		)
+		if err == nil {
+			ev.ID, _ = result.LastInsertId()
+		}
 	}
 
 	// Broadcast to SSE subscribers
@@ -74,7 +128,7 @@ func (b *eventBus) recentEvents(limit int) ([]event, error) {
 	}
 
 	rows, err := b.db.Query(
-		`SELECT camera, action, text, voice, created FROM events
+		`SELECT id, camera, action, text, voice, created, replay FROM events
 		 ORDER BY created DESC LIMIT ?`,
 		limit,
 	)
@@ -88,11 +142,13 @@ func (b *eventBus) recentEvents(limit int) ([]event, error) {
 
 	for rows.Next() {
 		var ev event
-		err := rows.Scan(&ev.Camera, &ev.Action, &ev.Text, &ev.Voice, &ev.At)
+		var replay string
+		err := rows.Scan(&ev.ID, &ev.Camera, &ev.Action, &ev.Text, &ev.Voice, &ev.At, &replay)
 		if err != nil {
 			return nil, err
 		}
 
+		_ = json.Unmarshal([]byte(replay), &ev.Replay)
 		events = append(events, ev)
 	}
 
@@ -115,13 +171,13 @@ func (b *eventBus) queryEvents(limit int, camera string) ([]event, error) {
 	)
 	if camera != "" {
 		rows, err = b.db.Query(
-			`SELECT camera, action, text, voice, created FROM events
+			`SELECT id, camera, action, text, voice, created, replay FROM events
 			 WHERE camera = ? ORDER BY created DESC LIMIT ?`,
 			camera, limit,
 		)
 	} else {
 		rows, err = b.db.Query(
-			`SELECT camera, action, text, voice, created FROM events
+			`SELECT id, camera, action, text, voice, created, replay FROM events
 			 ORDER BY created DESC LIMIT ?`,
 			limit,
 		)
@@ -134,9 +190,11 @@ func (b *eventBus) queryEvents(limit int, camera string) ([]event, error) {
 	var events []event
 	for rows.Next() {
 		var ev event
-		if err := rows.Scan(&ev.Camera, &ev.Action, &ev.Text, &ev.Voice, &ev.At); err != nil {
+		var replay string
+		if err := rows.Scan(&ev.ID, &ev.Camera, &ev.Action, &ev.Text, &ev.Voice, &ev.At, &replay); err != nil {
 			return nil, err
 		}
+		_ = json.Unmarshal([]byte(replay), &ev.Replay)
 		events = append(events, ev)
 	}
 	return events, rows.Err()

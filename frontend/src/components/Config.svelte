@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte'
-  import { Bell, Pencil, X, Loader2, ScanLine } from 'lucide-svelte'
+  import { Bell, Pencil, X, Loader2, ScanLine, GripVertical, ArrowUp, ArrowDown } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Select } from '$lib/components/ui/select'
@@ -19,7 +19,43 @@
   let tab = $state('settings')
   let config = $state(null)
   let cameras = $state([])
+  let orderSaving = $state(false)
+  let orderStatus = $state('')
+  let orderError = $state('')
+  let draggedCamera = $state('')
   let loading = $state(true)
+
+  async function moveCamera(from, to) {
+    if (orderSaving || camerasSaving || from < 0 || to < 0 || to >= cameras.length || from === to) return
+    const before = cameras
+    const reordered = [...before]
+    const [camera] = reordered.splice(from, 1)
+    reordered.splice(to, 0, camera)
+    cameras = reordered
+    orderSaving = true
+    orderStatus = 'Saving camera order…'
+    orderError = ''
+    try {
+      await apiClient.reorderCameras(reordered.map(camera => camera.name))
+      orderStatus = 'Camera order saved'
+    } catch (error) {
+      cameras = before
+      orderStatus = ''
+      orderError = `Camera order could not be saved: ${error.message}`
+      return
+    } finally {
+      orderSaving = false
+    }
+    try { await onRefresh?.() }
+    catch { orderStatus = 'Camera order saved. Refresh the main screen to see it.' }
+  }
+
+  function dropCamera(event, name) {
+    event.preventDefault()
+    const from = cameras.findIndex(camera => camera.name === draggedCamera)
+    draggedCamera = ''
+    moveCamera(from, cameras.findIndex(camera => camera.name === name))
+  }
 
   // Camera modal
   let camFormOpen = $state(false)
@@ -89,7 +125,7 @@
         apiClient.getSettings(),
       ])
       config = cfg
-      cameras = cams ?? []
+      cameras = (cams ?? []).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
       airplayEnabled = ap.enabled ?? false
       airplayBasePort = ap.base_port ?? 5000
       airplayPrimeSilenceMs = ap.prime_silence_ms ?? 500
@@ -577,12 +613,12 @@
     <!-- Cameras -->
     {:else if tab === 'cameras'}
       <section class="rounded-lg border bg-card p-5">
-        <div class="mb-3 flex items-center justify-between gap-4">
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-4">
           <h3 class="text-base font-semibold text-primary">Cameras</h3>
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-2">
             {#if camerasStatus}<span class="text-sm text-primary">{camerasStatus}</span>{/if}
             {#if camerasDirty}
-              <Button size="sm" onclick={saveCamerasEnabled} disabled={camerasSaving}>
+              <Button size="sm" onclick={saveCamerasEnabled} disabled={camerasSaving || orderSaving}>
                 {camerasSaving ? 'Saving…' : 'Save'}
               </Button>
             {/if}
@@ -593,10 +629,24 @@
           </div>
         </div>
         {#if discoverStatus}<p class="mb-2 text-sm text-primary">{discoverStatus}</p>{/if}
+        <p class="mb-3 text-xs text-muted-foreground">Drag a handle or use the arrows to order cameras. Order saves automatically and controls camera navigation; disabled cameras stay here.</p>
+        {#if orderStatus}<p role="status" class="mb-2 text-sm text-muted-foreground">{orderStatus}</p>{/if}
+        {#if orderError}<p role="alert" class="mb-2 text-sm text-destructive">{orderError}</p>{/if}
 
-        <div class="flex flex-col gap-1.5">
-          {#each cameras as cam}
-            <div class="flex items-center justify-between rounded-lg border bg-background px-3 py-2 {!getCamEnabled(cam) ? 'opacity-50' : ''}">
+        <ul aria-label="Camera order" class="flex flex-col gap-1.5">
+          {#each cameras as cam, index (cam.name)}
+            <li class="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-background px-3 py-2 {!getCamEnabled(cam) ? 'opacity-50' : ''}"
+              ondragover={event => { if (draggedCamera && !orderSaving) event.preventDefault() }}
+              ondrop={event => dropCamera(event, cam.name)}>
+              <div class="flex items-center gap-1">
+                <button type="button" draggable={!orderSaving && !camerasSaving} disabled={orderSaving || camerasSaving}
+                  class="hidden h-11 w-8 cursor-grab items-center justify-center rounded-md hover:bg-muted md:flex"
+                  aria-label={`Drag ${cam.name} to reorder`} title="Drag to reorder, or use the arrows"
+                  ondragstart={event => { draggedCamera = cam.name; event.dataTransfer.setData('text/plain', cam.name); event.dataTransfer.effectAllowed = 'move' }}
+                  ondragend={() => draggedCamera = ''}><GripVertical class="h-4 w-4" /></button>
+                <Button variant="ghost" size="icon" class="h-11 w-9" disabled={orderSaving || camerasSaving || index === 0} aria-label={`Move ${cam.name} earlier`} onclick={() => moveCamera(index, index - 1)}><ArrowUp class="h-4 w-4" /></Button>
+                <Button variant="ghost" size="icon" class="h-11 w-9" disabled={orderSaving || camerasSaving || index === cameras.length - 1} aria-label={`Move ${cam.name} later`} onclick={() => moveCamera(index, index + 1)}><ArrowDown class="h-4 w-4" /></Button>
+              </div>
               <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                 <input
                   type="checkbox"
@@ -605,7 +655,7 @@
                   class="h-4 w-4 cursor-pointer rounded border-input accent-primary"
                   title={getCamEnabled(cam) ? 'Disable (click Save to commit)' : 'Enable (click Save to commit)'}
                 />
-                <span class="font-semibold">{cam.name}</span>
+                <span class="break-all font-semibold">{cam.name}</span>
                 <span class="text-sm text-muted-foreground">{cam.type}</span>
                 {#if cam.note}
                   <span class="text-xs text-amber-500" title={cam.note}>⚠ Limited</span>
@@ -614,7 +664,7 @@
                 <span class="text-sm text-muted-foreground" title="Hikvision ISAPI two-way audio channel number; usually 1">ch{cam.channel}</span>
                 {#if !cam.enabled}<span class="text-xs text-muted-foreground italic">disabled</span>{/if}
               </div>
-              <div class="flex shrink-0 items-center gap-1">
+              <div class="flex flex-wrap items-center gap-1">
                 {#if testStatus[cam.name]}<span class="mr-1 max-w-md text-sm {testStatus[cam.name].startsWith('✓') ? 'text-primary' : 'text-destructive'}" title={testStatus[cam.name]}>{testStatus[cam.name]}</span>{/if}
                 <label class="flex items-center gap-1 text-xs text-muted-foreground" title="AirPlay receiver for this camera">
                   <input
@@ -630,12 +680,12 @@
                 <Button variant="outline" size="sm" class="h-7 px-2" onclick={() => editCamera(cam)} title="Edit camera settings" aria-label="Edit camera"><Pencil class="h-4 w-4" /></Button>
                 <Button variant="outline" size="sm" class="h-7 px-2 hover:border-destructive hover:text-destructive" onclick={() => deleteCamera(cam.name)} title="Delete" aria-label="Delete camera"><X class="h-4 w-4" /></Button>
               </div>
-            </div>
+            </li>
           {/each}
           {#if cameras.length === 0}
-            <p class="italic text-muted-foreground text-sm">No cameras configured. Use Discover or Add Camera.</p>
+            <li class="italic text-muted-foreground text-sm">No cameras configured. Use Discover or Add Camera.</li>
           {/if}
-        </div>
+        </ul>
       </section>
 
       <!-- Camera Edit Modal -->

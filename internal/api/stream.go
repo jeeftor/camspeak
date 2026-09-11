@@ -392,9 +392,18 @@ func (h *Handlers) startPreparedStream(
 	go h.streamSupervisor(log, cam, cameraName, streamURL, gain, ctx, session)
 
 	log.Info("stream: started", "camera", cameraName, "url", originalURL)
-	h.events.publish(
-		event{Camera: cameraName, Action: "play-stream", Text: originalURL, At: now()},
-	)
+	if op.source != "play" {
+		h.events.publish(
+			event{
+				Camera: cameraName, Action: "play-stream", Text: originalURL, At: now(),
+				Replay: playbackReplay(
+					"/api/play-stream",
+					map[string]any{"camera": cameraName, "url": originalURL},
+					gain,
+				),
+			},
+		)
+	}
 	return nil
 }
 

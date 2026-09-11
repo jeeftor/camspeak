@@ -1,11 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { RefreshCw, ArrowUp, ArrowDown, Radio, ArrowUpDown, ChevronLeft, ChevronRight } from 'lucide-svelte'
+  import { RefreshCw, Radio, ChevronLeft, ChevronRight } from 'lucide-svelte'
   import CameraCard from './CameraCard.svelte'
   import Broadcast from './Broadcast.svelte'
   import Modal from '$lib/components/Modal.svelte'
   import { Button } from '$lib/components/ui/button'
-  import { apiClient } from '$lib/api'
   import { createPlaybackMonitor } from '$lib/playback.svelte'
   import { createAudioDraft, type AudioDraft } from '$lib/audio-draft'
   import type { CameraSummary, Preset } from '$lib/types'
@@ -23,8 +22,6 @@
   let localCameras = $state<CameraSummary[]>([])
   let drafts = $state<Record<string, AudioDraft>>({})
   let broadcastDraft = $state(createAudioDraft())
-  let arrange = $state(false)
-  let reordering = $state(false)
   let refreshing = $state(false)
   let error = $state('')
   let broadcastOpen = $state(false)
@@ -38,7 +35,7 @@
   }
 
   $effect(() => {
-    if (!reordering) localCameras = cameras
+    localCameras = cameras
     for (const camera of cameras) {
       if (!drafts[camera.name]) drafts[camera.name] = createAudioDraft(camera.gain ?? 3, camera.vision_prompt ?? '')
       if (camera.gain !== undefined && !drafts[camera.name].gainSaving && serverGains.get(camera.name) !== camera.gain) {
@@ -58,23 +55,6 @@
     finally { refreshing = false }
   }
 
-  async function moveCamera(index: number, direction: number) {
-    const next = index + direction
-    if (next < 0 || next >= localCameras.length || reordering) return
-    reordering = true
-    error = ''
-    const before = localCameras
-    const reordered = [...before]
-    ;[reordered[index], reordered[next]] = [reordered[next], reordered[index]]
-    localCameras = reordered
-    try {
-      await apiClient.reorderCameras(reordered.map(camera => camera.name))
-      await onRefresh?.()
-    } catch (cause) {
-      localCameras = before
-      error = `Camera order could not be saved: ${cause instanceof Error ? cause.message : String(cause)}`
-    } finally { reordering = false }
-  }
 </script>
 
 <section class="camera-dashboard" aria-label="Camera audio">
@@ -85,7 +65,6 @@
   </div>
   <div class="flex flex-wrap items-center gap-2">
     <Button size="sm" onclick={() => broadcastOpen = true} disabled={!cameras.length}><Radio class="h-4 w-4" /> Broadcast</Button>
-    {#if cameras.length > 1}<Button variant="outline" size="sm" aria-pressed={arrange} onclick={() => arrange = !arrange}><ArrowUpDown class="h-4 w-4" /> {arrange ? 'Done arranging' : 'Arrange'}</Button>{/if}
     <Button variant="ghost" size="icon" onclick={refresh} disabled={refreshing} aria-label="Refresh cameras"><RefreshCw class="h-4 w-4 {refreshing ? 'animate-spin' : ''}" /></Button>
   </div>
 </div>
@@ -108,23 +87,14 @@
   </div>
   <p class="mb-3 text-xs text-muted-foreground lg:hidden">Swipe the camera header or preview to switch cameras.</p>
   <div class="grid min-w-0 gap-4 lg:grid-cols-[11rem_minmax(0,1fr)]">
-    <nav aria-label="Camera selection" class="min-w-0 {arrange ? '' : 'hidden lg:block'}">
-      {#each localCameras as camera, index (camera.name)}
+    <nav aria-label="Camera selection" class="min-w-0 hidden lg:block">
+      {#each localCameras as camera (camera.name)}
         <div class="mb-2">
           <button class="w-full rounded-lg border p-3 text-left text-sm {selected?.name === camera.name ? 'border-primary bg-primary/10' : 'bg-card hover:bg-muted'}"
             aria-pressed={selected?.name === camera.name} onclick={() => selectedName = camera.name}>
             <span class="block break-words font-medium">{camera.name}</span>
             <span class="text-xs text-muted-foreground">{drafts[camera.name]?.busy ? 'Working…' : monitor.state.cameras[camera.name]?.state || (camera.online ? 'Online' : 'Offline')}</span>
           </button>
-          {#if arrange}
-            <div class="flex items-center justify-between rounded-lg bg-muted px-2 py-1">
-              <span class="text-xs text-muted-foreground">Position {index + 1}</span>
-              <div class="flex gap-1">
-                <Button variant="ghost" size="icon" class="h-7 w-7" disabled={reordering || index === 0} aria-label={`Move ${camera.name} earlier`} onclick={() => moveCamera(index, -1)}><ArrowUp class="h-4 w-4" /></Button>
-                <Button variant="ghost" size="icon" class="h-7 w-7" disabled={reordering || index === localCameras.length - 1} aria-label={`Move ${camera.name} later`} onclick={() => moveCamera(index, 1)}><ArrowDown class="h-4 w-4" /></Button>
-              </div>
-            </div>
-          {/if}
         </div>
       {/each}
     </nav>

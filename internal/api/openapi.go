@@ -527,7 +527,8 @@ const openAPISpec = `{
     "/events": {
       "get": {
         "tags": ["system"],
-        "summary": "Server-Sent Events stream of speak/play/beep/broadcast/describe/stop actions",
+        "summary": "Playback activity stream, including recent persisted history",
+        "description": "Each data frame is an EventEntry. Stable id values allow reconnect deduplication. Only playback and controls are recorded, not vision-only tests or configuration requests. Replay metadata is optional for older entries.",
         "responses": {
           "200": {"description": "SSE stream", "content": {"text/event-stream": {"schema": {"type": "string"}}}}
         }
@@ -911,6 +912,13 @@ const openAPISpec = `{
       "EventEntry": {
         "type": "object",
         "properties": {
+          "id": {"type": "integer", "format": "int64", "description": "Stable persisted event identifier"},
+          "replay": {"type": "object", "description": "Optional public playback request. Broadcast results use individual target commands. Current configuration still applies when replayed; no authentication headers are stored.", "properties": {
+            "method": {"type": "string", "enum": ["POST"]},
+            "path": {"type": "string", "example": "/api/play"},
+            "body": {"type": "object", "additionalProperties": true},
+            "redacted": {"type": "boolean", "description": "URL credentials/query parameters were removed and may need to be supplied privately"}
+          }},
           "camera": {"type": "string", "example": "backyard"},
           "action": {"type": "string", "example": "speak"},
           "text": {"type": "string", "example": "Hello world"},

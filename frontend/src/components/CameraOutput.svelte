@@ -7,6 +7,7 @@
   import VuMeter from './VuMeter.svelte'
   import PlaybackStrip from './PlaybackStrip.svelte'
   import { describeStages, describeStageLabel, timingSteps, type AudioDraft } from '$lib/audio-draft'
+  import { presetPlaybackPosition } from '$lib/playback-position'
   import { formatMs, stepLabel } from '$lib/utils'
   import type { CameraSummary } from '$lib/types'
   import type { PlaybackMonitor } from '$lib/playback.svelte'
@@ -23,6 +24,16 @@
   const hasLevel = $derived(monitor.state.levels[camera.name] !== undefined || playback?.level !== undefined)
   const steps = $derived(timingSteps(draft.lastResult?.timings))
   const job = $derived(draft.lastResult?.label === 'Describe' ? draft.describeJob : null)
+  let playbackClock = $state(Date.now())
+  const waveformPosition = $derived(presetPlaybackPosition(playback, draft.waveformPreset, playbackClock))
+  $effect(() => {
+    const current = playback
+    const preset = draft.waveformPreset
+    playbackClock = Date.now()
+    if (current?.state !== 'playing' || presetPlaybackPosition(current, preset, Date.now()) === null) return
+    const timer = setInterval(() => playbackClock = Date.now(), 100)
+    return () => clearInterval(timer)
+  })
   let timingsOpen = $state(typeof window !== 'undefined' && matchMedia('(min-width: 1024px)').matches)
 </script>
 
@@ -36,7 +47,9 @@
     {@const preset = draft.waveformPreset}
     <AudioPlayer peaksUrl={`/api/library/${encodeURIComponent(preset.category)}/${encodeURIComponent(preset.name)}/peaks`}
       duration={preset.duration} visualMode audioLevel={level} vuOrientation="vertical"
-      subtitle={`${preset.category} / ${preset.name} · reference waveform`} />
+      externalProgress={waveformPosition ?? 0}
+      subtitle={`${preset.category} / ${preset.name} · ${waveformPosition === null ? 'reference waveform' : 'estimated playback position'}`} />
+    {#if waveformPosition !== null}<p class="text-xs text-muted-foreground">Position is estimated from camera playback timing, not confirmation of audible sound.</p>{/if}
   {:else}
     <div class="flex flex-wrap items-center justify-between gap-2"><span class="text-xs text-muted-foreground">VU · camera audio</span><VuMeter {level} /></div>
   {/if}
