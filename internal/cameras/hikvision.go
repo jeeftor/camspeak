@@ -22,13 +22,14 @@ import (
 
 // HikvisionClient sends audio to a Hikvision camera via ISAPI Two-Way Audio.
 type HikvisionClient struct {
-	ip      string
-	user    string
-	pass    string
-	channel int
-	client  *http.Client
-	mu      sync.Mutex // serializes audio sends — camera supports one session at a time
-	log     *clog.Logger
+	ip       string
+	user     string
+	pass     string
+	channel  int
+	client   *http.Client
+	mu       sync.Mutex // serializes audio sends — camera supports one session at a time
+	log      *clog.Logger
+	priority AudioPriority
 
 	// Active stream tracking for Stop()
 	activeMu      sync.Mutex
@@ -37,6 +38,9 @@ type HikvisionClient struct {
 	activeCancel  context.CancelFunc
 	stopped       bool // set by Stop() to suppress write errors in SendRaw
 }
+
+// AudioPriority arbitrates triggered playback and this camera's AirPlay receiver.
+func (c *HikvisionClient) AudioPriority() *AudioPriority { return &c.priority }
 
 // NewHikvisionClient creates a client with digest auth transport.
 func NewHikvisionClient(ip, user, pass string, channel int, name string) *HikvisionClient {

@@ -1,6 +1,8 @@
 package airplay
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -45,27 +47,25 @@ func alacDecodeSafe(d *alacDecoder, frame []byte) (pcm []byte) {
 }
 
 // audioStream manages the pipeline: PCM → ffmpeg → G.711ulaw → camera (streaming).
-// ffmpeg stdout is passed directly to speaker.Stream. If the camera closes the
-// connection (e.g. idle timeout), the stream goroutine reconnects automatically.
+// Encoded audio is drained continuously; the camera opens only for fresh input
+// and yields immediately when a triggered action reserves its speaker.
 type audioStream struct {
 	speaker    Speaker
 	log        *clog.Logger
 	ffmpegCmd  *exec.Cmd
 	ffmpegIn   io.WriteCloser
 	streamDone chan error
-	quit       chan struct{} // closed by finish() to stop the reconnect loop
 	mu         sync.Mutex
 	finishOnce sync.Once
 	primePCM   []byte
+	cancel     context.CancelFunc
 
 	bytesWritten int64 // bytes fed to ffmpeg stdin
 	reconnects   int64 // camera speaker reconnect attempts
 }
 
-// newAudioStream starts ffmpeg and streams its output to the camera.
-// PCM written via writePCM flows: ffmpeg stdin → ffmpeg stdout → speaker.Stream.
-// If the camera closes the connection (e.g. idle timeout), speaker.Stream is
-// called again automatically so the next audio burst works without intervention.
+// newAudioStream starts a cancellable transcoder without occupying the camera.
+// PCM written via writePCM opens a session only when triggered playback is idle.
 func newAudioStream(
 	speaker Speaker,
 	log *clog.Logger,
@@ -76,11 +76,12 @@ func newAudioStream(
 		speaker:    speaker,
 		log:        log,
 		streamDone: make(chan error, 1),
-		quit:       make(chan struct{}),
 	}
 
 	cmd := exec.Command(
 		"ffmpeg",
+		"-probesize", "32",
+		"-analyzeduration", "0",
 		"-f", "s16le",
 		"-ar", "44100",
 		"-ac", "2",
@@ -90,6 +91,7 @@ func newAudioStream(
 		"-ac", "1",
 		"-c:a", "pcm_mulaw",
 		"-f", "mulaw",
+		"-flush_packets", "1",
 		"pipe:1",
 	)
 	stdin, err := cmd.StdinPipe()
@@ -117,65 +119,27 @@ func newAudioStream(
 	as.ffmpegCmd = cmd
 	as.ffmpegIn = stdin
 
-	// Reconnect loop: pass ffmpeg stdout directly to speaker.Stream.
-	// If the camera closes the session (idle timeout, network blip), reopen it
-	// so the next audio burst reaches the camera without a manual restart.
+	// Drain the transcoder even while a trigger owns the speaker. Never let
+	// backpressure retain AirPlay audio to replay after that trigger finishes.
+	ctx, cancel := context.WithCancel(context.Background())
+	as.cancel = cancel
+	chunks := make(chan airPlayChunk, 16) // at most 1.6 seconds of encoded audio
+	pumpDone := make(chan struct{})
+	go func() {
+		defer close(pumpDone)
+		pumpAirPlay(ctx, stdout, speaker, chunks)
+	}()
 	go func() {
 		defer close(as.streamDone)
 		defer func() {
+			cancel()
 			_ = stdin.Close()
 			_ = cmd.Process.Kill()
+			_ = stdout.Close()
+			<-pumpDone
 			_ = cmd.Wait()
 		}()
-		backoff := 2 * time.Second
-		const maxBackoff = 30 * time.Second
-		const successResetThreshold = 10 * time.Second
-		for {
-			streamStart := time.Now()
-			log.Info("stream: opening camera session")
-			err := speaker.Stream(stdout)
-
-			// Check whether finish() has been called before deciding to reconnect.
-			select {
-			case <-as.quit:
-				as.streamDone <- nil
-				return
-			default:
-			}
-
-			if err == nil {
-				// ffmpeg stdout closed cleanly — we're done.
-				as.streamDone <- nil
-				return
-			}
-
-			// If the session ran for a meaningful period before dropping,
-			// reset the backoff — this was a healthy session, not a
-			// persistent failure. Without this, repeated play/stop cycles
-			// (each of which interrupts the AirPlay session) would cause
-			// the backoff to grow to 30s, making the camera unresponsive.
-			if elapsed := time.Since(streamStart); elapsed >= successResetThreshold {
-				if backoff > 2*time.Second {
-					log.Debug("stream: resetting backoff after stable session",
-						"elapsed", elapsed, "prev_backoff", backoff)
-				}
-				backoff = 2 * time.Second
-			}
-
-			atomic.AddInt64(&as.reconnects, 1)
-			log.Warn("stream: camera session lost, reconnecting",
-				"backoff", backoff, "session_duration", time.Since(streamStart), "err", err)
-			select {
-			case <-time.After(backoff):
-			case <-as.quit:
-				as.streamDone <- nil
-				return
-			}
-			backoff *= 2
-			if backoff > maxBackoff {
-				backoff = maxBackoff
-			}
-		}
+		as.runAirPlay(ctx, chunks)
 	}()
 
 	// Prime on the first write so startup returns a cancellable stream before
@@ -218,7 +182,9 @@ func (as *audioStream) writePCM(pcm []byte) {
 // finish signals the reconnect loop to stop and waits for it to exit.
 func (as *audioStream) finish() {
 	as.finishOnce.Do(func() {
-		close(as.quit)
+		if as.cancel != nil {
+			as.cancel()
+		}
 		as.mu.Lock()
 		input := as.ffmpegIn
 		as.ffmpegIn = nil
@@ -237,5 +203,158 @@ func (as *audioStream) finish() {
 	case <-as.streamDone:
 	case <-time.After(10 * time.Second):
 		as.log.Warn("stream: timed out waiting for camera session to close")
+	}
+}
+
+// priorityAirPlaySpeaker shares the camera's reservation without changing RAOP.
+type priorityAirPlaySpeaker interface {
+	AirPlayState() (uint64, bool)
+	BeginAirPlay(context.Context, uint64) (context.Context, func(), bool)
+	StreamContext(context.Context, io.Reader) error
+}
+
+type airPlayChunk struct {
+	data       []byte
+	generation uint64
+	at         time.Time
+}
+
+func airPlayState(speaker Speaker) (uint64, bool) {
+	if prioritized, ok := speaker.(priorityAirPlaySpeaker); ok {
+		return prioritized.AirPlayState()
+	}
+	return 0, false
+}
+
+// pumpAirPlay is the sole transcoder reader. Priority changes invalidate queued
+// chunks, including audio read before a reservation but delivered after it ends.
+func pumpAirPlay(ctx context.Context, source io.Reader, speaker Speaker, chunks chan airPlayChunk) {
+	defer close(chunks)
+	for {
+		before, wasBlocked := airPlayState(speaker)
+		buffer := make([]byte, 800)
+		n, err := source.Read(buffer)
+		if ctx.Err() != nil {
+			return
+		}
+		generation, blocked := airPlayState(speaker)
+		if n > 0 && !wasBlocked && !blocked && before == generation {
+			chunk := airPlayChunk{data: buffer[:n], generation: generation, at: time.Now()}
+			select {
+			case chunks <- chunk:
+			default:
+				// Bounded latency: discard the oldest audio, never block PCM input.
+				select {
+				case <-chunks:
+				default:
+				}
+				select {
+				case chunks <- chunk:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+func (as *audioStream) runAirPlay(ctx context.Context, chunks <-chan airPlayChunk) {
+	for {
+		var first airPlayChunk
+		select {
+		case <-ctx.Done():
+			return
+		case chunk, ok := <-chunks:
+			if !ok {
+				return
+			}
+			first = chunk
+		}
+		if time.Since(first.at) > 2*time.Second {
+			continue
+		}
+		sessionCtx, release := ctx, func() {}
+		prioritized, hasPriority := as.speaker.(priorityAirPlaySpeaker)
+		if hasPriority {
+			var admitted bool
+			sessionCtx, release, admitted = prioritized.BeginAirPlay(ctx, first.generation)
+			if !admitted {
+				continue
+			}
+		}
+		reader := &airPlayReader{
+			ctx: sessionCtx, chunks: chunks, pending: first.data, generation: first.generation,
+		}
+		as.log.Info("stream: opening camera session for incoming AirPlay audio")
+		var err error
+		if hasPriority {
+			err = prioritized.StreamContext(sessionCtx, reader)
+		} else {
+			err = as.speaker.Stream(reader)
+		}
+		interrupted := sessionCtx.Err() != nil
+		release()
+		if ctx.Err() != nil {
+			return
+		}
+		if interrupted {
+			as.log.Info("stream: yielding camera speaker to triggered audio")
+			continue
+		}
+		if err == nil || errors.Is(err, errAirPlayIdle) {
+			as.log.Info("stream: AirPlay audio idle; camera speaker released")
+			continue
+		}
+		atomic.AddInt64(&as.reconnects, 1)
+		as.log.Warn("stream: camera session lost; retrying with fresh audio", "err", err)
+		timer := time.NewTimer(2 * time.Second)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+var errAirPlayIdle = errors.New("AirPlay audio idle")
+
+// airPlayReader closes an idle session and unblocks immediately on preemption.
+type airPlayReader struct {
+	ctx        context.Context
+	chunks     <-chan airPlayChunk
+	pending    []byte
+	generation uint64
+}
+
+func (r *airPlayReader) Read(p []byte) (int, error) {
+	for {
+		if err := r.ctx.Err(); err != nil {
+			return 0, err
+		}
+		if len(r.pending) > 0 {
+			n := copy(p, r.pending)
+			r.pending = r.pending[n:]
+			return n, nil
+		}
+		timer := time.NewTimer(2 * time.Second)
+		select {
+		case <-r.ctx.Done():
+			timer.Stop()
+			return 0, r.ctx.Err()
+		case <-timer.C:
+			return 0, errAirPlayIdle
+		case chunk, ok := <-r.chunks:
+			timer.Stop()
+			if !ok {
+				return 0, io.EOF
+			}
+			if chunk.generation == r.generation && time.Since(chunk.at) <= 2*time.Second {
+				r.pending = chunk.data
+			}
+		}
 	}
 }

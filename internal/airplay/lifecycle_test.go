@@ -122,7 +122,7 @@ func (w *blockingPCMWriter) Close() error {
 func TestAudioFinishUnblocksPCMWriter(t *testing.T) {
 	w := &blockingPCMWriter{entered: make(chan struct{}), closed: make(chan struct{})}
 	as := &audioStream{
-		ffmpegIn: w, quit: make(chan struct{}), streamDone: make(chan error),
+		ffmpegIn: w, streamDone: make(chan error),
 		log: logging.New("airplay-test", clog.ErrorLevel),
 	}
 	close(as.streamDone)

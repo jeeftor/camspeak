@@ -1,6 +1,7 @@
 package airplay
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -362,6 +363,21 @@ func (a speakerAdapter) SendRaw(rawFile string) (SendTiming, error) {
 }
 func (a speakerAdapter) Stream(r io.Reader) error { return a.Speaker.Stream(r) }
 func (a speakerAdapter) Stop() error              { return a.Speaker.Stop() }
+
+func (a speakerAdapter) AirPlayState() (uint64, bool) {
+	return a.Speaker.(cameras.PrioritySpeaker).AudioPriority().State()
+}
+
+func (a speakerAdapter) BeginAirPlay(
+	ctx context.Context,
+	generation uint64,
+) (context.Context, func(), bool) {
+	return a.Speaker.(cameras.PrioritySpeaker).AudioPriority().BeginAirPlay(ctx, generation)
+}
+
+func (a speakerAdapter) StreamContext(ctx context.Context, r io.Reader) error {
+	return cameras.StreamContext(ctx, a.Speaker, r)
+}
 
 // cameraDisplayName converts a camera key like "backyard" to "Backyard Camera".
 func cameraDisplayName(name string) string {

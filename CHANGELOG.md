@@ -5,6 +5,19 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.2.2] — 2026-09-10
+
+### Fixed
+- Triggered Describe, speech, preset, beep, and stream actions now reserve the speaker before preparation, interrupt active AirPlay, and prevent AirPlay from reconnecting over the triggered action.
+- Idle AirPlay receivers remain discoverable without holding camera audio sessions. Sessions open for incoming audio and close after two seconds without input.
+- Discard superseded AirPlay audio during triggered playback and resume only with fresh input afterward. INFO logs identify speaker reservations, releases, and AirPlay yielding.
+
+### Upgrade notes
+- No REST API changes; the existing Home Assistant integration remains compatible.
+- Camera, AirPlay, and API race regressions passed with local test doubles. Test real iPhone/camera interruption after upgrading.
+
+---
+
 ## [v4.2.1] — 2026-09-10
 
 ### Fixed

@@ -114,6 +114,11 @@ and response data.
 
 ### AirPlay receiver
 
+- **Triggered audio takes priority** — Describe, TTS, presets, beeps, and triggered
+  streams interrupt AirPlay and reserve the speaker through preparation and playback.
+  Idle receivers stay discoverable without opening camera audio sessions. Fresh
+  AirPlay input can resume after the triggered action; interrupted audio is not queued
+  for later replay. Camera sessions close after two seconds without AirPlay input.
 - **AirPlay v1 target per supported camera** — each enabled Hikvision receiver shows up as a separate AirPlay
   speaker in the iOS picker.
 - **iOS audio to camera** — stream music, calls, or any iOS audio to a camera

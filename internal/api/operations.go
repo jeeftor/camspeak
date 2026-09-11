@@ -5,19 +5,21 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/jeeftor/camspeak/internal/cameras"
 )
 
 // playbackOperation owns preparation, cancellation and completion for one camera.
 type playbackOperation struct {
-	ctx       context.Context
-	cancel    context.CancelFunc
-	camera    string
-	cam       cameras.Speaker
-	source    string
-	detail    string
-	onPlaying func()
+	ctx             context.Context
+	cancel          context.CancelFunc
+	camera          string
+	cam             cameras.Speaker
+	source          string
+	detail          string
+	onPlaying       func()
+	releasePriority func()
 }
 
 var (
@@ -45,7 +47,18 @@ func (h *Handlers) beginPlaybackOperation(
 	if err != nil || current != captured {
 		return nil, fmt.Errorf("%w: %s", errCameraConfigurationChanged, camera)
 	}
-	return beginOperation(ctx, camera, current, source, detail), nil
+	op := beginOperation(ctx, camera, current, source, detail)
+	started := time.Now()
+	if h.log != nil {
+		h.log.Info("speaker: reserved for triggered audio", "camera", camera, "source", source)
+		release := op.releasePriority
+		op.releasePriority = sync.OnceFunc(func() {
+			release()
+			h.log.Info("speaker: triggered audio reservation released",
+				"camera", camera, "source", source, "duration", time.Since(started))
+		})
+	}
+	return op, nil
 }
 
 func operationLock(camera string) *sync.Mutex {
@@ -63,6 +76,9 @@ func beginOperation(
 	lock := operationLock(camera)
 	lock.Lock()
 	defer lock.Unlock()
+	// Reserve before cancellation or preparation: AirPlay must not reconnect
+	// between stopping its session and generating the triggered audio.
+	releasePriority := cameras.ReserveTriggered(cam)
 	operationsMu.Lock()
 	if previous := operations[camera]; previous != nil {
 		previous.cancel()
@@ -70,12 +86,13 @@ func beginOperation(
 	stopStream(camera)
 	ctx, cancel := context.WithCancel(ctx)
 	op := &playbackOperation{
-		ctx:    ctx,
-		cancel: cancel,
-		camera: camera,
-		cam:    cam,
-		source: source,
-		detail: detail,
+		ctx:             ctx,
+		cancel:          cancel,
+		camera:          camera,
+		cam:             cam,
+		source:          source,
+		detail:          detail,
+		releasePriority: releasePriority,
 	}
 	operations[camera] = op
 	setPlayback(camera, source, detail)
@@ -89,6 +106,9 @@ func beginOperation(
 
 // finish only clears state owned by this operation; replaced operations are inert.
 func (op *playbackOperation) finish() {
+	if op.releasePriority != nil {
+		defer op.releasePriority()
+	}
 	operationsMu.Lock()
 	defer operationsMu.Unlock()
 	op.cancel()
