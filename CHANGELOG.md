@@ -5,6 +5,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.10.1] — 2026-09-11
+
+### Fixed
+- Timing-bar segments show their stage duration and accumulated stage time on hover, keyboard focus and tap throughout the app.
+
+---
+
 ## [v4.10.0] — 2026-09-11
 
 ### Fixed
