@@ -264,6 +264,7 @@ export interface VisionTestResult {
 export interface TTSTestResult {
   ok: boolean
   message: string
+  models?: string[]
 }
 
 export interface FrigateTestResult {

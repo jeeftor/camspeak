@@ -639,6 +639,14 @@ const openAPISpec = `{
         }
       }
     },
+    "/config/tts/test": {
+      "post": {
+        "summary": "Check a TTS model catalog without generating audio",
+        "tags": ["Config"],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["url"], "properties": {"url": {"type": "string"}, "api_key": {"type": "string"}, "model": {"type": "string", "description": "Optional exact model ID to validate against the catalog"}}}}}},
+        "responses": {"200": {"description": "ok, message and optional models array. Catalog presence does not prove speech support or readiness."}}
+      }
+    },
     "/config/tts/benchmark/speaker": {
       "post": {
         "tags": ["config"], "summary": "Play buffered and streaming TTS on one Hikvision speaker",

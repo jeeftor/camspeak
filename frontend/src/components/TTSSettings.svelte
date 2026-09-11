@@ -36,6 +36,9 @@
   let ttsStatus = $state('')
   let ttsTestBusy = $state(false)
   let ttsTestStatus = $state('')
+  let models = $state([])
+  let runtimeModel = $state('')
+  $effect(() => { ttsEndpoint; ttsKey; models = []; ttsTestStatus = '' })
   const savedTestPreset = $derived(ttsPresets.find(p => p.name === ttsName && p.endpoint === ttsEndpoint && p.model === ttsModel && p.default_voice === ttsVoice && !ttsKey && !ttsClearKey))
 
 
@@ -44,6 +47,7 @@
     try {
       const data = await apiClient.listTTSPresets()
       ttsPresets = data.presets ?? []
+      apiClient.getConfig().then(config => runtimeModel = config.tts.model).catch(() => {})
       apiClient.getVoices().then(value => voices = value ?? []).catch(() => {})
     } catch (cause) {
       error = 'Your TTS presets could not be loaded: ' + cause.message
@@ -103,14 +107,16 @@
     connectionStatus = 'Testing…'
     try {
       const activePreset = ttsPresets.find(p => p.is_active) ?? ttsPresets[0]
-      const data = await apiClient.testTTSConfig(activePreset?.endpoint ?? ttsEndpoint, activePreset?.api_key ?? ttsKey)
-      connectionStatus = data.ok ? '✓ Connected' : '✗ ' + (data.message ?? 'failed')
+      const data = await apiClient.testTTSConfig(activePreset?.endpoint ?? ttsEndpoint, activePreset?.api_key ?? ttsKey, activePreset?.model ?? ttsModel)
+      connectionStatus = data.ok ? data.message : ''
+      if (!data.ok) toast.error(data.message)
     } catch (e) {
       connectionStatus = '✗ ' + e.message
     }
   }
 
   function openAddTTS() {
+    models = []; ttsTestStatus = ''
     ttsStreaming = false; ttsRate = 24000; ttsChannels = 1
     ttsHasKey = false; ttsClearKey = false
     ttsName = ''; ttsEndpoint = ''; ttsModel = ''; ttsVoice = ''; ttsKey = ''; ttsDesc = ''
@@ -119,6 +125,7 @@
   }
 
   function editTTS(p) {
+    models = []; ttsTestStatus = ''
     ttsStreaming = p.streaming ?? false
     ttsRate = p.pcm_sample_rate || 24000
     ttsChannels = p.pcm_channels || 1
@@ -138,11 +145,17 @@
     ttsTestBusy = true
     clearTimeout(testTimer)
     ttsTestStatus = ''
+    const endpoint = ttsEndpoint
+    const model = ttsModel
+    const key = ttsKey
     try {
-      const data = await apiClient.testTTSConfig(ttsEndpoint, ttsKey)
-      ttsTestStatus = data.ok ? '✓ Connected' : '✗ ' + data.message
+      const data = await apiClient.testTTSConfig(endpoint, key, model)
+      if (endpoint !== ttsEndpoint || key !== ttsKey || model !== ttsModel || !ttsFormOpen) return
+      models = data.models ?? []
+      ttsTestStatus = data.ok ? data.message : ''
+      if (!data.ok) toast.error(data.message)
     } catch (e) {
-      ttsTestStatus = '✗ ' + e.message
+      toast.error(e.message)
     } finally {
       ttsTestBusy = false
       testTimer = setTimeout(() => ttsTestStatus = '', 6000)
@@ -189,6 +202,7 @@
         </div>
       </section>
       <p class="mt-3 text-sm text-muted-foreground">Edit a preset to compare buffered/streaming audio and choose its playback mode.</p>
+      {#if runtimeModel}<p class="mt-2 text-sm text-muted-foreground">Effective runtime model: <code>{runtimeModel}</code>. Environment variables override the active preset. If this differs from your saved model, check CAMSPEAK_TTS_MODEL and restart the server after changing it.</p>{/if}
 
       <!-- TTS Edit Modal -->
       <Modal bind:open={ttsFormOpen} title={ttsName ? `Edit TTS Preset — ${ttsName}` : 'Add TTS Preset'}>
@@ -203,7 +217,9 @@
           </label>
           <label class="flex flex-col gap-1 text-xs text-muted-foreground">
             Model
-            <Input bind:value={ttsModel} placeholder="kokoro" />
+            <Input bind:value={ttsModel} placeholder="Exact server model ID (Lemonade: kokoro-v1)" list="tts-server-models" />
+            <datalist id="tts-server-models">{#each models as model}<option value={model}></option>{/each}</datalist>
+            <span>Test connection to fetch model IDs. Select explicitly; listed models may not all support speech.</span>
           </label>
           <label class="flex flex-col gap-1 text-xs text-muted-foreground">
             Default Voice

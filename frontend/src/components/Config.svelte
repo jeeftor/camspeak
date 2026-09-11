@@ -636,7 +636,7 @@
 
         <ul aria-label="Camera order" class="flex flex-col gap-1.5">
           {#each cameras as cam, index (cam.name)}
-            <li class="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-background px-3 py-2 {!getCamEnabled(cam) ? 'opacity-50' : ''}"
+            <li class="camera-config-row flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-background px-3 py-2 {!getCamEnabled(cam) ? 'opacity-50' : ''}"
               ondragover={event => { if (draggedCamera && !orderSaving) event.preventDefault() }}
               ondrop={event => dropCamera(event, cam.name)}>
               <div class="flex items-center gap-1">
@@ -691,6 +691,7 @@
 
       <!-- Camera Edit Modal -->
       <Modal bind:open={camFormOpen} title={camName ? `Edit Camera — ${camName}` : 'Add Camera'}>
+        <div class="camera-config-form min-w-0">
         <div class="grid grid-cols-2 gap-2.5 max-sm:grid-cols-1">
           <label class="flex flex-col gap-1 text-xs text-muted-foreground">
             Name
@@ -857,7 +858,7 @@
         <div class="mt-4 border-t pt-4">
           <h4 class="mb-2 text-sm font-semibold text-primary">AirPlay for this camera</h4>
           <div class="grid grid-cols-2 gap-2.5 max-sm:grid-cols-1">
-            <label class="flex items-center gap-2 text-xs text-muted-foreground col-span-2">
+            <label class="flex items-center gap-2 text-xs text-muted-foreground sm:col-span-2">
               <input type="checkbox" bind:checked={camAirPlayEnabled} class="h-4 w-4 rounded border-input accent-primary" />
               Enable AirPlay receiver for this camera
             </label>
@@ -891,6 +892,7 @@
           {#if camStatus}<span class="text-sm text-primary">{camStatus}</span>{/if}
           {#if testCamStatus}<span class="text-sm text-primary">{testCamStatus}</span>{/if}
         </div>
+        </div>
       </Modal>
 
     <!-- Overview -->
@@ -902,3 +904,18 @@
     {/if}
   </div>
 {/if}
+
+<style>
+  .camera-config-form :global(label), .camera-config-form :global(select) { min-width: 0; max-width: 100%; }
+  .camera-config-form :global(select) { text-overflow: ellipsis; }
+  @media (max-width: 639px) {
+    .camera-config-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+    .camera-config-row > :nth-child(2) { grid-column: 1; grid-row: 1; }
+    .camera-config-row > :first-child { grid-column: 2; grid-row: 1; }
+    .camera-config-row > :last-child { grid-column: 1 / -1; border-top: 1px solid var(--border); padding-top: 0.5rem; justify-content: flex-end; }
+    .camera-config-row :global(button) { min-height: 44px; min-width: 44px; }
+    .camera-config-form :global(input:not([type=checkbox])), .camera-config-form :global(select), .camera-config-form :global(textarea) { font-size: 16px; min-height: 44px; }
+    .camera-config-form :global(button) { min-height: 44px; white-space: normal; }
+    .camera-config-form :global(p), .camera-config-form :global(span) { overflow-wrap: anywhere; }
+  }
+</style>

@@ -5,6 +5,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.9.1] — 2026-09-11
+
+### Fixed
+- Fix mobile camera settings creating an extra grid column; separate camera-list actions and enlarge form touch targets.
+- Correct the seeded Lemonade model to `kokoro-v1` and stop recommending a forced `kokoro` environment override. Existing custom presets remain unchanged.
+- TTS connection tests now parse the model catalog, validate an explicitly supplied model ID, and offer reported IDs in the editor without selecting or loading anything automatically. Show the effective runtime model to expose environment overrides.
+
+---
+
 ## [v4.9.0] — 2026-09-11
 
 ### Added

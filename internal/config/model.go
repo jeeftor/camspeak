@@ -165,7 +165,7 @@ var DefaultTTSPresets = []TTSPreset{
 	{
 		Name:         "lemonade",
 		Endpoint:     "http://localhost:13305/v1/audio/speech",
-		Model:        "kokoro",
+		Model:        "kokoro-v1",
 		DefaultVoice: "af_sky",
 		Description:  "Local Lemonade (GPU)",
 		IsActive:     true,

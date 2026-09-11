@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -132,11 +133,12 @@ func (h *Handlers) TestVisionConfig(c echo.Context) error {
 }
 
 // TestTTSConfig handles POST /api/config/tts/test — probes a TTS endpoint from the server.
-// Accepts {url, api_key} and tries GET {base}/v1/models to verify reachability.
+// Accepts {url, api_key, model} and checks the model catalog without generating audio.
 func (h *Handlers) TestTTSConfig(c echo.Context) error {
 	var req struct {
 		URL    string `json:"url"`
 		APIKey string `json:"api_key"`
+		Model  string `json:"model"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid JSON body")
@@ -182,7 +184,44 @@ func (h *Handlers) TestTTSConfig(c echo.Context) error {
 			map[string]interface{}{"ok": false, "message": fmt.Sprintf("HTTP %d", resp.StatusCode)},
 		)
 	}
-	return c.JSON(http.StatusOK, map[string]interface{}{"ok": true, "message": "Connected"})
+	var catalog struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(&catalog); err != nil ||
+		catalog.Data == nil {
+		return c.JSON(
+			http.StatusOK,
+			map[string]interface{}{
+				"ok":      false,
+				"message": "Endpoint responded, but did not return a valid model catalog",
+			},
+		)
+	}
+	models := make([]string, 0, len(catalog.Data))
+	found := false
+	for _, model := range catalog.Data {
+		if model.ID == "" {
+			continue
+		}
+		models = append(models, model.ID)
+		found = found || model.ID == req.Model
+	}
+	message := "Endpoint reachable; model catalog received. Speech generation has not been tested."
+	ok := true
+	if req.Model != "" {
+		if found {
+			message = "Model is listed. Speech generation has not been tested."
+		} else {
+			ok = false
+			message = fmt.Sprintf("Model %q is not listed by this endpoint. Choose an exact server model ID; this does not mean the model is merely unloaded.", req.Model)
+		}
+	}
+	return c.JSON(
+		http.StatusOK,
+		map[string]interface{}{"ok": ok, "message": message, "models": models},
+	)
 }
 
 // GetSettings handles GET /api/config/settings — returns general settings.
