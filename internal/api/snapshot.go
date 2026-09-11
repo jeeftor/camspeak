@@ -306,14 +306,26 @@ func (h *Handlers) runCameraBenchmark(
 			tryMethod("isapi_main", func() ([]byte, error) {
 				return hikCam.Snapshot("main")
 			})
+			tryMethod("isapi_sub", func() ([]byte, error) { return hikCam.Snapshot("sub") })
 		case "reolink":
 			reoCam := cameras.NewReolinkClient(cam.IP, cam.User, cam.Pass)
 			tryMethod("reolink_main", func() ([]byte, error) {
 				return reoCam.Snapshot("main")
 			})
+			tryMethod("reolink_sub", func() ([]byte, error) { return reoCam.Snapshot("sub") })
 		}
 	}
 
+	stream := cam.VisionStream
+	if stream == "" || stream == "main" || stream == "sub" {
+		stream = cam.Stream
+	}
+	if go2rtcURL != "" && stream != "" {
+		tryMethod(
+			"go2rtc",
+			func() ([]byte, error) { return grabFrameFromStream(go2rtcURL, stream, cam.VisionWidth, 10*time.Second) },
+		)
+	}
 	// 2. Frigate latest.jpg
 	if frigateURL != "" {
 		tryMethod("frigate", func() ([]byte, error) {
@@ -732,7 +744,7 @@ func (h *Handlers) captureAllMethods(
 // For Reolink cameras, it tries the direct Reolink HTTP API snapshot.
 // streamOverride, if non-empty, selects "main" or "sub" for ISAPI/Reolink
 // snapshots or overrides the go2rtc stream name.
-// cam.SnapMethod, if set to "isapi", "go2rtc", or "frigate", forces that method.
+// Explicit methods use only that source; Auto may fall back to another source.
 func (h *Handlers) fetchSnapshot(
 	ctx context.Context,
 	cameraName string,
@@ -740,6 +752,16 @@ func (h *Handlers) fetchSnapshot(
 	frigateURL string,
 	streamOverride string,
 ) ([]byte, error) {
+	data, _, err := h.fetchSnapshotSource(ctx, cameraName, cam, frigateURL, streamOverride)
+	return data, err
+}
+
+func (h *Handlers) fetchSnapshotSource(
+	ctx context.Context,
+	cameraName string,
+	cam config.CameraConfig,
+	frigateURL, streamOverride string,
+) ([]byte, string, error) {
 	method := cam.SnapMethod
 	if method == "" {
 		method = "auto"
@@ -748,7 +770,7 @@ func (h *Handlers) fetchSnapshot(
 	// Helper: try direct camera API (ISAPI for Hikvision, HTTP API for Reolink).
 	tryCameraAPI := func() ([]byte, error) {
 		streamType := "sub"
-		if streamOverride == "main" {
+		if streamOverride == "main" || (streamOverride == "" && cam.VisionStream == "main") {
 			streamType = "main"
 		}
 		switch cam.Type {
@@ -775,6 +797,9 @@ func (h *Handlers) fetchSnapshot(
 	tryGo2rtc := func() ([]byte, error) {
 		go2rtcURL := h.configSnapshot().Go2rtcURL
 		streamName := cam.VisionStream
+		if streamName == "main" || streamName == "sub" {
+			streamName = ""
+		}
 		if streamOverride != "" && streamOverride != "main" && streamOverride != "sub" {
 			streamName = streamOverride
 		}
@@ -819,39 +844,39 @@ func (h *Handlers) fetchSnapshot(
 		return data, nil
 	}
 
-	// Order depends on snap_method.
-	switch method {
-	case "isapi":
-		if data, err := tryCameraAPI(); err == nil {
-			return data, nil
-		}
-		if data, err := tryGo2rtc(); err == nil {
-			return data, nil
-		}
-		return tryFrigate()
-
-	case "go2rtc":
-		if data, err := tryGo2rtc(); err == nil {
-			return data, nil
-		}
-		if data, err := tryCameraAPI(); err == nil {
-			return data, nil
-		}
-		return tryFrigate()
-
-	case "frigate":
-		return tryFrigate()
-
-	default: // "auto"
-		// For camera types with direct API support, try that first (fastest).
-		if cam.Type == "hikvision" || cam.Type == "reolink" {
-			if data, err := tryCameraAPI(); err == nil {
-				return data, nil
-			}
-		}
-		if data, err := tryGo2rtc(); err == nil {
-			return data, nil
-		}
-		return tryFrigate()
+	directStream := "sub"
+	if streamOverride == "main" || (streamOverride == "" && cam.VisionStream == "main") {
+		directStream = "main"
 	}
+	namedStream := cam.VisionStream
+	if streamOverride != "" && streamOverride != "main" && streamOverride != "sub" {
+		namedStream = streamOverride
+	}
+	if namedStream == "" || namedStream == "main" || namedStream == "sub" {
+		namedStream = cam.Stream
+	}
+	type source struct {
+		method, label string
+		capture       func() ([]byte, error)
+	}
+	sources := []source{
+		{"isapi", "Direct API / " + directStream, tryCameraAPI},
+		{"go2rtc", "go2rtc / " + namedStream, tryGo2rtc},
+		{"frigate", "Frigate / latest image", tryFrigate},
+	}
+	var lastErr error
+	for _, source := range sources {
+		if method != "auto" && method != source.method {
+			continue
+		}
+		data, err := source.capture()
+		if err == nil {
+			return data, source.label, nil
+		}
+		lastErr = err
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("unknown snapshot method %q", method)
+	}
+	return nil, "", lastErr
 }

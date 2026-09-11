@@ -71,6 +71,7 @@
       <div class="flex items-center justify-between gap-2"><h5 class="text-sm font-medium">{draft.busy && result.label === 'Describe' ? 'Describe progress' : `Last action · ${result.label}`}</h5>
         <Button size="sm" variant="ghost" disabled={draft.busy} onclick={() => { draft.lastResult = null; draft.describeJob = null; draft.describeError = '' }}>Clear result</Button></div>
       <TimingFlow {steps} label={`${result.label} timing flow`}
+        ttsMode={result.tts_mode}
         activeStage={job?.stage} running={job?.status === 'running' && draft.busy && !draft.describeError}
         status={job ? draft.describeError && job.status === 'running' ? 'Last confirmed progress' : describeStageLabel(job.stage) : ''}
         elapsedMs={job?.elapsed_ms} firstAudioMs={result.ttfs_ms}
@@ -80,6 +81,7 @@
       {/if}
       {#if result.label === 'Describe' && draft.describeError}<p role="alert" class="break-words text-xs text-destructive">{draft.describeError}</p>{/if}
       {#if result.description}<Markdown content={result.description} />{/if}
+      {#if result.capture_source}<p class="text-xs text-muted-foreground">Captured using {result.capture_source}</p>{/if}
       {#if !steps.length && !job && result.total_ms == null && !draft.busy}<p class="text-xs text-muted-foreground">This action did not return timing details.</p>{/if}
       {#if result.image}<details><summary class="cursor-pointer text-xs text-muted-foreground">Captured frame</summary><img src={result.image} alt="Frame used for this description" class="mt-2 w-full rounded-lg" /></details>{/if}
       {#if result.description}<Button size="sm" variant="outline" disabled={draft.busy || draft.gainSaving} onclick={onReplay}><Play class="h-4 w-4" /> Speak again</Button>{/if}

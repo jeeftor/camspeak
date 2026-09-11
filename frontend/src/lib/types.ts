@@ -51,6 +51,7 @@ export interface StreamInfo {
 }
 
 export interface TTSConfig {
+  streaming?: boolean
   url: string
   model: string
   default_voice: string
@@ -286,6 +287,7 @@ export interface VisionDescribeResult {
 // Responses from speak/play/describe endpoints. These endpoints return
 // { status, ... } plus an optional timing breakdown.
 export interface SpeakResponse {
+  tts_mode?: 'streaming' | 'buffered'
   status?: string
   timings?: Timings
   ttfs_ms?: number
@@ -306,6 +308,8 @@ export interface BroadcastResponse {
 }
 
 export interface DescribeResponse {
+  capture_source?: string
+  tts_mode?: 'streaming' | 'buffered'
   status?: string
   description?: string
   image?: string

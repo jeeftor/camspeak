@@ -1,11 +1,12 @@
 import { expect, test } from 'bun:test'
-import { describeStages, stageInfo } from '../src/lib/stages'
+import { describeStages, stageInfo, stageColor } from '../src/lib/stages'
 import { stepLabel } from '../src/lib/utils'
 
 test('pipeline stage labels share the same registry as timing summaries', () => {
   for (const stage of describeStages) {
     expect(stepLabel(stage.timing)).toBe(stage.label)
     expect(stageInfo(stage.stage).description).toBe(stage.description)
+    expect(stageColor(stage.stage)).toBe(stageColor(stage.timing))
   }
   expect(stepLabel('snap_ms')).toBe('Snapshot')
   expect(stepLabel('send_playback_ms')).toBe('Playback')

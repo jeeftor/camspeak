@@ -37,29 +37,30 @@ func (h *Handlers) Snapshot(c echo.Context) error {
 		}
 	}
 
-	// If a go2rtc stream name is specified, use ffmpeg to grab from go2rtc.
-	if streamName != "" && streamName != "main" && streamName != "sub" {
-		if cfg.Go2rtcURL == "" {
-			return echo.NewHTTPError(http.StatusServiceUnavailable, "go2rtc URL not configured")
-		}
-		data, err := grabFrameFromStream(cfg.Go2rtcURL, streamName, width, 10*time.Second)
-		if err != nil {
-			return echo.NewHTTPError(http.StatusBadGateway, err.Error())
-		}
-		c.Response().Header().Set("Content-Type", "image/jpeg")
-		c.Response().Header().Set("Cache-Control", "no-cache")
-		return c.Blob(http.StatusOK, "image/jpeg", data)
-	}
-
 	// Use the shared fetchSnapshot (tries ISAPI for Hikvision, then go2rtc, then Frigate).
 	camCfg := cfg.Cameras[camera]
+	if method := c.QueryParam("method"); method != "" {
+		camCfg.SnapMethod = method
+	} else if streamName != "" && streamName != "main" && streamName != "sub" {
+		camCfg.SnapMethod = "go2rtc"
+	}
+	if c.QueryParam("width") != "" {
+		camCfg.VisionWidth = width
+	}
 	frigateURL := cfg.FrigateURL
 
-	data, err := h.fetchSnapshot(c.Request().Context(), camera, camCfg, frigateURL, streamName)
+	data, source, err := h.fetchSnapshotSource(
+		c.Request().Context(),
+		camera,
+		camCfg,
+		frigateURL,
+		streamName,
+	)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
 	}
 	c.Response().Header().Set("Content-Type", "image/jpeg")
+	c.Response().Header().Set("X-Capture-Source", source)
 	c.Response().Header().Set("Cache-Control", "no-cache")
 	return c.Blob(http.StatusOK, "image/jpeg", data)
 }
@@ -333,7 +334,12 @@ func (h *Handlers) runDescribe(
 	start := time.Now()
 	t := NewStepTimings(4)
 	result := map[string]any{}
+	result["tts_mode"] = "buffered"
+	if canStreamSpeech(op, cfg) {
+		result["tts_mode"] = "streaming"
+	}
 	report := func(stage string) {
+		result["capture_source"] = t.CaptureSource
 		result["timings"] = t.Ms()
 		result["total_ms"] = TotalMs(start)
 		if progress != nil {
@@ -636,7 +642,8 @@ func (h *Handlers) describeImage(
 	timings *StepTimings,
 ) ([]byte, string, error) {
 	start := time.Now()
-	image, err := h.fetchSnapshot(ctx, camera, cfg, frigateURL, stream)
+	image, source, err := h.fetchSnapshotSource(ctx, camera, cfg, frigateURL, stream)
+	timings.CaptureSource = source
 	if err != nil {
 		return nil, "", fmt.Errorf("snapshot: %w", err)
 	}

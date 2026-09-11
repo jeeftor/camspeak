@@ -35,6 +35,7 @@
   let ttsStatus = $state('')
   let ttsTestBusy = $state(false)
   let ttsTestStatus = $state('')
+  const savedTestPreset = $derived(ttsPresets.find(p => p.name === ttsName && p.endpoint === ttsEndpoint && p.model === ttsModel && p.default_voice === ttsVoice && !ttsKey && !ttsClearKey))
 
 
   async function loadTTS() {
@@ -65,8 +66,7 @@
       })
       ttsStatus = '✓ Saved'
       toast.success(`TTS preset "${ttsName}" saved`)
-      ttsFormOpen = false
-      ttsName = ''; ttsEndpoint = ''; ttsModel = ''; ttsVoice = ''; ttsKey = ''; ttsDesc = ''
+      ttsKey = ''; ttsClearKey = false
       await loadTTS()
       onChanged?.()
     } catch (e) {
@@ -187,7 +187,7 @@
           {/if}
         </div>
       </section>
-      <TTSBenchmark presets={ttsPresets} />
+      <p class="mt-3 text-sm text-muted-foreground">Edit a preset to compare buffered/streaming audio and choose its playback mode.</p>
 
       <!-- TTS Edit Modal -->
       <Modal bind:open={ttsFormOpen} title={ttsName ? `Edit TTS Preset — ${ttsName}` : 'Add TTS Preset'}>
@@ -220,13 +220,17 @@
             <Input bind:value={ttsDesc} placeholder="Local Lemonade instance" />
           </label>
           <label class="flex items-center gap-2 text-sm"><input type="checkbox" bind:checked={ttsStreaming} />Experimental streaming playback</label>
-          <p class="text-xs text-muted-foreground">Opt in for Hikvision Speak and Describe. Other camera types, Announce, broadcasts and saved files remain buffered. Test this endpoint first using the streaming comparison below. Failed streams are not automatically replayed.</p>
+          <p class="text-xs text-muted-foreground sm:col-span-2">Opt in for Hikvision Speak and Describe. Other paths remain buffered. Compare audio below; failed streams are not automatically replayed.</p>
           {#if ttsStreaming}
-            <label class="flex flex-col gap-1 text-xs">Incoming PCM sample rate (Hz)<Input type="number" min="8000" max="96000" bind:value={ttsRate} /></label>
-            <label class="flex flex-col gap-1 text-xs">Channels<select bind:value={ttsChannels}><option value={1}>Mono</option><option value={2}>Stereo</option></select></label>
             <p class="text-xs text-warning">Match your server's raw signed 16-bit little-endian PCM output. This is not the camera rate; CamSpeak converts to 8 kHz μ-law. Streaming timings measure readiness of each stage; playback includes remaining generation.</p>
           {/if}
         </div>
+        {#if savedTestPreset}
+          <TTSBenchmark presets={[savedTestPreset]} initialRate={Number(ttsRate)} initialChannels={Number(ttsChannels)} onFormatChange={(rate, channels) => { ttsRate = rate; ttsChannels = channels }} />
+          <p class="text-xs text-muted-foreground">The comparison's PCM format is also used for streaming playback after Save Preset.</p>
+        {:else}
+          <p class="mt-3 text-xs text-warning">Save the endpoint, model and voice before testing. The comparison uses your saved preset and credentials.</p>
+        {/if}
         <div class="mt-4 flex flex-wrap items-center gap-2 border-t pt-4">
           <Button onclick={saveTTS} disabled={saving || !ttsName || !ttsEndpoint}>{saving ? 'Saving…' : 'Save Preset'}</Button>
           <Button variant="outline" onclick={testTTSModal} disabled={ttsTestBusy || !ttsEndpoint}>

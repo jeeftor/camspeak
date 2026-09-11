@@ -1,4 +1,8 @@
 /** Shared labels and measurement boundaries; API timing keys remain unchanged. */
+export function stageColor(key: string): string {
+  const label = stageInfo(key).label
+  return ({ Snapshot: '#38bdf8', Vision: '#fbbf24', TTS: '#a78bfa', 'Convert (μ-law)': '#fb923c', Connect: '#f472b6', Playback: '#34d399', 'First token (TTFT)': '#fbbf24', 'Generate answer': '#38bdf8' })[label] ?? '#94a3b8'
+}
 export const describeStages = [
   { stage: 'snapshot', label: 'Snapshot', active: 'Capturing snapshot', timing: 'snapshot_ms', description: 'Fetch the camera image used for vision analysis.' },
   { stage: 'vision', label: 'Vision', active: 'Describing image', timing: 'vision_ms', description: 'Send the image and prompt to the vision service and wait for its complete description.' },

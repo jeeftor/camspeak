@@ -103,10 +103,12 @@ func (h *Handlers) speakTextContext(
 	// Transcode at unity so the raw file is clean; volume is adjusted live.
 
 	if canStreamSpeech(op, cfg) {
+		t.TTSMode = "streaming"
 		if err := h.streamSpeech(op, cfg, text, voice, h.gainForCall(cameraName, gain), t, nil); err != nil {
 			return t, err
 		}
 	} else {
+		t.TTSMode = "buffered"
 		ttsStart := time.Now()
 		wav, err := h.ttsClient().SpeakContext(op.ctx, text, voice)
 		if err != nil {

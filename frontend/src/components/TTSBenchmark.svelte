@@ -4,12 +4,13 @@
   import { apiClient } from '$lib/api'
   import { formatMs } from '$lib/utils'
 
-  let { presets = [] }: { presets: { name: string; model: string; default_voice: string }[] } = $props()
+  let { presets = [], initialRate = 24000, initialChannels = 1, onFormatChange }: { presets: { name: string; model: string; default_voice: string }[]; initialRate?: number; initialChannels?: number; onFormatChange?: (rate: number, channels: number) => void } = $props()
   let preset = $state('')
   let text = $state('Hello! This is a speech streaming comparison. Your parcel is waiting by the front door.')
   let voice = $state('')
   let rate = $state(24000)
   let channels = $state(1)
+  $effect(() => { rate = initialRate; channels = initialChannels })
   let busy = $state(false)
   let status = $state('')
   let results = $state<{ mode: string; first_byte_ms?: number; total_ms?: number; bytes?: number; audio?: string; error?: string }[]>([])
@@ -42,7 +43,7 @@
 
 <section class="mt-4 flex flex-col gap-3 rounded-lg border bg-card p-4">
   <h3 class="font-semibold text-primary">TTS streaming test · experimental</h3>
-  <p class="text-sm text-muted-foreground">Compare a saved endpoint/model without activating it or changing playback mode. Nothing plays automatically. Enable experimental streaming in the preset editor after testing.</p>
+  <p class="text-sm text-muted-foreground">Compare this saved endpoint/model. These tests do not change playback mode or play on cameras. Local previews require pressing Play.</p>
   <div class="flex flex-wrap gap-3">
     <label class="flex min-w-0 flex-col gap-1 text-sm">TTS preset
       <select bind:value={preset} disabled={busy} class="max-w-full rounded border bg-background p-2">{#each presets as p}<option value={p.name}>{p.name} · {p.model}</option>{/each}</select>
@@ -51,8 +52,8 @@
   </div>
   <label class="flex flex-col gap-1 text-sm">Test text<textarea bind:value={text} disabled={busy} maxlength="2000" rows="3" class="rounded border bg-background p-2"></textarea></label>
   <div class="flex flex-wrap gap-3">
-    <label class="flex flex-col gap-1 text-sm">Streaming PCM rate (Hz)<input type="number" min="8000" max="96000" bind:value={rate} disabled={busy} class="w-36 rounded border bg-background p-2" /></label>
-    <label class="flex flex-col gap-1 text-sm">Channels<select bind:value={channels} disabled={busy} class="rounded border bg-background p-2"><option value={1}>Mono</option><option value={2}>Stereo</option></select></label>
+    <label class="flex flex-col gap-1 text-sm">Streaming PCM rate (Hz)<input type="number" min="8000" max="96000" bind:value={rate} onchange={() => onFormatChange?.(rate, Number(channels))} disabled={busy} class="w-36 rounded border bg-background p-2" /></label>
+    <label class="flex flex-col gap-1 text-sm">Channels<select bind:value={channels} onchange={() => onFormatChange?.(rate, Number(channels))} disabled={busy} class="rounded border bg-background p-2"><option value={1}>Mono</option><option value={2}>Stereo</option></select></label>
   </div>
   <p class="text-xs text-warning">Streaming requests raw signed 16-bit little-endian PCM. Confirm your server's sample rate and channels; these values control local playback speed. This test does not enable streaming camera playback.</p>
   <div class="flex flex-wrap gap-2">

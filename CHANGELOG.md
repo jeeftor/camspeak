@@ -5,6 +5,19 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.8.0] — 2026-09-11
+
+### Added
+- Benchmark-first camera capture setup: compare direct Main/Sub, configured go2rtc streams and Frigate with previews, timings, size and resolution; select method and source together.
+- Shared timing bars with per-stage colors, matching table dots, first-audio marker and tap-to-explain details. Describe and Speak results report their actual buffered/streaming mode.
+- TTS preset editor now contains the reusable streaming comparison, with explicit saved-settings testing and a camera-page mode indicator/configuration link.
+
+### Fixed
+- Capture testing and Describe share source selection. Auto reports the successful source; explicit methods report failure instead of silently changing source. Main/Sub choices now persist for direct snapshots.
+- Snapshot benchmarks include direct Sub and the configured go2rtc source. Clarify the limited scope of the go2rtc ffmpeg resize setting.
+
+---
+
 ## [v4.7.0] — 2026-09-11
 
 ### Added

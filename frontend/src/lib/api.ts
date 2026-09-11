@@ -373,10 +373,11 @@ export const apiClient = {
     }),
 
   // --- Vision ---
-  snapshot: (camera: string, stream?: string, width?: number, signal?: AbortSignal) => {
+  snapshot: (camera: string, stream?: string, width?: number, signal?: AbortSignal, method?: string) => {
     const params = new URLSearchParams()
     if (stream) params.set('stream', stream)
     if (width) params.set('width', String(width))
+    if (method) params.set('method', method)
     const qs = params.toString()
     return apiRaw(`/api/snapshot/${encodeURIComponent(camera)}${qs ? '?' + qs : ''}`, { signal })
   },

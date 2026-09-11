@@ -235,10 +235,13 @@ const openAPISpec = `{
         "tags": ["vision"],
         "summary": "Fetch a JPEG snapshot from the camera",
         "parameters": [
-          {"name": "camera", "in": "path", "required": true, "schema": {"type": "string"}}
+          {"name": "camera", "in": "path", "required": true, "schema": {"type": "string"}},
+          {"name": "method", "in": "query", "schema": {"type": "string", "enum": ["auto", "isapi", "go2rtc", "frigate"]}},
+          {"name": "stream", "in": "query", "schema": {"type": "string"}, "description": "Direct main/sub or a named go2rtc stream"},
+          {"name": "width", "in": "query", "schema": {"type": "integer"}, "description": "Maximum width for the go2rtc ffmpeg fallback only"}
         ],
         "responses": {
-          "200": {"description": "JPEG image", "content": {"image/jpeg": {"schema": {"type": "string", "format": "binary"}}}},
+          "200": {"description": "JPEG image", "headers": {"X-Capture-Source": {"schema": {"type": "string"}, "description": "Actual source that supplied the image"}}, "content": {"image/jpeg": {"schema": {"type": "string", "format": "binary"}}}},
           "502": {"description": "Frigate not reachable"}
         }
       }
@@ -901,6 +904,8 @@ const openAPISpec = `{
       "DescribeResponse": {
         "type": "object",
         "properties": {
+          "tts_mode": {"type": "string", "enum": ["streaming", "buffered"], "description": "Actual mode selected for this action"},
+          "capture_source": {"type": "string", "description": "Actual snapshot source used, including an Auto fallback"},
           "status": {"type": "string", "example": "ok"},
           "description": {"type": "string", "example": "A car is parked in the driveway."},
           "image": {"type": "string", "description": "Base64 JPEG data URI"},

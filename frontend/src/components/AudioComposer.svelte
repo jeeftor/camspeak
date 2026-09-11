@@ -30,6 +30,13 @@
   let failed = $state(false)
   let stopping = $state(false)
   let editingPrompt = $state(false)
+  let configuredStreaming = $state<boolean | undefined>(undefined)
+  $effect(() => {
+    if (!active) return
+    let disposed = false
+    apiClient.getConfig().then(config => { if (!disposed) configuredStreaming = config.tts?.streaming === true }).catch(() => {})
+    return () => { disposed = true }
+  })
   let statusTimer: ReturnType<typeof setTimeout> | undefined
   let uploadController: AbortController | undefined
   let describeController: AbortController | undefined
@@ -304,6 +311,7 @@
     {#if draft.mode === 'speak' || draft.mode === 'describe'}
       <details class="text-sm">
         <summary class="cursor-pointer text-muted-foreground">Voice & options</summary>
+        <p class="text-xs text-muted-foreground">TTS: {configuredStreaming === undefined ? 'Unknown' : configuredStreaming && camera?.type === 'hikvision' ? 'Streaming' : 'Buffered'} · <a class="underline" href="#/config">Edit TTS preset in Config</a></p>
         <div class="mt-2 flex flex-col gap-2">
           <label class="flex flex-col gap-1.5">Voice <VoiceSelect bind:value={draft.voice} {voices} disabled={draft.busy} /></label>
           {#if draft.mode === 'speak'}<p class="hidden text-xs text-muted-foreground md:block">Ctrl+Enter or ⌘+Enter sends your message.</p>{/if}

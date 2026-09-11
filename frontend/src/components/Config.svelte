@@ -804,32 +804,38 @@
           <span class="text-[11px] opacity-60">Used when clicking Describe on this camera. Can be overridden per-session.</span>
         </label>
         <div class="mt-3 border-t pt-3">
-          <h4 class="mb-2 text-sm font-semibold text-primary">Vision Stream</h4>
+          <h4 class="mb-2 text-sm font-semibold text-primary">Vision capture setup</h4>
+          <CaptureTest camera={camName} stream={camVisionStream} width={camVisionWidth} snapMethod={camSnapMethod} cameraType={camType} streams={availableStreams} disabled={!camName}
+            onSelect={(method, source) => { camSnapMethod = method; camVisionStream = source }} />
           <div class="grid grid-cols-2 gap-2.5 max-sm:grid-cols-1">
             <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-              Stream for vision snapshots
+              Capture source
               <select
                 bind:value={camVisionStream}
+                onchange={() => { if (camVisionStream === 'main' || camVisionStream === 'sub') camSnapMethod = 'isapi'; else if (camVisionStream) camSnapMethod = 'go2rtc' }}
                 class="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm
                        focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               >
-                <option value="">Frigate detect (default)</option>
+                <option value="">Default for method</option>
+                <option value="main">Direct API · Main stream</option>
+                <option value="sub">Direct API · Sub stream</option>
                 {#each availableStreams as s}
                   <option value={s.name}>{s.name} ({s.video || 'no video'}){!s.active ? ' — inactive' : ''}</option>
                 {/each}
               </select>
-              <span class="text-[11px] opacity-60">Which go2rtc stream to grab frames from for vision/describe. Substreams are faster (smaller images).</span>
+              <span class="text-[11px] opacity-60">Main/sub applies to direct API. Named streams apply to go2rtc. Frigate uses its latest camera image.</span>
             </label>
             <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-              Max width (px)
+              go2rtc fallback max width (px)
               <Input type="number" bind:value={camVisionWidth} placeholder="1280" />
-              <span class="text-[11px] opacity-60">0 = no resize. 1280 recommended for vision models.</span>
+              <span class="text-[11px] opacity-60">Used by the go2rtc ffmpeg fallback only. Other capture paths keep their source resolution.</span>
             </label>
           </div>
           <label class="mt-3 flex flex-col gap-1 text-xs text-muted-foreground">
             Snapshot method
             <select
               bind:value={camSnapMethod}
+              onchange={() => { if (camSnapMethod === 'frigate') camVisionStream = ''; else if (camSnapMethod === 'isapi' && !['main', 'sub'].includes(camVisionStream)) camVisionStream = 'sub'; else if (camSnapMethod === 'go2rtc' && ['main', 'sub'].includes(camVisionStream)) camVisionStream = '' }}
               class="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm
                      focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
@@ -838,14 +844,10 @@
               <option value="go2rtc">go2rtc</option>
               <option value="frigate">frigate</option>
             </select>
-            <span class="text-[11px] opacity-60">Which snapshot method to prefer for this camera. Test it below or benchmark all methods.</span>
+            <span class="text-[11px] opacity-60">Only Auto falls back to other methods. An explicit selection reports failure instead of silently switching sources.</span>
           </label>
 
-          <!-- Capture test widget -->
-          <div class="mt-3 rounded-lg border border-dashed p-3">
-            <span class="text-xs font-semibold text-muted-foreground block mb-2">Capture test</span>
-            <CaptureTest camera={camName} stream={camVisionStream} width={camVisionWidth} snapMethod={camSnapMethod} disabled={!camName} />
-          </div>
+          <p class="mt-3 text-xs text-muted-foreground">Save the camera to apply this source to Describe.</p>
         </div>
         <label class="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
           <input type="checkbox" bind:checked={camEnabled} class="h-4 w-4 cursor-pointer rounded border-input accent-primary" />

@@ -6,8 +6,10 @@ import "time"
 // Use Add to record a step, then Ms to get a map of millisecond values
 // for JSON responses.
 type StepTimings struct {
-	steps  map[string]time.Duration
-	onStep func(string)
+	TTSMode       string
+	CaptureSource string
+	steps         map[string]time.Duration
+	onStep        func(string)
 }
 
 // NewStepTimings creates a StepTimings with the given capacity.

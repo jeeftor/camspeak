@@ -188,6 +188,7 @@ func (h *Handlers) Speak(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{
 		"status":   "ok",
 		"timings":  timings.Ms(),
+		"tts_mode": timings.TTSMode,
 		"ttfs_ms":  timings.TTFS(),
 		"total_ms": TotalMs(start),
 	})
