@@ -262,6 +262,8 @@ func pumpAirPlay(ctx context.Context, source io.Reader, speaker Speaker, chunks 
 }
 
 func (as *audioStream) runAirPlay(ctx context.Context, chunks <-chan airPlayChunk) {
+	var sessionID uint64
+	resumeAfterTrigger := false
 	for {
 		var first airPlayChunk
 		select {
@@ -288,7 +290,11 @@ func (as *audioStream) runAirPlay(ctx context.Context, chunks <-chan airPlayChun
 		reader := &airPlayReader{
 			ctx: sessionCtx, chunks: chunks, pending: first.data, generation: first.generation,
 		}
-		as.log.Info("stream: opening camera session for incoming AirPlay audio")
+		sessionID++
+		started := time.Now()
+		as.log.Info("stream: opening camera session for incoming AirPlay audio",
+			"session_id", sessionID, "generation", first.generation, "after_trigger", resumeAfterTrigger)
+		resumeAfterTrigger = false
 		var err error
 		if hasPriority {
 			err = prioritized.StreamContext(sessionCtx, reader)
@@ -298,18 +304,33 @@ func (as *audioStream) runAirPlay(ctx context.Context, chunks <-chan airPlayChun
 		interrupted := sessionCtx.Err() != nil
 		release()
 		if ctx.Err() != nil {
+			as.log.Info("stream: AirPlay camera session canceled", "session_id", sessionID,
+				"duration_ms", time.Since(started).Milliseconds())
 			return
 		}
 		if interrupted {
-			as.log.Info("stream: yielding camera speaker to triggered audio")
+			resumeAfterTrigger = true
+			as.log.Info("stream: yielding camera speaker to triggered audio", "session_id", sessionID,
+				"duration_ms", time.Since(started).Milliseconds())
 			continue
 		}
 		if err == nil || errors.Is(err, errAirPlayIdle) {
-			as.log.Info("stream: AirPlay audio idle; camera speaker released")
+			as.log.Info("stream: AirPlay audio idle; camera speaker released", "session_id", sessionID,
+				"duration_ms", time.Since(started).Milliseconds())
 			continue
 		}
 		atomic.AddInt64(&as.reconnects, 1)
-		as.log.Warn("stream: camera session lost; retrying with fresh audio", "err", err)
+		as.log.Warn(
+			"stream: camera session lost; retrying with fresh audio",
+			"err",
+			err,
+			"session_id",
+			sessionID,
+			"duration_ms",
+			time.Since(started).Milliseconds(),
+			"retry_delay_ms",
+			2000,
+		)
 		timer := time.NewTimer(2 * time.Second)
 		select {
 		case <-ctx.Done():

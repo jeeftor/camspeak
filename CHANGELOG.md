@@ -5,6 +5,18 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.11.1] — 2026-09-11
+
+### Fixed
+- Reject malformed Stop requests instead of interpreting them as Stop All; preserve empty-body Stop All behavior.
+- Initialize operation lifecycle logging before publishing playback ownership, and keep reservation release idempotent.
+
+### Added
+- Structured operation IDs and cancellation, replacement, send, and priority-release logs without speech text or audio paths. Stop logs include scope and elapsed time; AirPlay logs distinguish receiver restart from camera-session recovery after a trigger.
+- Regression tests for Stop during sending, immediate replacement, AirPlay priority recovery, malformed Stop isolation, and private-detail exclusion from lifecycle logs.
+
+---
+
 ## [v4.11.0] — 2026-09-11
 
 ### Changed

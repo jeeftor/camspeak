@@ -80,3 +80,35 @@ func TestPlaybackGainRequestDistinguishesOmissionAndMute(t *testing.T) {
 		}
 	}
 }
+
+func TestMalformedStopDoesNotCancelPlayback(t *testing.T) {
+	h, e, _ := setupTestHandlers(t)
+	e.POST("/api/stop", h.Stop)
+	for _, body := range []string{`{"camera":`, `{"camera":42}`} {
+		op := beginOperation(
+			context.Background(),
+			"invalid-stop",
+			&operationSpeaker{},
+			"speak",
+			"private text",
+		)
+		res := doJSON(e, http.MethodPost, "/api/stop", body)
+		if res.Code != http.StatusBadRequest || op.ctx.Err() != nil {
+			t.Errorf("malformed Stop: status=%d operation_error=%v", res.Code, op.ctx.Err())
+		}
+		op.finish()
+	}
+}
+
+func TestEmptyStopStillCancelsAllPreparation(t *testing.T) {
+	h, e, _ := setupTestHandlers(t)
+	e.POST("/api/stop", h.Stop)
+	for _, body := range []string{"", `{}`} {
+		op := beginOperation(context.Background(), "empty-stop", &operationSpeaker{}, "speak", "test")
+		res := doJSON(e, http.MethodPost, "/api/stop", body)
+		if res.Code != http.StatusOK || op.ctx.Err() == nil {
+			t.Errorf("empty Stop: status=%d operation_error=%v", res.Code, op.ctx.Err())
+		}
+		op.finish()
+	}
+}

@@ -436,8 +436,13 @@ func (h *Handlers) Stop(c echo.Context) error {
 	var req struct {
 		Camera string `json:"camera"`
 	}
-	// Body is optional — ignore bind errors (empty body = stop all)
-	_ = c.Bind(&req)
+	// An empty body means stop all; malformed input must never broaden scope.
+	if err := c.Bind(&req); err != nil {
+		log.Warn("stop: invalid request; playback unchanged")
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid stop request")
+	}
+	started := time.Now()
+	log.Info("stop: requested", "camera", req.Camera, "all", req.Camera == "")
 
 	if req.Camera != "" {
 		stopOperation(req.Camera)
@@ -448,7 +453,13 @@ func (h *Handlers) Stop(c echo.Context) error {
 		}
 		clearPlayback(req.Camera)
 		h.resetAirPlay(req.Camera, log)
-		log.Info("stop: stopped and reset camera", "camera", req.Camera)
+		log.Info(
+			"stop: camera stop completed",
+			"camera",
+			req.Camera,
+			"duration_ms",
+			time.Since(started).Milliseconds(),
+		)
 		h.events.publish(event{Camera: req.Camera, Action: "stop", At: time.Now()})
 		return c.JSON(http.StatusOK, map[string]string{"status": "stopped", "camera": req.Camera})
 	}
@@ -459,7 +470,7 @@ func (h *Handlers) Stop(c echo.Context) error {
 	h.reg.StopAll()
 	clearAllPlayback()
 	h.resetAllAirPlay(log)
-	log.Info("stop: stopped and reset all cameras")
+	log.Info("stop: all camera stops completed", "duration_ms", time.Since(started).Milliseconds())
 	h.events.publish(event{Action: "stop-all", At: time.Now()})
 	return c.JSON(http.StatusOK, map[string]string{"status": "stopped", "camera": "all"})
 }
@@ -554,12 +565,23 @@ func (h *Handlers) resetAirPlay(name string, log *clog.Logger) {
 		return
 	}
 	if !h.airplayMgr.IsRunning(name) {
+		log.Debug("stop: AirPlay reset skipped; receiver not running", "camera", name)
 		return
 	}
+	started := time.Now()
+	log.Info("stop: restarting AirPlay receiver", "camera", name)
 	h.airplayMgr.Disable(name)
 	if err := h.airplayMgr.Enable(name); err != nil {
 		log.Warn("stop: AirPlay reset failed", "camera", name, "err", err)
+		return
 	}
+	log.Info(
+		"stop: AirPlay receiver restarted; waiting for sender audio",
+		"camera",
+		name,
+		"duration_ms",
+		time.Since(started).Milliseconds(),
+	)
 }
 
 // resetAllAirPlay restarts every running AirPlay receiver.
@@ -571,10 +593,7 @@ func (h *Handlers) resetAllAirPlay(log *clog.Logger) {
 		if !running {
 			continue
 		}
-		h.airplayMgr.Disable(name)
-		if err := h.airplayMgr.Enable(name); err != nil {
-			log.Warn("stop: AirPlay reset failed", "camera", name, "err", err)
-		}
+		h.resetAirPlay(name, log)
 	}
 }
 

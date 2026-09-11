@@ -18,6 +18,14 @@ Local tests are not proof of audible camera output or a usable deployment backup
 5. Exercise Describe across a temporary browser/proxy interruption. Confirm status polling recovers without starting duplicate playback.
 6. Check the timing bars with mouse, keyboard, and touch. First audio sent measures delivery to the camera, not when sound becomes audible.
 
+## Reading recovery logs
+
+At info level, follow `operation_id` together with `camera` and `source`. IDs are process-local and restart with the application. A normal action reserves triggered-audio priority, sends audio, finishes sending, then releases its reservation. Cancellation logs identify Stop or replacement; a prevented stale send confirms that an old request did not reopen the speaker. A release confirms cleanup, not successful or audible playback. Handler error logs still carry the request ID and failure details.
+
+AirPlay reports a session ID (local to that audio stream), duration, and `after_trigger=true` when fresh audio reopens the camera after preemption. A receiver restart only means it is ready for a sender; it does not prove the sender reconnected or sound resumed. Camera-session failures report the retry delay. No per-chunk info logging is added.
+
+For a failed test, retain logs from the reservation through release and the following AirPlay session, plus application version, camera name, buffered/streaming mode, and the action you took. Do not include credentials, raw audio, or private speech text. A long gap between cancellation and release points to a slow downstream cancellation/cleanup path.
+
 ## Backup and restore drill
 
 1. Identify the actual mounted data directory (`CAMSPEAK_DATA_DIR`), any separately configured library location, and your deployment's environment/Compose settings.

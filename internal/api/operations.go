@@ -5,13 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	clog "github.com/charmbracelet/log"
 	"github.com/jeeftor/camspeak/internal/cameras"
 )
 
 // playbackOperation owns preparation, cancellation and completion for one camera.
 type playbackOperation struct {
+	id              uint64
+	log             *clog.Logger
 	ctx             context.Context
 	cancel          context.CancelFunc
 	camera          string
@@ -26,6 +30,7 @@ var (
 	operationsMu   sync.Mutex
 	operations     = make(map[string]*playbackOperation)
 	operationLocks sync.Map
+	operationID    atomic.Uint64
 )
 
 var errCameraConfigurationChanged = errors.New("your camera configuration changed; retry playback")
@@ -52,18 +57,7 @@ func (h *Handlers) beginPlaybackOperation(
 	if err != nil || (source != "beep" && current != captured) {
 		return nil, fmt.Errorf("%w: %s", errCameraConfigurationChanged, camera)
 	}
-	op := beginOperation(ctx, camera, current, source, detail)
-	started := time.Now()
-	if h.log != nil {
-		h.log.Info("speaker: reserved for triggered audio", "camera", camera, "source", source)
-		release := op.releasePriority
-		op.releasePriority = sync.OnceFunc(func() {
-			release()
-			h.log.Info("speaker: triggered audio reservation released",
-				"camera", camera, "source", source, "duration", time.Since(started))
-		})
-	}
-	return op, nil
+	return beginOperation(ctx, camera, current, source, detail, h.log), nil
 }
 
 func operationLock(camera string) *sync.Mutex {
@@ -77,6 +71,7 @@ func beginOperation(
 	camera string,
 	cam cameras.Speaker,
 	source, detail string,
+	loggers ...*clog.Logger,
 ) *playbackOperation {
 	lock := operationLock(camera)
 	lock.Lock()
@@ -86,11 +81,13 @@ func beginOperation(
 	releasePriority := cameras.ReserveTriggered(cam)
 	operationsMu.Lock()
 	if previous := operations[camera]; previous != nil {
+		previous.logLifecycle("speaker: operation superseded")
 		previous.cancel()
 	}
 	stopStream(camera)
 	ctx, cancel := context.WithCancel(ctx)
 	op := &playbackOperation{
+		id:              operationID.Add(1),
 		ctx:             ctx,
 		cancel:          cancel,
 		camera:          camera,
@@ -99,6 +96,19 @@ func beginOperation(
 		detail:          detail,
 		releasePriority: releasePriority,
 	}
+	if len(loggers) > 0 {
+		op.log = loggers[0]
+	}
+	started := time.Now()
+	op.releasePriority = sync.OnceFunc(func() {
+		releasePriority()
+		op.logLifecycle(
+			"speaker: triggered audio reservation released",
+			"duration_ms",
+			time.Since(started).Milliseconds(),
+		)
+	})
+	op.logLifecycle("speaker: reserved for triggered audio")
 	operations[camera] = op
 	setPlayback(camera, source, detail)
 	playbackStatesMu.Lock()
@@ -107,6 +117,15 @@ func beginOperation(
 	operationsMu.Unlock()
 	_ = cam.Stop()
 	return op
+}
+
+// logLifecycle deliberately excludes operation detail, paths, and speech text.
+func (op *playbackOperation) logLifecycle(message string, fields ...any) {
+	if op.log != nil {
+		op.log.Info(
+			message,
+			append([]any{"operation_id", op.id, "camera", op.camera, "source", op.source}, fields...)...)
+	}
 }
 
 // finish only clears state owned by this operation; replaced operations are inert.
@@ -141,6 +160,7 @@ func (op *playbackOperation) sendWith(
 	operationsMu.Lock()
 	if operations[op.camera] != op || op.ctx.Err() != nil {
 		operationsMu.Unlock()
+		op.logLifecycle("speaker: stale or canceled send prevented")
 		return cameras.SendTiming{}, context.Canceled
 	}
 	// Describe remains preparing until the camera accepts an audio chunk.
@@ -171,6 +191,8 @@ func (op *playbackOperation) sendWith(
 			}
 		})
 	}
+	started := time.Now()
+	op.logLifecycle("speaker: sending audio")
 	timing, err := send(gc)
 	// Some transports report levels on a background goroutine. Join any active
 	// callback and retire the sink before the caller finalizes its result maps.
@@ -178,8 +200,16 @@ func (op *playbackOperation) sendWith(
 	sinkActive = false
 	sinkMu.Unlock()
 	if op.ctx.Err() != nil {
+		op.logLifecycle("speaker: send canceled", "duration_ms", time.Since(started).Milliseconds())
 		return timing, op.ctx.Err()
 	}
+	op.logLifecycle(
+		"speaker: send finished",
+		"failed",
+		err != nil,
+		"duration_ms",
+		time.Since(started).Milliseconds(),
+	)
 	return timing, err
 }
 
@@ -188,6 +218,7 @@ func stopOperation(camera string) {
 	operationsMu.Lock()
 	defer operationsMu.Unlock()
 	if op := operations[camera]; op != nil {
+		op.logLifecycle("speaker: cancellation requested", "reason", "stop")
 		op.cancel()
 		delete(operations, camera)
 		clearPlayback(camera)
@@ -199,6 +230,7 @@ func stopAllOperations() {
 	operationsMu.Lock()
 	defer operationsMu.Unlock()
 	for camera, op := range operations {
+		op.logLifecycle("speaker: cancellation requested", "reason", "stop_all")
 		op.cancel()
 		delete(operations, camera)
 		clearPlayback(camera)

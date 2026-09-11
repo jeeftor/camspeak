@@ -1080,7 +1080,7 @@ const openAPISpec = `{
       "post": {
         "tags": ["audio"],
         "summary": "Stop audio playback on a specific camera or all cameras",
-        "description": "If the request body contains a camera name, only that camera is stopped. If empty or omitted, all cameras are stopped. Tears down the ffmpeg process, closes the camera speaker connection, and resets AirPlay. For a softer suspend that can be resumed in place, use POST /api/pause instead.",
+        "description": "If the request body contains a camera name, only that camera is stopped. If empty or omitted, all cameras are stopped. Malformed requests return 400 without stopping playback. Tears down the ffmpeg process, closes the camera speaker connection, and resets AirPlay. For a softer suspend that can be resumed in place, use POST /api/pause instead.",
         "requestBody": {
           "required": false,
           "content": {
@@ -1096,6 +1096,7 @@ const openAPISpec = `{
         },
         "responses": {
           "200": {"description": "OK", "content": {"application/json": {"schema": {"type": "object", "properties": {"status": {"type": "string"}, "camera": {"type": "string"}}}}}},
+          "400": {"description": "Invalid Stop request; playback unchanged"},
           "404": {"description": "Camera not found"}
         }
       }
