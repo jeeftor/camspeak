@@ -39,7 +39,7 @@
     <div class="relative flex h-4 w-full overflow-hidden rounded" aria-label="Stage duration bar">
       {#each steps as step}
         {#if valid(step.duration) && step.duration > 0}
-          <button type="button" class="h-full min-w-px" style:width={`${step.duration / Math.max(1, measured) * 100}%`} style:background={stageColor(step.stage)}
+          <button type="button" class="h-full" style:min-width="0" style:min-height="0" style:flex-shrink="0" style:padding="0" style:width={`${step.duration / Math.max(1, measured) * 100}%`} style:background={stageColor(step.stage)}
             title={`${step.label}: ${formatMs(step.duration)}. ${stageInfo(step.stage).description}`}
             onclick={() => selectedStage = step.stage}
             aria-label={`${step.label}: ${formatMs(step.duration)}`}></button>

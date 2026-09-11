@@ -5,6 +5,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.8.1] — 2026-09-11
+
+### Fixed
+- Keep timing-bar segments proportional on mobile instead of letting general button touch-target sizing stretch short stages.
+
+---
+
 ## [v4.8.0] — 2026-09-11
 
 ### Added
