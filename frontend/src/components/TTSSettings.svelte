@@ -8,6 +8,7 @@
   import VoiceSelect from '$lib/components/VoiceSelect.svelte'
   import { toast } from '$lib/components/ui/toast'
   import { apiClient } from '$lib/api'
+  import TTSBenchmark from './TTSBenchmark.svelte'
 
   let { onChanged } = $props()
   let ttsPresets = $state([])
@@ -178,6 +179,7 @@
           {/if}
         </div>
       </section>
+      <TTSBenchmark presets={ttsPresets} />
 
       <!-- TTS Edit Modal -->
       <Modal bind:open={ttsFormOpen} title={ttsName ? `Edit TTS Preset — ${ttsName}` : 'Add TTS Preset'}>

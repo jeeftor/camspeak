@@ -5,6 +5,18 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.6.0] — 2026-09-11
+
+### Added
+- Config → TTS Presets now includes buffered-versus-streaming generation tests per saved endpoint/model, with first-byte and total delivery timing, response size, cancellation, and explicit local audio previews.
+- Streaming tests request PCM with stream_format=audio; sample rate and channel assumptions are explicit. Camera playback remains buffered until the streaming pipeline is separately enabled and validated.
+- Add Test All Cameras and Test Cameras & Models controls to Vision Playground, opening the existing configurable matrix without automatically launching expensive tests.
+
+### Fixed
+- Include enabled camera summaries in the matrix even when the API omits the enabled field.
+
+---
+
 ## [v4.5.2] — 2026-09-11
 
 ### Changed

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { Loader2, Play, Plus, X, RefreshCw, ChevronDown, ChevronRight } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { apiClient } from '$lib/api'
@@ -8,7 +9,7 @@
   import HoverPreview from '$lib/components/HoverPreview.svelte'
   import PromptEditor from '$lib/components/PromptEditor.svelte'
 
-  let { cameras = [] } = $props()
+  let { cameras = [], initialWithVision = true } = $props()
 
   // Default prompts
   const defaultPrompts = [
@@ -19,7 +20,7 @@
   ]
 
   let prompts = $state(defaultPrompts.map(p => p))
-  let withVision = $state(true)
+  let withVision = $state(untrack(() => initialWithVision))
   let running = $state(false)
   let hoveredImage = $state<string | null>(null)
   let hoverX = $state(0)
@@ -60,7 +61,7 @@
   // Collapsed groups in results
   let collapsedCameras = $state<Set<string>>(new Set())
 
-  const enabledCameras = $derived(cameras.filter((c: any) => c.enabled))
+  const enabledCameras = $derived(cameras.filter((c: any) => c.enabled !== false && c.capabilities?.snapshot !== false))
 
   // Initialize: select all cameras by default
   $effect(() => {

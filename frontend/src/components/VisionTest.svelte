@@ -14,8 +14,9 @@
   import type { CameraSummary, Timings, VisionPrompt } from '$lib/types'
   import { onDestroy } from 'svelte'
 
-  let { cameras = [], globalPrompt = '', onSavePrompt }: {
+  let { cameras = [], globalPrompt = '', onSavePrompt, onCompareCameras, onCompareEverything }: {
     cameras?: CameraSummary[]; globalPrompt?: string; onSavePrompt?: (prompt: string) => void
+    onCompareCameras?: () => void; onCompareEverything?: () => void
   } = $props()
 
   let selectedCamera = $state('')
@@ -303,6 +304,8 @@
       {#if allBusy}<Loader2 class="h-4 w-4 animate-spin" />{:else}<Sparkles class="h-4 w-4" />{/if}
       Test All Models
     </Button>
+    {#if onCompareCameras}<Button variant="outline" onclick={onCompareCameras} disabled={busy || allBusy}>Test All Cameras…</Button>{/if}
+    {#if onCompareEverything}<Button variant="outline" onclick={onCompareEverything} disabled={busy || allBusy}>Test Cameras & Models…</Button>{/if}
 
     {#if image}
       <Button variant="outline" onclick={() => runVision(false)} disabled={busy}>

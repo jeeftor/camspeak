@@ -9,6 +9,7 @@
 
   let { cameras = [] } = $props()
   let tab = $state('vision')
+  let matrixVision = $state(true)
   let globalPrompt = $state('')
   onMount(() => {
     apiClient.getVisionConfig().then(config => globalPrompt = config.prompt ?? '')
@@ -39,9 +40,9 @@
   {/each}
 </div>
 {#if tab === 'vision'}
-  <VisionTest {cameras} {globalPrompt} onSavePrompt={savePrompt} />
+  <VisionTest {cameras} {globalPrompt} onSavePrompt={savePrompt} onCompareCameras={() => { matrixVision = false; tab = 'matrix' }} onCompareEverything={() => { matrixVision = true; tab = 'matrix' }} />
 {:else if tab === 'capture'}
   <CaptureBenchmark {cameras} />
 {:else}
-  <Benchmark {cameras} />
+  <Benchmark {cameras} initialWithVision={matrixVision} />
 {/if}

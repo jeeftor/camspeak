@@ -636,6 +636,32 @@ const openAPISpec = `{
         }
       }
     },
+    "/config/tts/benchmark": {
+      "post": {
+        "tags": ["config"],
+        "summary": "Test buffered WAV or streaming PCM from a saved TTS preset without camera playback",
+        "description": "Uses saved endpoint credentials without activating the preset. First byte is response delivery, not first audible sound. Streaming previews assume signed 16-bit little-endian PCM at the supplied rate/channels. No automatic retry. 30-second upstream timeout and 8 MiB audio limit.",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {
+          "type": "object", "required": ["preset", "mode", "text", "sample_rate", "channels"],
+          "properties": {
+            "preset": {"type": "string"}, "mode": {"type": "string", "enum": ["buffered", "streaming"]},
+            "text": {"type": "string", "maxLength": 2000}, "voice": {"type": "string"},
+            "sample_rate": {"type": "integer", "minimum": 8000, "maximum": 96000},
+            "channels": {"type": "integer", "enum": [1, 2]}
+          }
+        }}}},
+        "responses": {
+          "200": {"description": "Measured response and local WAV preview", "content": {"application/json": {"schema": {
+            "type": "object", "properties": {
+              "mode": {"type": "string"}, "first_byte_ms": {"type": "integer"}, "total_ms": {"type": "integer"},
+              "bytes": {"type": "integer"}, "duration": {"type": "number", "description": "PCM duration in seconds; zero for buffered WAV"},
+              "audio": {"type": "string", "description": "WAV data URI; never auto-play"}
+            }
+          }}}},
+          "400": {"description": "Invalid test parameters"}, "404": {"description": "Preset not found"}, "502": {"description": "Unsupported transport or upstream failure"}
+        }
+      }
+    },
     "/config/tts": {
       "get": {
         "tags": ["config"],

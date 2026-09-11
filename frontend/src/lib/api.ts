@@ -243,6 +243,8 @@ export const apiClient = {
 
   // --- Config: general ---
   getConfig: () => api<AppConfig>('/api/config'),
+  benchmarkTTS: (request: { preset: string; mode: 'buffered' | 'streaming'; text: string; voice: string; sample_rate: number; channels: number }, signal?: AbortSignal) =>
+    api<{ mode: string; first_byte_ms: number; total_ms: number; bytes: number; duration: number; audio: string }>('/api/config/tts/benchmark', { method: 'POST', body: JSON.stringify(request), signal }),
   getSettings: () => api<Settings>('/api/config/settings'),
   saveSettings: (settings: Partial<Settings>) =>
     api('/api/config/settings', { method: 'PUT', body: JSON.stringify(settings) }),
