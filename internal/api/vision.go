@@ -374,6 +374,8 @@ func (h *Handlers) runDescribe(
 		return result, echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("vision: %s", err))
 	}
 	result["description"] = description
+	log.Info("describe: vision result", "camera", req.Camera, "model", cfg.Vision.Model,
+		"text", description, "text_bytes", len(description))
 	report("tts")
 
 	// 3. TTS

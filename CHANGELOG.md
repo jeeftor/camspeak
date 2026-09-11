@@ -5,6 +5,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.13.0] — 2026-09-11
+
+### Added
+- Log full Describe vision output at INFO before speech generation, with camera, model, request ID, and text size. Vision response diagnostics include the finish reason and token-limit truncation flag.
+- Copy the full description or expand its plain-text response without Markdown rendering.
+- Download the exact captured frame used for a description for later tuning.
+
+---
+
 ## [v4.12.0] — 2026-09-11
 
 ### Added

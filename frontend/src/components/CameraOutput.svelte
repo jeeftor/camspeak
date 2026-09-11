@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { Play } from 'lucide-svelte'
+  import { Download, Play } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import GainSlider from '$lib/components/GainSlider.svelte'
   import Markdown from '$lib/components/Markdown.svelte'
+  import CopyButton from '$lib/components/CopyButton.svelte'
   import AudioPlayer from './AudioPlayer.svelte'
   import VuMeter from './VuMeter.svelte'
   import PlaybackStrip from './PlaybackStrip.svelte'
@@ -79,10 +80,30 @@
       {#if steps.length}
         <p class="text-xs text-muted-foreground">Stages track audio sent to the camera, not confirmation of audible sound.</p>
       {/if}
-      {#if result.description}<Markdown content={result.description} />{/if}
+      {#if result.description}
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-xs text-muted-foreground">Description</span>
+          <CopyButton text={result.description} label="Copy full description" />
+        </div>
+        <Markdown content={result.description} />
+        <details class="min-w-0">
+          <summary class="cursor-pointer text-xs text-muted-foreground">Full response · plain text</summary>
+          <pre class="mt-2 whitespace-pre-wrap break-words text-sm [overflow-wrap:anywhere]">{result.description}</pre>
+        </details>
+      {/if}
       {#if result.capture_source}<p class="text-xs text-muted-foreground">Captured using {result.capture_source}</p>{/if}
       {#if !steps.length && !job && result.total_ms == null && !draft.busy}<p class="text-xs text-muted-foreground">This action did not return timing details.</p>{/if}
-      {#if result.image}<details><summary class="cursor-pointer text-xs text-muted-foreground">Captured frame</summary><img src={result.image} alt="Frame used for this description" class="mt-2 w-full rounded-lg" /></details>{/if}
+      {#if result.image}
+        <details>
+          <summary class="cursor-pointer text-xs text-muted-foreground">Captured frame</summary>
+          <img src={result.image} alt="Frame used for this description" class="mt-2 w-full rounded-lg" />
+          <a href={result.image} download={`camspeak-${camera.name.replace(/[^a-zA-Z0-9_-]/g, '_')}-frame.jpg`}
+            class="mt-2 inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted focus-visible:outline focus-visible:outline-2">
+            <Download class="h-4 w-4" /> Download captured frame
+          </a>
+          <p class="mt-1 text-xs text-muted-foreground">Saves the frame used for this description, not a new snapshot.</p>
+        </details>
+      {/if}
       {#if result.description}<Button size="sm" variant="outline" disabled={draft.busy || draft.gainSaving} onclick={onReplay}><Play class="h-4 w-4" /> Speak again</Button>{/if}
     </div>
   {/if}

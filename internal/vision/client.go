@@ -167,7 +167,8 @@ func (c *Client) DescribeWithModelContext(
 
 	var result struct {
 		Choices []struct {
-			Message struct {
+			FinishReason string `json:"finish_reason"`
+			Message      struct {
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
@@ -180,8 +181,11 @@ func (c *Client) DescribeWithModelContext(
 		return "", fmt.Errorf("vision API returned empty response: %s", string(respBody))
 	}
 
-	log.Debug(
+	log.Info(
 		"vision response",
+		"model", model,
+		"finish_reason", result.Choices[0].FinishReason,
+		"truncated", result.Choices[0].FinishReason == "length",
 		"text_len",
 		len(result.Choices[0].Message.Content),
 		"elapsed",
