@@ -288,7 +288,8 @@
       </details>
     {/if}
 
-    <Button data-primary-action size="sm" type="submit" disabled={draft.busy || draft.gainSaving || !valid} class="w-full gap-2">
+    <div class="flex items-stretch gap-2">
+    <Button data-primary-action size="sm" type="submit" disabled={draft.busy || draft.gainSaving || !valid} class="min-w-0 flex-1 gap-2">
       {#if draft.busy}<Loader2 class="h-4 w-4 animate-spin" /> {draft.pendingAction || 'Working…'}
       {:else if broadcast}<Radio class="h-4 w-4" /> Broadcast to all cameras
       {:else if draft.mode === 'describe'}<Eye class="h-4 w-4" /> Describe and speak
@@ -296,6 +297,8 @@
       {:else if draft.mode === 'stream'}<Radio class="h-4 w-4" /> Start stream
       {:else}<Play class="h-4 w-4" /> Play on camera{/if}
     </Button>
+    <CopyButton text={buildCurl('POST', endpoint, camera ? { ...request(), camera: camera.name } : request())} label="Copy curl command" preview previewType="curl" class="h-11 w-11 shrink-0 lg:h-8 lg:w-8" />
+    </div>
     {#if status}<p role={failed ? 'alert' : 'status'} class="break-words text-sm {failed ? 'text-destructive' : 'text-primary'}">{status}</p>{/if}
 
     {#if draft.mode === 'speak' || draft.mode === 'describe'}
@@ -361,10 +364,6 @@
       </div>
     </details>
   {/if}
-  <details class="text-xs text-muted-foreground">
-    <summary class="cursor-pointer">Automation tools</summary>
-    <div class="mt-2"><CopyButton text={buildCurl('POST', endpoint, camera ? { ...request(), camera: camera.name } : request())} label="Copy curl command" preview previewType="curl" previewAlign="left" /></div>
-  </details>
   </div>
   {#if camera && active}
     <div class="workspace-output min-w-0"><CameraOutput {camera} bind:draft {monitor} onGain={saveGain} onReplay={replayDescription} /></div>

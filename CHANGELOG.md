@@ -5,6 +5,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.5.1] — 2026-09-11
+
+### Fixed
+- Move command copying beside the main camera action and remove the empty Automation tools section. Keep copying available during playback with a mobile-sized touch target.
+- Explicitly prevent copy buttons from submitting surrounding forms.
+
+---
+
 ## [v4.5.0] — 2026-09-11
 
 ### Added

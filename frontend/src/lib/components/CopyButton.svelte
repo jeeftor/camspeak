@@ -49,7 +49,7 @@
 >
   {#if size === 'sm'}
     <Button
-      variant="outline" size="sm"
+      type="button" variant="outline" size="sm"
       onclick={doCopy} {disabled}
       title={preview ? undefined : label} aria-label={label}
       class={klass}
@@ -58,7 +58,7 @@
     </Button>
   {:else}
     <Button
-      variant="outline" size="icon"
+      type="button" variant="outline" size="icon"
       onclick={doCopy} {disabled}
       title={preview ? undefined : label} aria-label={label}
       class={klass}
