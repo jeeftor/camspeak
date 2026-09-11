@@ -24,6 +24,952 @@ const openAPISpec = `{
     {"name": "system", "description": "Health, events, cameras"}
   ],
   "paths": {
+      "/snapshot/{camera}/benchmark": {
+        "get": {
+          "tags": [
+            "system"
+          ],
+          "summary": "Compare camera snapshot methods",
+          "parameters": [
+            {
+              "name": "camera",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "name": "vision",
+              "in": "query",
+              "schema": {
+                "type": "boolean"
+              }
+            },
+            {
+              "name": "prompt",
+              "in": "query",
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Successful response",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "camera": {
+                        "type": "string"
+                      },
+                      "vision": {
+                        "type": "boolean"
+                      },
+                      "results": {
+                        "type": "array",
+                        "items": {
+                          "type": "object"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Invalid request"
+            },
+            "500": {
+              "description": "Operation failed"
+            }
+          }
+        }
+      },
+      "/benchmark": {
+        "post": {
+          "tags": [
+            "system"
+          ],
+          "summary": "Stream camera, capture and vision benchmark matrix",
+          "parameters": [],
+          "responses": {
+            "200": {
+              "description": "SSE progress/results; disconnect cancels the request",
+              "content": {
+                "text/event-stream": {
+                  "schema": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Invalid request"
+            },
+            "500": {
+              "description": "Operation failed"
+            }
+          },
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "cameras": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "prompts": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "models": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "with_vision": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/streams": {
+        "get": {
+          "tags": [
+            "system"
+          ],
+          "summary": "List available vision streams",
+          "parameters": [],
+          "responses": {
+            "200": {
+              "description": "Successful response",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Invalid request"
+            },
+            "500": {
+              "description": "Operation failed"
+            }
+          }
+        }
+      },
+      "/vision/test-all": {
+        "post": {
+          "tags": [
+            "system"
+          ],
+          "summary": "Compare all vision models without speaker playback",
+          "parameters": [],
+          "responses": {
+            "200": {
+              "description": "Successful response",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Invalid request"
+            },
+            "500": {
+              "description": "Operation failed"
+            }
+          },
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "camera": {
+                      "type": "string"
+                    },
+                    "stream": {
+                      "type": "string"
+                    },
+                    "prompt": {
+                      "type": "string"
+                    },
+                    "image": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/vision/test-all/stream": {
+        "post": {
+          "tags": [
+            "system"
+          ],
+          "summary": "Stream vision model comparison results",
+          "parameters": [],
+          "responses": {
+            "200": {
+              "description": "SSE progress/results; disconnect cancels the request",
+              "content": {
+                "text/event-stream": {
+                  "schema": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Invalid request"
+            },
+            "500": {
+              "description": "Operation failed"
+            }
+          },
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "camera": {
+                      "type": "string"
+                    },
+                    "stream": {
+                      "type": "string"
+                    },
+                    "prompt": {
+                      "type": "string"
+                    },
+                    "image": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/announce": {
+        "post": {
+          "tags": [
+            "system"
+          ],
+          "summary": "Capture from one camera and speak on another",
+          "parameters": [],
+          "responses": {
+            "200": {
+              "description": "Successful response",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Invalid request"
+            },
+            "500": {
+              "description": "Operation failed"
+            }
+          },
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "source_camera": {
+                      "type": "string"
+                    },
+                    "target_camera": {
+                      "type": "string"
+                    },
+                    "stream": {
+                      "type": "string"
+                    },
+                    "prompt": {
+                      "type": "string"
+                    },
+                    "voice": {
+                      "type": "string"
+                    },
+                    "gain": {
+                      "$ref": "#/components/schemas/PlaybackGain"
+                    }
+                  },
+                  "required": [
+                    "source_camera",
+                    "target_camera"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "/cameras/{name}/ping": {
+        "post": {
+          "tags": [
+            "system"
+          ],
+          "summary": "Probe camera connectivity, including disabled cameras",
+          "parameters": [
+            {
+              "name": "name",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Successful response",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "ok": {
+                        "type": "boolean"
+                      },
+                      "camera": {
+                        "type": "string"
+                      },
+                      "error": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Invalid request"
+            },
+            "500": {
+              "description": "Operation failed"
+            }
+          }
+        }
+      },
+      "/library/{category}/{name}/peaks": {
+        "get": {
+          "tags": [
+            "system"
+          ],
+          "summary": "Read waveform peaks for an audio preset",
+          "parameters": [
+            {
+              "name": "category",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "name": "name",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Successful response",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "peaks": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        }
+                      },
+                      "duration": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Invalid request"
+            },
+            "500": {
+              "description": "Operation failed"
+            }
+          }
+        }
+      },
+      "/library/{category}/{name}/analyze": {
+        "get": {
+          "tags": [
+            "system"
+          ],
+          "summary": "Measure preset loudness without changing it",
+          "parameters": [
+            {
+              "name": "category",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "name": "name",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Successful response",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "rms": {
+                        "type": "number"
+                      },
+                      "current_gain": {
+                        "type": "number"
+                      },
+                      "suggested_gain": {
+                        "type": "number"
+                      },
+                      "target_rms": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Invalid request"
+            },
+            "500": {
+              "description": "Operation failed"
+            }
+          }
+        }
+      },
+      "/library/{category}/{name}/gain": {
+        "put": {
+          "tags": [
+            "system"
+          ],
+          "summary": "Save preset gain",
+          "parameters": [
+            {
+              "name": "category",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "name": "name",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Successful response",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "category": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "gain": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Invalid request"
+            },
+            "500": {
+              "description": "Operation failed"
+            }
+          },
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "gain": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 20
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/config/settings": {
+        "get": {
+          "tags": [
+            "config"
+          ],
+          "summary": "Read effective general settings",
+          "parameters": [],
+          "responses": {
+            "200": {
+              "description": "Successful response",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "frigate_url": {
+                        "type": "string"
+                      },
+                      "go2rtc_url": {
+                        "type": "string"
+                      },
+                      "advertise_ip": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Invalid request"
+            },
+            "500": {
+              "description": "Operation failed"
+            }
+          }
+        },
+        "put": {
+          "tags": [
+            "config"
+          ],
+          "summary": "Update general settings",
+          "parameters": [],
+          "responses": {
+            "200": {
+              "description": "Successful response",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Invalid request"
+            },
+            "500": {
+              "description": "Operation failed"
+            }
+          },
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "frigate_url": {
+                      "type": "string"
+                    },
+                    "go2rtc_url": {
+                      "type": "string"
+                    },
+                    "advertise_ip": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/config/settings/test": {
+        "post": {
+          "tags": [
+            "config"
+          ],
+          "summary": "Probe a configured service URL",
+          "parameters": [],
+          "responses": {
+            "200": {
+              "description": "Successful response",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Invalid request"
+            },
+            "500": {
+              "description": "Operation failed"
+            }
+          },
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "frigate",
+                        "go2rtc"
+                      ]
+                    },
+                    "url": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/config/vision/test": {
+        "post": {
+          "tags": [
+            "config"
+          ],
+          "summary": "Probe the vision endpoint model catalog",
+          "parameters": [],
+          "responses": {
+            "200": {
+              "description": "Successful response",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Invalid request"
+            },
+            "500": {
+              "description": "Operation failed"
+            }
+          },
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    },
+                    "api_key": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/config/cameras/reorder": {
+        "post": {
+          "tags": [
+            "config"
+          ],
+          "summary": "Persist camera display order",
+          "parameters": [],
+          "responses": {
+            "200": {
+              "description": "Successful response",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Invalid request"
+            },
+            "500": {
+              "description": "Operation failed"
+            }
+          },
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "cameras": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/config/cameras/detect": {
+        "post": {
+          "tags": [
+            "config"
+          ],
+          "summary": "Probe camera vendor",
+          "parameters": [],
+          "responses": {
+            "200": {
+              "description": "Successful response",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Invalid request"
+            },
+            "500": {
+              "description": "Operation failed"
+            }
+          },
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ip": {
+                      "type": "string"
+                    },
+                    "user": {
+                      "type": "string"
+                    },
+                    "pass": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/config/cameras/discover": {
+        "post": {
+          "tags": [
+            "config"
+          ],
+          "summary": "Discover and save cameras from configured Frigate",
+          "parameters": [],
+          "responses": {
+            "200": {
+              "description": "Successful response",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Invalid request"
+            },
+            "500": {
+              "description": "Operation failed"
+            }
+          }
+        }
+      },
+      "/config/go2rtc/streams": {
+        "get": {
+          "tags": [
+            "config"
+          ],
+          "summary": "List go2rtc streams and backchannel capabilities",
+          "parameters": [],
+          "responses": {
+            "200": {
+              "description": "Successful response",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Invalid request"
+            },
+            "500": {
+              "description": "Operation failed"
+            }
+          }
+        }
+      },
+      "/config/airplay/{camera}/toggle": {
+        "patch": {
+          "tags": [
+            "config"
+          ],
+          "summary": "Toggle and persist a camera AirPlay receiver",
+          "parameters": [
+            {
+              "name": "camera",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Successful response",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Invalid request"
+            },
+            "500": {
+              "description": "Operation failed"
+            }
+          }
+        }
+      },
+      "/openapi.json": {
+        "get": {
+          "tags": [
+            "system"
+          ],
+          "summary": "Read this OpenAPI specification",
+          "parameters": [],
+          "responses": {
+            "200": {
+              "description": "Successful response",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Invalid request"
+            },
+            "500": {
+              "description": "Operation failed"
+            }
+          }
+        }
+      },
     "/speak": {
       "post": {
         "tags": ["audio"],
@@ -737,9 +1683,9 @@ const openAPISpec = `{
       },
       "post": {
         "tags": ["config"],
-        "summary": "Add a camera",
+        "summary": "Create or update a camera",
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CameraConfig"}}}},
-        "responses": {"200": {"description": "OK"}}
+        "responses": {"201": {"description": "Camera saved"}}
       }
     },
     "/config/cameras/{name}/toggle": {
@@ -892,6 +1838,7 @@ const openAPISpec = `{
         "required": ["camera"],
         "properties": {
           "camera": {"type": "string", "example": "backyard"},
+          "stream": {"type": "string", "description": "Snapshot stream override"},
           "prompt": {"type": "string", "description": "Vision prompt (empty = camera/global default)", "example": "How many people do you see?"}
         }
       },
@@ -904,6 +1851,8 @@ const openAPISpec = `{
       "VisionTestRequest": {
         "type": "object",
         "properties": {
+          "stream": {"type": "string", "description": "Snapshot stream override"},
+          "model": {"type": "string", "description": "Vision model override"},
           "camera": {"type": "string", "description": "Required if image is empty (to capture snapshot)", "example": "backyard"},
           "prompt": {"type": "string", "description": "Vision prompt to test", "example": "Describe what you see in one or two sentences."},
           "image": {"type": "string", "description": "Base64 data URI of a cached image. If provided, skips snapshot capture and reuses this image.", "example": "data:image/jpeg;base64,/9j/4AAQ..."}
@@ -1022,7 +1971,18 @@ const openAPISpec = `{
       },
       "CameraConfig": {
         "type": "object",
+        "required": ["name", "ip"],
         "properties": {
+          "clear_password": {"type": "boolean", "description": "Explicitly clear a saved password; omitted or empty pass preserves it"},
+          "tts_mode": {"type": "string", "enum": ["", "buffered", "streaming"]},
+          "vision_stream": {"type": "string"},
+          "vision_width": {"type": "integer"},
+          "snap_method": {"type": "string", "enum": ["", "auto", "isapi", "go2rtc", "frigate"]},
+          "airplay_enabled": {"type": "boolean"},
+          "airplay_name": {"type": "string"},
+          "airplay_model": {"type": "string"},
+          "note": {"type": "string", "readOnly": true},
+          "sort_order": {"type": "integer", "readOnly": true, "description": "Use the reorder endpoint to change camera ordering"},
           "name": {"type": "string"},
           "type": {"type": "string", "enum": ["hikvision", "reolink", "go2rtc", "onvif"]},
           "ip": {"type": "string"},

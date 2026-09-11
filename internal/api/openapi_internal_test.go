@@ -91,6 +91,7 @@ func TestOpenAPISchemasCoverDTOFields(t *testing.T) {
 		"PlaybackState": PlaybackState{}, "UploadJob": UploadJob{},
 		"DescribeJob": DescribeJob{}, "DescribeRequest": describeRequest{},
 		"VisionConfig": config.VisionConfig{}, "TTSPreset": config.TTSPreset{},
+		"CameraConfig": config.CameraConfig{},
 	} {
 		t.Run(name, func(t *testing.T) {
 			properties := spec.Components.Schemas[name].Properties

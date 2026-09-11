@@ -12,12 +12,12 @@ async (page) => {
   if (!(await camera.getByText('Captured using Direct API / main', { exact: true }).count())) throw new Error('Missing actual source');
   const bar = camera.getByLabel('Stage duration bar', { exact: true });
   if (await bar.getByRole('button').count() !== 6) throw new Error('Missing stage segments');
-  await bar.getByRole('button', { name: 'TTS: 650ms', exact: true }).click();
+  await bar.getByRole('button', { name: 'TTS: 650ms; accumulated 1.9s', exact: true }).click();
   for (const width of [1440, 390, 320]) {
     await page.setViewportSize({ width, height: 1000 });
     await bar.scrollIntoViewIfNeeded();
     const barBox = await bar.boundingBox();
-    const playbackBox = await bar.getByRole('button', { name: 'Playback: 4.0s', exact: true }).boundingBox();
+    const playbackBox = await bar.getByRole('button', { name: 'Playback: 4.0s; accumulated 6.0s', exact: true }).boundingBox();
     if (!barBox || !playbackBox || Math.abs(playbackBox.width / barBox.width - 2/3) > 0.02) throw new Error(`Timing segments lost proportions at ${width}px`);
     if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw new Error(`Timing overflow ${width}`);
     await page.screenshot({ path: `output/playwright/timing-bar-${width}.png` });

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import StageLabel from '$lib/components/StageLabel.svelte'
+  import TimingFlow from '$lib/components/TimingFlow.svelte'
   import { Camera, Loader2, RefreshCw, Sparkles, Upload } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import CopyButton from '$lib/components/CopyButton.svelte'
@@ -208,12 +208,6 @@
     finally { allBusy = false }
   }
 
-  function fmtMs(ms?: number) {
-    if (!ms || ms <= 0) return '0ms'
-    if (ms < 1000) return `${ms}ms`
-    const s = ms / 1000
-    return `${s < 10 ? s.toFixed(2) : s.toFixed(1)}s`
-  }
 
   let curlCommand = $derived(
     buildCurl('POST', '/api/vision/test', image
@@ -385,19 +379,11 @@
                 <p class="text-xs text-destructive">{r.error}</p>
               {:else}
                 {#if r.total_ms && r.total_ms > 0}
-                  {@const prefillPct = Math.round(((r.ttfs_ms ?? 0) / r.total_ms) * 100)}
-                  {@const genPct = 100 - prefillPct}
-                  <div class="flex flex-col gap-0.5">
-                    <div class="flex h-2.5 w-full overflow-hidden rounded-full bg-muted">
-                      <div class="bg-amber-400 h-full transition-all" style="width:{prefillPct}%"></div>
-                      <div class="bg-sky-500 h-full transition-all" style="width:{genPct}%"></div>
-                    </div>
-                    <div class="flex flex-wrap justify-between gap-2 text-[10px]">
-                      <span class="text-warning">{fmtMs(r.ttfs_ms)} <StageLabel stage="ttft_ms" /></span>
-                      <span class="text-info">{fmtMs(r.gen_ms)} <StageLabel stage="gen_ms" /></span>
-                      <span class="text-muted-foreground">⏱ {fmtMs(r.total_ms)}</span>
-                    </div>
-                  </div>
+                  <TimingFlow label={`${r.model} model timing`} totalMs={r.total_ms}
+                    steps={[
+                      { stage: 'ttft_ms', label: 'First token (TTFT)', duration: r.ttfs_ms },
+                      { stage: 'gen_ms', label: 'Generate answer', duration: r.gen_ms },
+                    ]} />
                 {/if}
                 <Markdown content={r.description ?? ''} class="text-sm text-foreground" />
               {/if}

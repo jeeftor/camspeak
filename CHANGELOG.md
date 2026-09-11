@@ -5,6 +5,17 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.11.0] — 2026-09-11
+
+### Changed
+- Vision model comparison now uses the same reusable timing bar and stage table as camera playback, with duration, accumulated time, and explanations on hover, keyboard focus, or tap.
+
+### Fixed
+- Document all registered REST routes and missing camera/vision request fields in OpenAPI. Add route and request-field regression checks to catch future documentation drift.
+- Extend the companion Home Assistant client's coverage of configuration, vision, library, binary downloads, and event streams (companion release v0.18.0).
+
+---
+
 ## [v4.10.1] — 2026-09-11
 
 ### Fixed
