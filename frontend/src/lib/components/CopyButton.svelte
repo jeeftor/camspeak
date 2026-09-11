@@ -20,6 +20,7 @@
     disabled = false,
     preview = false,
     previewType = 'text',
+    previewAlign = 'right',
   } = $props()
 
   let copied = $state(false)
@@ -42,8 +43,8 @@
   class:preview-enabled={preview && !disabled}
   onmouseover={() => { if (preview && text && !disabled) showTooltip = true }}
   onmouseout={() => { showTooltip = false }}
-  onfocus={() => { if (preview && text && !disabled) showTooltip = true }}
-  onblur={() => { showTooltip = false }}
+  onfocusin={() => { if (preview && text && !disabled) showTooltip = true }}
+  onfocusout={() => { showTooltip = false }}
 >
   {#if size === 'sm'}
     <Button
@@ -66,7 +67,7 @@
   {/if}
 
   {#if preview && text}
-    <div class="curl-tooltip" class:show={showTooltip}>
+    <div class="curl-tooltip" class:align-left={previewAlign === 'left'} class:show={showTooltip}>
       {#if previewType === 'curl'}
         <CurlCode code={text} />
       {:else}
@@ -85,8 +86,8 @@
     bottom: calc(100% + 8px);
     right: 0;
     z-index: 50;
-    min-width: 320px;
-    max-width: 520px;
+    min-width: min(320px, calc(100vw - 64px));
+    max-width: min(520px, calc(100vw - 64px));
     padding: 10px 12px;
     background: hsl(var(--card));
     border: 1px solid hsl(var(--border));
@@ -104,6 +105,8 @@
     display: block;
     animation: tooltip-fade 120ms ease-out;
   }
+
+  .curl-tooltip.align-left { left: 0; right: auto; }
 
   @keyframes tooltip-fade {
     from { opacity: 0; transform: translateY(4px); }

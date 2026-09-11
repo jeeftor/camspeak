@@ -363,7 +363,7 @@
   {/if}
   <details class="text-xs text-muted-foreground">
     <summary class="cursor-pointer">Automation tools</summary>
-    <div class="mt-2"><CopyButton text={buildCurl('POST', endpoint, camera ? { ...request(), camera: camera.name } : request())} label="Copy curl command" /></div>
+    <div class="mt-2"><CopyButton text={buildCurl('POST', endpoint, camera ? { ...request(), camera: camera.name } : request())} label="Copy curl command" preview previewType="curl" previewAlign="left" /></div>
   </details>
   </div>
   {#if camera && active}

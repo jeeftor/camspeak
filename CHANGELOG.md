@@ -5,6 +5,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.4.3] — 2026-09-11
+
+### Fixed
+- Restore syntax-highlighted cURL previews on the camera automation copy button, including keyboard focus. Align the popup with the button's left edge and constrain its width for mobile screens.
+
+---
+
 ## [v4.4.2] — 2026-09-11
 
 ### Changed
