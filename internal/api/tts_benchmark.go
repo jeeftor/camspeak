@@ -22,8 +22,16 @@ func (h *Handlers) BenchmarkTTS(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid JSON body")
 	}
-	if strings.TrimSpace(req.Text) == "" || len(req.Text) > 2000 || (req.Mode != "buffered" && req.Mode != "streaming") || req.SampleRate < 8000 || req.SampleRate > 96000 || req.Channels < 1 || req.Channels > 2 {
-		return echo.NewHTTPError(http.StatusBadRequest, "provide text (1–2000 bytes), mode, sample_rate (8000–96000), and channels (1–2)")
+	if strings.TrimSpace(req.Text) == "" || len(req.Text) > 2000 ||
+		(req.Mode != "buffered" && req.Mode != "streaming") ||
+		req.SampleRate < 8000 ||
+		req.SampleRate > 96000 ||
+		req.Channels < 1 ||
+		req.Channels > 2 {
+		return echo.NewHTTPError(
+			http.StatusBadRequest,
+			"provide text (1–2000 bytes), mode, sample_rate (8000–96000), and channels (1–2)",
+		)
 	}
 	presets, err := config.ListTTSPresets(h.db)
 	if err != nil {
@@ -38,7 +46,16 @@ func (h *Handlers) BenchmarkTTS(c echo.Context) error {
 			voice = preset.DefaultVoice
 		}
 		client := tts.NewClient(preset.Endpoint, preset.Model, preset.APIKey)
-		result, err := client.Benchmark(c.Request().Context(), req.Text, voice, req.Mode, req.SampleRate, req.Channels)
+		h.logger(c).Info("TTS benchmark starting", "preset", req.Preset, "model", preset.Model,
+			"mode", req.Mode, "pcm_rate", req.SampleRate, "pcm_channels", req.Channels)
+		result, err := client.Benchmark(
+			c.Request().Context(),
+			req.Text,
+			voice,
+			req.Mode,
+			req.SampleRate,
+			req.Channels,
+		)
 		if err != nil {
 			h.logger(c).Error("TTS benchmark failed", "preset", req.Preset, "mode", req.Mode, "err", err)
 			return echo.NewHTTPError(http.StatusBadGateway, err.Error())

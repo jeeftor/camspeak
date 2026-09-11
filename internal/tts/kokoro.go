@@ -44,23 +44,62 @@ func (c *Client) OpenPCM(ctx context.Context, text, voice string) (io.ReadCloser
 	}
 	client := *c.client
 	client.Timeout = 0 // The pipeline context bounds generation and playback together.
+	start := time.Now()
+	log.Info("streaming request", "endpoint", util.RedactURLString(c.URL), "model", c.Model,
+		"response_format", "pcm", "stream_format", "audio")
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("streaming TTS connection failed or canceled")
 	}
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
-		return nil, fmt.Errorf("streaming TTS returned HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf(
+			"streaming TTS returned HTTP %d (model=%q, content_type=%q)",
+			resp.StatusCode,
+			c.Model,
+			resp.Header.Get("Content-Type"),
+		)
 	}
 	reader := bufio.NewReader(resp.Body)
 	first, err := reader.Peek(4)
 	mediaType, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	pcmType := mediaType == "application/octet-stream" || mediaType == "audio/pcm" ||
 		mediaType == "audio/raw"
+	kind := "unrecognized/raw"
+	if bytes.Equal(first, []byte("RIFF")) {
+		kind = "WAV/RIFF"
+	}
+	log.Info(
+		"streaming response",
+		"model",
+		c.Model,
+		"status",
+		resp.StatusCode,
+		"content_type",
+		resp.Header.Get("Content-Type"),
+		"content_length",
+		resp.ContentLength,
+		"transfer_encoding",
+		resp.TransferEncoding,
+		"prefix_kind",
+		kind,
+		"prefix_bytes",
+		len(first),
+		"first_bytes_ms",
+		time.Since(start).Milliseconds(),
+		"read_error",
+		err,
+	)
 	if err != nil || !pcmType || bytes.Equal(first, []byte("RIFF")) {
 		resp.Body.Close()
 		return nil, fmt.Errorf(
-			"streaming TTS did not return raw PCM; check server support and preset settings",
+			"streaming TTS rejected: model=%q, HTTP=%d, content_type=%q, prefix=%s, bytes_read=%d, read_error=%v; expected raw signed 16-bit little-endian PCM, not WAV or encoded audio. No audio was sent to the camera",
+			c.Model,
+			resp.StatusCode,
+			resp.Header.Get("Content-Type"),
+			kind,
+			len(first),
+			err,
 		)
 	}
 	return &pcmResponse{Reader: reader, Closer: resp.Body}, nil

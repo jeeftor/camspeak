@@ -5,6 +5,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.9.2] — 2026-09-11
+
+### Fixed
+- Allow explicit diagnostic beeps on disabled cameras without enrolling them in normal playback or broadcast.
+- Add streaming response-format diagnostics and detailed benchmark stages at info level: model, requested/received format, byte counts, timing, PCM settings and WAV detection. Do not log speech text, raw audio or credentials. Streaming rejection errors now explain what was received; unsupported formats remain blocked safely.
+
+---
+
 ## [v4.9.1] — 2026-09-11
 
 ### Fixed

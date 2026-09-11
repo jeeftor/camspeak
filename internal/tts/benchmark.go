@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/charmbracelet/log"
 )
 
 // BenchmarkResult measures response delivery, not camera or audible playback.
@@ -25,7 +27,11 @@ type BenchmarkResult struct {
 
 // Benchmark compares transport behavior using explicit PCM format assumptions.
 // It never sends audio to a camera or retries an uncertain request.
-func (c *Client) Benchmark(ctx context.Context, text, voice, mode string, rate, channels int) (BenchmarkResult, error) {
+func (c *Client) Benchmark(
+	ctx context.Context,
+	text, voice, mode string,
+	rate, channels int,
+) (BenchmarkResult, error) {
 	result := BenchmarkResult{Mode: mode}
 	if mode != "buffered" && mode != "streaming" {
 		return result, fmt.Errorf("mode must be buffered or streaming")
@@ -56,10 +62,20 @@ func (c *Client) Benchmark(ctx context.Context, text, voice, mode string, rate, 
 		return result, fmt.Errorf("TTS benchmark request failed (connection, timeout, or cancellation)")
 	}
 	defer resp.Body.Close()
+	log.Info("benchmark response", "mode", mode, "model", c.Model,
+		"requested_format", body["response_format"], "status", resp.StatusCode,
+		"content_type", resp.Header.Get("Content-Type"), "content_length", resp.ContentLength,
+		"transfer_encoding", resp.TransferEncoding, "headers_ms", time.Since(start).Milliseconds(),
+		"pcm_rate", rate, "pcm_channels", channels)
 	if resp.StatusCode != http.StatusOK {
-		return result, fmt.Errorf("TTS returned HTTP %d; this model/server may not support %s", resp.StatusCode, mode)
+		return result, fmt.Errorf(
+			"TTS returned HTTP %d; this model/server may not support %s",
+			resp.StatusCode,
+			mode,
+		)
 	}
-	if ct := resp.Header.Get("Content-Type"); strings.Contains(ct, "json") || strings.Contains(ct, "text/") {
+	if ct := resp.Header.Get("Content-Type"); strings.Contains(ct, "json") ||
+		strings.Contains(ct, "text/") {
 		return result, fmt.Errorf("TTS returned text instead of audio")
 	}
 	const maxBytes = 8 << 20
@@ -80,8 +96,12 @@ func (c *Client) Benchmark(ctx context.Context, text, voice, mode string, rate, 
 		return result, fmt.Errorf("test audio exceeded 8 MiB; use shorter text")
 	}
 	result.Bytes = len(data)
+	log.Info("benchmark audio received", "mode", mode, "model", c.Model,
+		"bytes", result.Bytes, "first_byte_ms", result.FirstByteMs, "total_ms", result.TotalMs,
+		"wav_header", bytes.HasPrefix(data, []byte("RIFF")))
 	if mode == "streaming" {
-		if len(data) < channels*2 || len(data)%(channels*2) != 0 || bytes.HasPrefix(data, []byte("RIFF")) {
+		if len(data) < channels*2 || len(data)%(channels*2) != 0 ||
+			bytes.HasPrefix(data, []byte("RIFF")) {
 			return result, fmt.Errorf("response is not the requested raw 16-bit PCM")
 		}
 		// Explicit format is required because raw PCM has no self-describing header.

@@ -589,7 +589,8 @@ func (h *Handlers) Beep(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "camera required")
 	}
 
-	cam, err := h.reg.GetForPlayback(req.Camera)
+	// A deliberate diagnostic beep is permitted without enabling normal playback.
+	cam, err := h.reg.Get(req.Camera)
 	if err != nil {
 		log.Warn("beep: camera not found", "camera", req.Camera, "err", err)
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())

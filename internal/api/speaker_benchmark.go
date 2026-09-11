@@ -91,6 +91,9 @@ func (h *Handlers) StartSpeakerBenchmark(c echo.Context) error {
 	h.describes.update(id, "tts", map[string]any{"camera": req.Camera, "preset": req.Preset})
 	gain := cameras.NewGainController(h.gainForCall(req.Camera, -1).Get())
 	log := h.logger(c)
+	log.Info("speaker benchmark starting", "job_id", id, "camera", req.Camera,
+		"preset", req.Preset, "model", cfg.TTS.Model, "pcm_rate", cfg.TTS.PCMSampleRate,
+		"pcm_channels", cfg.TTS.PCMChannels, "streaming_first", req.StreamingFirst)
 	go func() {
 		defer h.describes.worker.release()
 		defer cancel()
@@ -100,7 +103,11 @@ func (h *Handlers) StartSpeakerBenchmark(c echo.Context) error {
 			cfg,
 			req,
 			gain,
-			func(stage string, result map[string]any) { h.describes.update(id, stage, result) },
+			func(stage string, result map[string]any) {
+				log.Info("speaker benchmark progress", "job_id", id, "camera", req.Camera,
+					"mode", result["mode"], "stage", stage, "timings", result["timings"])
+				h.describes.update(id, stage, result)
+			},
 		)
 		if runErr != nil {
 			log.Error("speaker benchmark failed", "camera", req.Camera, "err", runErr)

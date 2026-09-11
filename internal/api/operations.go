@@ -44,7 +44,12 @@ func (h *Handlers) beginPlaybackOperation(
 		return nil, err
 	}
 	current, err := h.reg.GetForPlayback(camera)
-	if err != nil || current != captured {
+	if source == "beep" {
+		// Resolve the current configuration under the edit lock. Disabled speakers
+		// are ephemeral and are never enrolled in normal playback or broadcasts.
+		current, err = h.reg.Get(camera)
+	}
+	if err != nil || (source != "beep" && current != captured) {
 		return nil, fmt.Errorf("%w: %s", errCameraConfigurationChanged, camera)
 	}
 	op := beginOperation(ctx, camera, current, source, detail)

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -41,5 +42,28 @@ func TestOpenPCMRequestAndFormat(t *testing.T) {
 				t.Fatal("non-PCM accepted")
 			}
 		})
+	}
+}
+
+func TestStreamingRejectionDiagnostics(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "audio/wav")
+		_, _ = w.Write([]byte("RIFFprivate-audio-never-log-this"))
+	}))
+	defer server.Close()
+	_, err := NewClient(
+		server.URL,
+		"kokoro-v1",
+	).OpenPCM(context.Background(), "private speech", "voice")
+	if err == nil {
+		t.Fatal("WAV accepted as raw PCM")
+	}
+	for _, want := range []string{"audio/wav", "WAV/RIFF", "kokoro-v1", "No audio was sent"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("missing %q in %v", want, err)
+		}
+	}
+	if strings.Contains(err.Error(), "private") {
+		t.Fatal("audio or speech leaked")
 	}
 }
