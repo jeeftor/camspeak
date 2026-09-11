@@ -5,6 +5,19 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.12.0] — 2026-09-11
+
+### Added
+- Read-only `check-remote` command for API checks through an authenticated HTTPS proxy, using a private bearer-token file or environment variable. Reject redirects, login HTML, oversized responses, and unsafe server URLs without printing credentials or response bodies.
+- Remote testing guidance distinguishing API connectivity from audible playback and backup/restore acceptance.
+
+### Fixed
+- Serialize REST/MCP Stop teardown against new playback publication.
+- Retain and redact camera transport failures in live-stream diagnostics instead of discarding them.
+- Bound buffered TTS responses to 64 MiB to limit memory use from faulty upstream services.
+
+---
+
 ## [v4.11.2] — 2026-09-11
 
 ### Fixed

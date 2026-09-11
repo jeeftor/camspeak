@@ -335,6 +335,8 @@ func buildMCPServer(h *Handlers) *mcp.Server {
 		Name:        "stop",
 		Description: "Stop all audio (TTS, streams, AirPlay) on a specific camera, or all cameras if camera is omitted. Tears down ffmpeg and closes the camera speaker connection.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in StopInput) (*mcp.CallToolResult, StopOutput, error) {
+		h.configEditMu.Lock()
+		defer h.configEditMu.Unlock()
 		if in.Camera != "" {
 			stopOperation(in.Camera)
 			stopStream(in.Camera)

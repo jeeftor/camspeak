@@ -443,6 +443,10 @@ func (h *Handlers) Stop(c echo.Context) error {
 	}
 	started := time.Now()
 	log.Info("stop: requested", "camera", req.Camera, "all", req.Camera == "")
+	// Serialize the entire teardown with publication of replacement playback.
+	// Otherwise an old Stop can tear down or clear the new operation's state.
+	h.configEditMu.Lock()
+	defer h.configEditMu.Unlock()
 
 	if req.Camera != "" {
 		stopOperation(req.Camera)

@@ -464,12 +464,13 @@ func (h *Handlers) streamSupervisor(
 		go logStreamStderr(stderr, log, cameraName, session)
 
 		// Start camera stream in a goroutine — interrupt AirPlay first.
-		camDone := make(chan struct{})
+		camDone := make(chan error, 1)
 		go func() {
 			if ctx.Err() == nil {
-				_ = cameras.StreamContext(ctx, cam, tap)
+				camDone <- cameras.StreamContext(ctx, cam, tap)
+			} else {
+				camDone <- ctx.Err()
 			}
-			close(camDone)
 		}()
 
 		// Wait for ffmpeg to exit in a separate goroutine.
@@ -480,6 +481,7 @@ func (h *Handlers) streamSupervisor(
 
 		// Wait for either side to finish, or user stop.
 		var ffmpegErr error
+		var cameraErr error
 		streamStart := time.Now() // tracked for success-reset threshold
 		select {
 		case <-ctx.Done():
@@ -494,8 +496,8 @@ func (h *Handlers) streamSupervisor(
 		case ffmpegErr = <-ffmpegDone:
 			// ffmpeg exited (stream drop) — wait for cam.Stream to finish
 			// (it will get EOF from the tap reader).
-			<-camDone
-		case <-camDone:
+			cameraErr = <-camDone
+		case cameraErr = <-camDone:
 			// Camera closed connection — kill ffmpeg and reap.
 			if cmd.Process != nil {
 				_ = cmd.Process.Kill()
@@ -505,6 +507,14 @@ func (h *Handlers) streamSupervisor(
 		activeStreamsMu.Lock()
 		session.cmd = nil
 		activeStreamsMu.Unlock()
+		if ctx.Err() != nil {
+			log.Info("stream: stopped", "camera", cameraName)
+			return
+		}
+		if cameraErr != nil {
+			log.Warn("stream: camera transport failed", "camera", cameraName,
+				"err", streamDiagnosticError{cameraErr})
+		}
 
 		// If the stream ran long enough, reset the retry counter and
 		// backoff — this was a healthy session that dropped, not a

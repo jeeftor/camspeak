@@ -221,9 +221,14 @@ func (c *Client) SpeakContext(ctx context.Context, text, voice string) ([]byte, 
 		return nil, fmt.Errorf("TTS returned HTTP %d: %s", resp.StatusCode, body)
 	}
 
-	wav, err := io.ReadAll(resp.Body)
+	// Bound upstream memory use even when a server returns an endless body.
+	const maxSpeechBytes = 64 << 20
+	wav, err := io.ReadAll(io.LimitReader(resp.Body, maxSpeechBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("reading TTS response: %w", err)
+	}
+	if len(wav) > maxSpeechBytes {
+		return nil, fmt.Errorf("TTS response exceeds 64 MiB limit")
 	}
 
 	log.Debug("TTS response", "bytes", len(wav), "elapsed", time.Since(start))
