@@ -5,6 +5,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.5.2] — 2026-09-11
+
+### Changed
+- Centralize stage names and explanations across timing summaries, camera flows, and vision comparison. Replace ambiguous setup/write labels with First token (TTFT) and Generate answer.
+- Add hover and keyboard-focus explanations for timing stages, distinguishing first-token latency from model loading and first audio sent from audible sound.
+
+---
+
 ## [v4.5.1] — 2026-09-11
 
 ### Fixed

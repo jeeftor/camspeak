@@ -1,3 +1,5 @@
+import { stageInfo } from './stages'
+
 export function cn(...classes: (string | false | null | undefined)[]) {
   return classes.filter(Boolean).join(' ')
 }
@@ -24,23 +26,8 @@ export function formatSeconds(sec: number | undefined | null): string {
   return `${m}m ${s.toFixed(1)}s`
 }
 
-// Pretty label for a timing step key. Strips a trailing "_ms" suffix and
-// applies a few friendly aliases (e.g. "tts_ms" -> "TTS", "snapshot_ms" -> "snap").
-const STEP_ALIASES: Record<string, string> = {
-  tts_ms: 'TTS',
-  transcode_ms: 'transcode',
-  send_ms: 'send',
-  send_open_ms: 'send open',
-  send_playback_ms: 'playback',
-  load_ms: 'load',
-  snapshot_ms: 'snap',
-  vision_ms: 'vision',
-  save_ms: 'save',
-}
-
 export function stepLabel(key: string): string {
-  if (STEP_ALIASES[key]) return STEP_ALIASES[key]
-  return key.replace(/_ms$/, '').replace(/_/g, ' ')
+  return stageInfo(key).label
 }
 
 // Render a compact timing breakdown string from a Timings object, e.g.

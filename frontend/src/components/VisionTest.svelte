@@ -1,4 +1,5 @@
 <script lang="ts">
+  import StageLabel from '$lib/components/StageLabel.svelte'
   import { Camera, Loader2, RefreshCw, Sparkles, Upload } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import CopyButton from '$lib/components/CopyButton.svelte'
@@ -388,9 +389,9 @@
                       <div class="bg-amber-400 h-full transition-all" style="width:{prefillPct}%"></div>
                       <div class="bg-sky-500 h-full transition-all" style="width:{genPct}%"></div>
                     </div>
-                    <div class="flex justify-between text-[10px]">
-                      <span class="text-amber-500">⚙ {fmtMs(r.ttfs_ms)} setup</span>
-                      <span class="text-sky-500">✍ {fmtMs(r.gen_ms)} write</span>
+                    <div class="flex flex-wrap justify-between gap-2 text-[10px]">
+                      <span class="text-warning">{fmtMs(r.ttfs_ms)} <StageLabel stage="ttft_ms" /></span>
+                      <span class="text-info">{fmtMs(r.gen_ms)} <StageLabel stage="gen_ms" /></span>
                       <span class="text-muted-foreground">⏱ {fmtMs(r.total_ms)}</span>
                     </div>
                   </div>

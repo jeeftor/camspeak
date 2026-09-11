@@ -1,5 +1,6 @@
 <script lang="ts">
   import { formatMs } from '$lib/utils'
+  import StageLabel from './StageLabel.svelte'
   import { accumulatedTimings, type TimingStage } from '$lib/timing-flow'
 
   let { steps, label = 'Timing flow', activeStage = '', running = false, status = '',
@@ -31,7 +32,7 @@
     <dl aria-label={label} class="grid grid-cols-2 gap-x-3 gap-y-2 text-xs sm:grid-cols-3">
       {#each steps as step, index (step.stage)}
         <div class="min-w-0 border-t pt-1" class:text-primary={running && activeStage === step.stage}>
-          <dt><span class="text-muted-foreground">{index + 1}.</span> {step.label}</dt>
+          <dt><span class="text-muted-foreground">{index + 1}.</span> <StageLabel stage={step.stage} label={step.label} /></dt>
           <dd class="flex flex-wrap gap-x-2 tabular-nums">
             <span>{valid(step.duration) ? formatMs(step.duration) : running && activeStage === step.stage ? 'In progress…' : running ? 'Waiting' : '—'}</span>
             {#if valid(accumulated[index])}<span class="text-info" title="Accumulated stage time">Σ {formatMs(accumulated[index]!)}</span>{/if}
