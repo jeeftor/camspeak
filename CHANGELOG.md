@@ -5,6 +5,17 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.10.0] — 2026-09-11
+
+### Fixed
+- Accept Lemonade's explicitly little-endian `audio/l16` PCM response. Use the same sample-format validation for local benchmarks and camera streaming, rejecting incompatible rates, channels and byte order.
+- Keep error notifications visible and dismissible above native settings dialogs.
+
+### Added
+- Per-camera speech mode: inherit the TTS preset default, buffered, or streaming. Applies to supported Hikvision Speak/Describe paths; PCM settings stay with the preset and benchmarks remain explicit comparisons. Show the effective mode and inheritance in the camera composer.
+
+---
+
 ## [v4.9.3] — 2026-09-11
 
 ### Fixed

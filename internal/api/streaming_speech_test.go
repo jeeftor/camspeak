@@ -48,7 +48,7 @@ func TestStreamingSpeechDeliversBeforeGenerationCompletes(t *testing.T) {
 	}
 	speaker := &testSpeechStreamer{first: make(chan struct{})}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Type", "audio/l16;rate=24000;endianness=little-endian")
 		_, _ = w.Write(bytes.Repeat([]byte{0, 32}, 24000))
 		w.(http.Flusher).Flush()
 		select {
@@ -75,6 +75,15 @@ func TestStreamingSpeechDeliversBeforeGenerationCompletes(t *testing.T) {
 	}
 	if canStreamSpeech(op, config.Config{}) {
 		t.Fatal("streaming must default off")
+	}
+	cfg.Cameras = map[string]config.CameraConfig{op.camera: {TTSMode: "buffered"}}
+	if canStreamSpeech(op, cfg) {
+		t.Fatal("camera buffered override ignored")
+	}
+	cfg.TTS.Streaming = false
+	cfg.Cameras[op.camera] = config.CameraConfig{TTSMode: "streaming"}
+	if !canStreamSpeech(op, cfg) {
+		t.Fatal("camera streaming override ignored")
 	}
 	op.cam = &operationSpeaker{}
 	if canStreamSpeech(op, cfg) {

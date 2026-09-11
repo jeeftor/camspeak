@@ -41,6 +41,7 @@ func (h *Handlers) ListCamerasConfig(c echo.Context) error {
 			"vision_stream":   sc.VisionStream,
 			"vision_width":    sc.VisionWidth,
 			"snap_method":     sc.SnapMethod,
+			"tts_mode":        sc.TTSMode,
 			"note":            sc.Note,
 			"sort_order":      sc.SortOrder,
 		})
@@ -129,6 +130,7 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 		VisionStream   *string  `json:"vision_stream"`
 		VisionWidth    *int     `json:"vision_width"`
 		SnapMethod     *string  `json:"snap_method"`
+		TTSMode        *string  `json:"tts_mode"`
 		ClearPassword  bool     `json:"clear_password"`
 	}
 	if err := c.Bind(&req); err != nil {
@@ -214,6 +216,10 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 	}
 	// Preserve existing snap_method if not provided
 	snapMethod := stringUpdate(req.SnapMethod, existing.SnapMethod)
+	ttsMode := stringUpdate(req.TTSMode, existing.TTSMode)
+	if ttsMode != "" && ttsMode != "buffered" && ttsMode != "streaming" {
+		return echo.NewHTTPError(http.StatusBadRequest, "tts_mode must be empty, buffered or streaming")
+	}
 	// Auto-set limitation note for Reolink cameras (native audio not implemented).
 	note := ""
 	if camType == "reolink" {
@@ -240,6 +246,7 @@ func (h *Handlers) CreateCamera(c echo.Context) error {
 		VisionStream:   visionStream,
 		VisionWidth:    visionWidth,
 		SnapMethod:     snapMethod,
+		TTSMode:        ttsMode,
 		Note:           note,
 		SortOrder:      existing.SortOrder,
 	}

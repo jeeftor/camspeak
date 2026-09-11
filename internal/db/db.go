@@ -212,4 +212,5 @@ func migrate(db *sql.DB) {
 	// Add 'sort_order' column to cameras if missing (added in v4.0.3).
 	// Controls display order in the UI (lower = first). 0 = auto (alphabetical).
 	addColumn("cameras", "sort_order", "INTEGER DEFAULT 0")
+	addColumn("cameras", "tts_mode", "TEXT DEFAULT ''")
 }

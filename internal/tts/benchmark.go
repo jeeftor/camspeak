@@ -60,6 +60,11 @@ func (c *Client) Benchmark(
 		return result, fmt.Errorf("TTS benchmark request failed (connection, timeout, or cancellation)")
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK && mode == "streaming" {
+		if err := validatePCMFormat(resp.Header.Get("Content-Type"), rate, channels); err != nil {
+			return result, err
+		}
+	}
 	benchmarkLogger().Info("benchmark response", "mode", mode, "model", c.Model,
 		"requested_format", body["response_format"], "status", resp.StatusCode,
 		"content_type", resp.Header.Get("Content-Type"), "content_length", resp.ContentLength,

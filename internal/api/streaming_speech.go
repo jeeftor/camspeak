@@ -21,7 +21,14 @@ type speechStreamer interface {
 
 func canStreamSpeech(op *playbackOperation, cfg config.Config) bool {
 	_, supported := op.cam.(speechStreamer)
-	return cfg.TTS.Streaming && supported
+	enabled := cfg.TTS.Streaming
+	switch cfg.Cameras[op.camera].TTSMode {
+	case "buffered":
+		enabled = false
+	case "streaming":
+		enabled = true
+	}
+	return enabled && supported
 }
 
 // streamSpeech keeps generation, conversion and delivery connected without a temporary file.
@@ -38,7 +45,7 @@ func (h *Handlers) streamSpeech(op *playbackOperation, cfg config.Config, text, 
 	}
 	start := time.Now()
 	client := tts.NewClient(cfg.TTS.URL, cfg.TTS.Model, cfg.TTS.APIKey)
-	body, err := client.OpenPCM(ctx, text, voice)
+	body, err := client.OpenPCM(ctx, text, voice, cfg.TTS.PCMSampleRate, cfg.TTS.PCMChannels)
 	if err != nil {
 		return err
 	}

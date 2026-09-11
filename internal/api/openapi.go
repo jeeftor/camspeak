@@ -995,6 +995,7 @@ const openAPISpec = `{
           "vision_stream": {"type": "string"},
           "vision_width": {"type": "integer"},
           "snap_method": {"type": "string"},
+          "tts_mode": {"type": "string", "enum": ["", "buffered", "streaming"], "description": "Empty inherits the TTS preset default; overrides Hikvision Speak and Describe only"},
           "note": {"type": "string"},
           "airplay_enabled": {"type": "boolean"},
           "airplay_name": {"type": "string"},

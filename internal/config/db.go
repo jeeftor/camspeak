@@ -36,6 +36,9 @@ func SetPreferences(db *sql.DB, preferences map[string]string) error {
 
 // SaveCamera inserts or updates a camera in SQLite.
 func SaveCamera(db *sql.DB, name string, cam CameraConfig) error {
+	if cam.TTSMode != "" && cam.TTSMode != "buffered" && cam.TTSMode != "streaming" {
+		return fmt.Errorf("invalid camera TTS mode %q", cam.TTSMode)
+	}
 	enabled := 0
 	if cam.Enabled {
 		enabled = 1
@@ -48,8 +51,8 @@ func SaveCamera(db *sql.DB, name string, cam CameraConfig) error {
 		`INSERT INTO cameras
 		   (name, type, ip, user, pass, channel, stream, enabled, vision_prompt,
 		    airplay_enabled, airplay_name, airplay_model, gain, note,
-		    vision_stream, vision_width, snap_method, sort_order)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		    vision_stream, vision_width, snap_method, sort_order, tts_mode)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(name) DO UPDATE SET
 		   type = excluded.type, ip = excluded.ip, user = excluded.user,
 		   pass = excluded.pass, channel = excluded.channel, stream = excluded.stream,
@@ -57,7 +60,7 @@ func SaveCamera(db *sql.DB, name string, cam CameraConfig) error {
 		   airplay_enabled = excluded.airplay_enabled, airplay_name = excluded.airplay_name,
 		   airplay_model = excluded.airplay_model, gain = excluded.gain, note = excluded.note,
 		   vision_stream = excluded.vision_stream, vision_width = excluded.vision_width,
-		   snap_method = excluded.snap_method, sort_order = excluded.sort_order`,
+		   snap_method = excluded.snap_method, sort_order = excluded.sort_order, tts_mode = excluded.tts_mode`,
 		name,
 		cam.Type,
 		cam.IP,
@@ -76,6 +79,7 @@ func SaveCamera(db *sql.DB, name string, cam CameraConfig) error {
 		cam.VisionWidth,
 		cam.SnapMethod,
 		cam.SortOrder,
+		cam.TTSMode,
 	)
 	if err != nil {
 		return fmt.Errorf("saving camera %s: %w", name, err)

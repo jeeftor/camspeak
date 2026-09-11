@@ -5,6 +5,21 @@
 
   let toasts = $derived(getToasts())
 
+  // Native modal dialogs occupy the browser's top layer; z-index alone cannot
+  // place a body-level notification above them or make its Dismiss interactive.
+  function dialogPortal(node) {
+    const originalParent = node.parentNode
+    function place() {
+      const dialogs = document.querySelectorAll('dialog[open]')
+      const target = dialogs[dialogs.length - 1] || originalParent
+      if (target && node.parentNode !== target) target.appendChild(node)
+    }
+    const observer = new MutationObserver(place)
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['open'] })
+    place()
+    return { destroy() { observer.disconnect(); node.remove() } }
+  }
+
   const icons = {
     default: Info,
     success: CheckCircle2,
@@ -20,7 +35,7 @@
   }
 </script>
 
-<div class="fixed bottom-4 right-4 z-[100] flex max-h-[80dvh] w-[calc(100%_-_2rem)] max-w-md flex-col gap-2 overflow-y-auto">
+<div use:dialogPortal class="fixed bottom-4 right-4 z-[100] flex max-h-[80dvh] w-[calc(100%_-_2rem)] max-w-md flex-col gap-2 overflow-y-auto">
   {#each toasts as t (t.id)}
     {@const Icon = icons[t.variant]}
     <div

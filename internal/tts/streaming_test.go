@@ -11,7 +11,7 @@ import (
 )
 
 func TestOpenPCMRequestAndFormat(t *testing.T) {
-	for _, contentType := range []string{"application/octet-stream; charset=binary", "audio/pcm", "audio/mpeg", "text/html"} {
+	for _, contentType := range []string{"application/octet-stream; charset=binary", "audio/pcm", "audio/l16;rate=24000;endianness=little-endian", "audio/mpeg", "text/html"} {
 		t.Run(contentType, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				var body map[string]any
@@ -27,6 +27,7 @@ func TestOpenPCMRequestAndFormat(t *testing.T) {
 			defer server.Close()
 			reader, err := NewClient(server.URL, "test").OpenPCM(context.Background(), "hello", "voice")
 			valid := contentType == "audio/pcm" ||
+				contentType == "audio/l16;rate=24000;endianness=little-endian" ||
 				contentType == "application/octet-stream; charset=binary"
 			if valid {
 				if err != nil {

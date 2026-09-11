@@ -85,6 +85,7 @@
   let camVisionPrompt = $state('')
   let camVisionStream = $state('')
   let camVisionWidth = $state(0)
+  let camTTSMode = $state('')
   let camSnapMethod = $state('')
   let camStatus = $state('')
   let availableStreams = $state([])
@@ -173,6 +174,7 @@
         vision_prompt: camVisionPrompt,
         vision_stream: camVisionStream,
         vision_width: camVisionWidth || 0,
+        tts_mode: camTTSMode,
         snap_method: camSnapMethod,
         airplay_name: camAirPlayName,
         airplay_model: camAirPlayModel,
@@ -223,6 +225,7 @@
   }
 
   function openAddCamera() {
+    camTTSMode = ''
     camName = ''; camType = 'hikvision'; camIP = ''; camUser = ''; camPass = ''
     camChannel = 1; camStream = ''; camEnabled = false; camVisionPrompt = ''
     camVisionStream = ''; camVisionWidth = 0; camSnapMethod = ''
@@ -247,6 +250,7 @@
     camVisionPrompt = cam.vision_prompt ?? ''
     camVisionStream = cam.vision_stream ?? ''
     camVisionWidth = cam.vision_width ?? 0
+    camTTSMode = cam.tts_mode ?? ''
     camSnapMethod = cam.snap_method ?? ''
     camAirPlayName = cam.airplay_name ?? ''
     camAirPlayModel = cam.airplay_model ?? airplayModel ?? 'RealityDevice14,1'
@@ -804,6 +808,15 @@
           <PromptEditor bind:value={camVisionPrompt}
             placeholder="Describe what you see. Focus on people, vehicles, and animals." />
           <span class="text-[11px] opacity-60">Used when clicking Describe on this camera. Can be overridden per-session.</span>
+        </label>
+        <label class="mt-3 flex flex-col gap-1 text-xs text-muted-foreground">
+          Speech playback mode
+          <Select bind:value={camTTSMode}>
+            <option value="">Use TTS preset default</option>
+            <option value="buffered">Buffered</option>
+            <option value="streaming">Streaming</option>
+          </Select>
+          <span>Overrides the preset for Hikvision Speak and Describe only. Other camera types, Announce and broadcasts remain buffered. PCM format belongs to the TTS preset; comparison tests do not change this setting.</span>
         </label>
         <div class="mt-3 border-t pt-3">
           <h4 class="mb-2 text-sm font-semibold text-primary">Vision capture setup</h4>

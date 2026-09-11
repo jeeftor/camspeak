@@ -51,7 +51,8 @@ func (c VisionConfig) Sanitized() VisionConfig {
 
 // CameraConfig holds connection details for a single camera.
 type CameraConfig struct {
-	Type           string  `json:"type"` // "hikvision", "reolink", "go2rtc", "onvif"
+	TTSMode        string  `json:"tts_mode"` // empty inherits the preset; buffered or streaming overrides it
+	Type           string  `json:"type"`     // "hikvision", "reolink", "go2rtc", "onvif"
 	IP             string  `json:"ip"`
 	User           string  `json:"user"`
 	Pass           string  `json:"pass"`

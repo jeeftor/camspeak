@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime"
 	"net/http"
 	"time"
 
@@ -18,7 +17,20 @@ import (
 )
 
 // OpenPCM starts opt-in streaming speech. The caller must close the response.
-func (c *Client) OpenPCM(ctx context.Context, text, voice string) (io.ReadCloser, error) {
+func (c *Client) OpenPCM(
+	ctx context.Context,
+	text, voice string,
+	format ...int,
+) (io.ReadCloser, error) {
+	rate, channels := 24000, 1
+	if len(format) == 2 {
+		if format[0] != 0 {
+			rate = format[0]
+		}
+		if format[1] != 0 {
+			channels = format[1]
+		}
+	}
 	if voice == "" {
 		voice = "af_sky"
 	}
@@ -62,9 +74,8 @@ func (c *Client) OpenPCM(ctx context.Context, text, voice string) (io.ReadCloser
 	}
 	reader := bufio.NewReader(resp.Body)
 	first, err := reader.Peek(4)
-	mediaType, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
-	pcmType := mediaType == "application/octet-stream" || mediaType == "audio/pcm" ||
-		mediaType == "audio/raw"
+	formatErr := validatePCMFormat(resp.Header.Get("Content-Type"), rate, channels)
+	pcmType := formatErr == nil
 	kind := "unrecognized/raw"
 	if bytes.Equal(first, []byte("RIFF")) {
 		kind = "WAV/RIFF"
@@ -92,6 +103,12 @@ func (c *Client) OpenPCM(ctx context.Context, text, voice string) (io.ReadCloser
 	)
 	if err != nil || !pcmType || bytes.Equal(first, []byte("RIFF")) {
 		resp.Body.Close()
+		if formatErr != nil && !bytes.Equal(first, []byte("RIFF")) {
+			return nil, fmt.Errorf(
+				"streaming TTS rejected: %w; no audio was sent to the camera",
+				formatErr,
+			)
+		}
 		return nil, fmt.Errorf(
 			"streaming TTS rejected: model=%q, HTTP=%d, content_type=%q, prefix=%s, bytes_read=%d, read_error=%v; expected raw signed 16-bit little-endian PCM, not WAV or encoded audio. No audio was sent to the camera",
 			c.Model,

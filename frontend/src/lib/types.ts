@@ -23,6 +23,7 @@ export interface Timings {
 }
 
 export interface Camera {
+  tts_mode?: '' | 'buffered' | 'streaming'
   name: string
   type: CameraType
   ip: string
@@ -184,6 +185,7 @@ export interface PlayReq {
 }
 
 export interface SaveCameraReq {
+  tts_mode?: '' | 'buffered' | 'streaming'
   name: string
   type: CameraType
   ip: string
