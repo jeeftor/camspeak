@@ -11,7 +11,6 @@
   import { apiClient } from '$lib/api'
   import { saveCameraGain, uploadAudioToCamera } from '$lib/audio-actions'
   import { buildCurl } from '$lib/curl.svelte'
-  import { formatTimingSummary } from '$lib/utils'
   import type { CameraSummary, Preset, DescribeResponse } from '$lib/types'
   import { describeStageLabel, isValidRepeat, type AudioDraft } from '$lib/audio-draft'
   import type { PlaybackMonitor } from '$lib/playback.svelte'
@@ -152,8 +151,7 @@
       }
       const response = result as DescribeResponse | undefined
       draft.lastResult = { ...response, label }
-      const timing = response ? formatTimingSummary(response.timings, response.total_ms, response.ttfs_ms) : ''
-      feedback(`${broadcast ? 'Broadcast completed' : 'Audio sent'}${timing ? ` (${timing})` : ''}`)
+      feedback(broadcast ? 'Broadcast completed' : 'Audio sent')
     } catch (cause) {
       if (label === 'Describe') draft.describeError = cause instanceof Error ? cause.message : String(cause)
       feedback(cause instanceof Error ? cause.message : String(cause), true)

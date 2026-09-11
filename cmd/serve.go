@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 	"github.com/spf13/cobra"
 
 	"github.com/jeeftor/camspeak/internal/airplay"
@@ -167,16 +168,22 @@ func runServe(cmd *cobra.Command, args []string) error {
 	return err
 }
 
-var titleStyle = lipgloss.NewStyle().
-	Bold(true).
-	Foreground(lipgloss.Color("#7D56F4")).
-	MarginBottom(1)
-
 var infoStyle = lipgloss.NewStyle().
 	Foreground(lipgloss.Color("#626262"))
 
+func versionBanner(value string, color bool) string {
+	renderer := lipgloss.NewRenderer(os.Stdout)
+	renderer.SetColorProfile(termenv.Ascii)
+	if color {
+		// Docker captures stdout without a TTY; color only this startup marker.
+		renderer.SetColorProfile(termenv.ANSI)
+	}
+	badge := renderer.NewStyle().Bold(true).Foreground(lipgloss.Color("13"))
+	return "  camspeak  " + badge.Render("[ VERSION "+value+" ]") + "\n"
+}
+
 func printBanner(cfg *config.Config) {
-	fmt.Println(titleStyle.Render(fmt.Sprintf("  camspeak %s", version)))
+	fmt.Println(versionBanner(version, os.Getenv("NO_COLOR") == "" && os.Getenv("TERM") != "dumb"))
 	fmt.Println(infoStyle.Render(fmt.Sprintf("  UI  -> http://localhost:%d", cfg.Port)))
 	fmt.Println(infoStyle.Render(fmt.Sprintf("  MCP -> http://localhost:%d/mcp", cfg.Port)))
 	fmt.Println(infoStyle.Render("  TTS -> " + util.RedactURLString(cfg.TTS.URL)))

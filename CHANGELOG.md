@@ -5,6 +5,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.4.0] — 2026-09-10
+
+### Changed
+- Reuse the Describe-style timing grid for camera actions, including speech, conversion, connection, and playback. Keep timing summaries in Camera Output instead of duplicating them beneath action buttons.
+- Number pipeline stages and show individual durations alongside accented cumulative stage times, with consistent TTS and μ-law conversion labels.
+- Highlight the startup version in a bold magenta badge, including Docker logs. Respect NO_COLOR and TERM=dumb with a readable plain-text badge.
+
+---
+
 ## [v4.3.1] — 2026-09-10
 
 ### Fixed

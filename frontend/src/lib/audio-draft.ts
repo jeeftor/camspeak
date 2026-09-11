@@ -36,8 +36,8 @@ export function createAudioDraft(gain = 3, prompt = ''): AudioDraft {
 export const describeStages = [
   { stage: 'snapshot', label: 'Snapshot', active: 'Capturing snapshot', timing: 'snapshot_ms' },
   { stage: 'vision', label: 'Vision', active: 'Describing image', timing: 'vision_ms' },
-  { stage: 'tts', label: 'Speech', active: 'Generating speech', timing: 'tts_ms' },
-  { stage: 'transcode', label: 'Convert', active: 'Converting audio', timing: 'transcode_ms' },
+  { stage: 'tts', label: 'TTS', active: 'Generating speech', timing: 'tts_ms' },
+  { stage: 'transcode', label: 'Convert (μ-law)', active: 'Converting audio', timing: 'transcode_ms' },
   { stage: 'connecting', label: 'Connect', active: 'Connecting to speaker', timing: 'send_open_ms' },
   { stage: 'playing', label: 'Playback', active: 'Sending camera audio', timing: 'send_ms' },
 ] as const
