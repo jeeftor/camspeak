@@ -12,11 +12,14 @@ import (
 
 // TTSConfig holds connection details for the OpenAI-compatible TTS endpoint.
 type TTSConfig struct {
-	URL          string `json:"url"`
-	Model        string `json:"model"`
-	DefaultVoice string `json:"default_voice"`
-	APIKey       string `json:"api_key,omitempty"`
-	HasAPIKey    bool   `json:"has_api_key"`
+	Streaming     bool   `json:"streaming"`
+	PCMSampleRate int    `json:"pcm_sample_rate"`
+	PCMChannels   int    `json:"pcm_channels"`
+	URL           string `json:"url"`
+	Model         string `json:"model"`
+	DefaultVoice  string `json:"default_voice"`
+	APIKey        string `json:"api_key,omitempty"`
+	HasAPIKey     bool   `json:"has_api_key"`
 }
 
 // Sanitized returns a copy of c with secrets redacted and URL credentials removed.
@@ -77,15 +80,18 @@ func (c CameraConfig) Sanitized() CameraConfig {
 
 // TTSPreset is a named TTS endpoint configuration (klipbord-style).
 type TTSPreset struct {
-	Name         string `json:"name"`
-	Endpoint     string `json:"endpoint"`
-	Model        string `json:"model"`
-	APIKey       string `json:"api_key,omitempty"`
-	DefaultVoice string `json:"default_voice"`
-	Description  string `json:"description,omitempty"`
-	IsActive     bool   `json:"is_active"`
-	HasAPIKey    bool   `json:"has_api_key"`
-	ClearAPIKey  bool   `json:"clear_api_key,omitempty"`
+	Streaming     bool   `json:"streaming"`
+	PCMSampleRate int    `json:"pcm_sample_rate"`
+	PCMChannels   int    `json:"pcm_channels"`
+	Name          string `json:"name"`
+	Endpoint      string `json:"endpoint"`
+	Model         string `json:"model"`
+	APIKey        string `json:"api_key,omitempty"`
+	DefaultVoice  string `json:"default_voice"`
+	Description   string `json:"description,omitempty"`
+	IsActive      bool   `json:"is_active"`
+	HasAPIKey     bool   `json:"has_api_key"`
+	ClearAPIKey   bool   `json:"clear_api_key,omitempty"`
 }
 
 // Sanitized removes credentials while retaining whether a key is configured.

@@ -263,6 +263,23 @@ func (c *HikvisionClient) Stream(r io.Reader) error {
 
 // StreamContext streams live audio with cancellation through channel setup and I/O.
 func (c *HikvisionClient) StreamContext(ctx context.Context, r io.Reader) error {
+	return c.streamContext(ctx, r, nil)
+}
+
+// StreamWithGainContext streams audio with gain and post-write level reporting.
+func (c *HikvisionClient) StreamWithGainContext(
+	ctx context.Context,
+	r io.Reader,
+	gain *GainController,
+) error {
+	return c.streamContext(ctx, r, gain)
+}
+
+func (c *HikvisionClient) streamContext(
+	ctx context.Context,
+	r io.Reader,
+	gain *GainController,
+) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -354,7 +371,11 @@ func (c *HikvisionClient) StreamContext(ctx context.Context, r io.Reader) error 
 	}()
 
 	c.log.Info("stream: session open, streaming audio", "ip", c.ip, "session", sessionID)
-	err = util.CopyAt8kBps(conn, r, &c.stopped, &c.activeMu)
+	var writer io.Writer = conn
+	if gain != nil {
+		writer = &streamGainWriter{writer: conn, gain: gain}
+	}
+	err = util.CopyAt8kBps(writer, r, &c.stopped, &c.activeMu)
 
 	// Log the camera's HTTP response for diagnostics.
 	select {
@@ -366,6 +387,20 @@ func (c *HikvisionClient) StreamContext(ctx context.Context, r io.Reader) error 
 
 	c.log.Info("stream: session closed", "ip", c.ip, "session", sessionID)
 	return err
+}
+
+type streamGainWriter struct {
+	writer io.Writer
+	gain   *GainController
+}
+
+func (w *streamGainWriter) Write(data []byte) (int, error) {
+	util.ApplyGainMulaw(data, w.gain.Get())
+	n, err := w.writer.Write(data)
+	if err == nil && n > 0 {
+		w.gain.RecordLevel(util.ComputeLevel(data[:n]))
+	}
+	return n, err
 }
 
 // cancelOnDone joins the cancellation callback before a newer session can start.

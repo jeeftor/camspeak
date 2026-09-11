@@ -42,7 +42,7 @@
 
 <section class="mt-4 flex flex-col gap-3 rounded-lg border bg-card p-4">
   <h3 class="font-semibold text-primary">TTS streaming test · experimental</h3>
-  <p class="text-sm text-muted-foreground">Compare a saved endpoint/model without activating it. Camera playback remains buffered. Nothing plays automatically.</p>
+  <p class="text-sm text-muted-foreground">Compare a saved endpoint/model without activating it or changing playback mode. Nothing plays automatically. Enable experimental streaming in the preset editor after testing.</p>
   <div class="flex flex-wrap gap-3">
     <label class="flex min-w-0 flex-col gap-1 text-sm">TTS preset
       <select bind:value={preset} disabled={busy} class="max-w-full rounded border bg-background p-2">{#each presets as p}<option value={p.name}>{p.name} · {p.model}</option>{/each}</select>

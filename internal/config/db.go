@@ -95,7 +95,7 @@ func DeleteCamera(db *sql.DB, name string) error {
 // ListTTSPresets returns all TTS presets from SQLite.
 func ListTTSPresets(db *sql.DB) ([]TTSPreset, error) {
 	rows, err := db.Query(
-		`SELECT name, endpoint, model, api_key, default_voice, description, is_active
+		`SELECT name, endpoint, model, api_key, default_voice, description, is_active, streaming, pcm_sample_rate, pcm_channels
 		 FROM tts_presets ORDER BY is_active DESC, name`,
 	)
 	if err != nil {
@@ -108,7 +108,7 @@ func ListTTSPresets(db *sql.DB) ([]TTSPreset, error) {
 		var p TTSPreset
 		var isActive int
 		if err := rows.Scan(&p.Name, &p.Endpoint, &p.Model, &p.APIKey,
-			&p.DefaultVoice, &p.Description, &isActive); err != nil {
+			&p.DefaultVoice, &p.Description, &isActive, &p.Streaming, &p.PCMSampleRate, &p.PCMChannels); err != nil {
 			continue
 		}
 		p.IsActive = isActive == 1
@@ -119,6 +119,15 @@ func ListTTSPresets(db *sql.DB) ([]TTSPreset, error) {
 
 // SaveTTSPreset inserts or updates a TTS preset.
 func SaveTTSPreset(db *sql.DB, p TTSPreset) error {
+	if p.PCMSampleRate == 0 {
+		p.PCMSampleRate = 24000
+	}
+	if p.PCMChannels == 0 {
+		p.PCMChannels = 1
+	}
+	if p.PCMSampleRate < 8000 || p.PCMSampleRate > 96000 || p.PCMChannels < 1 || p.PCMChannels > 2 {
+		return fmt.Errorf("invalid PCM sample rate or channels")
+	}
 	tx, err := db.Begin()
 	if err != nil {
 		return fmt.Errorf("beginning TTS transaction: %w", err)
@@ -145,12 +154,13 @@ func SaveTTSPreset(db *sql.DB, p TTSPreset) error {
 		}
 	}
 	_, err = tx.Exec(
-		`INSERT INTO tts_presets (name, endpoint, model, api_key, default_voice, description, is_active)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO tts_presets (name, endpoint, model, api_key, default_voice, description, is_active, streaming, pcm_sample_rate, pcm_channels)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(name) DO UPDATE SET
 		   endpoint = excluded.endpoint, model = excluded.model, api_key = excluded.api_key,
 		   default_voice = excluded.default_voice, description = excluded.description,
-		   is_active = excluded.is_active`,
+		   is_active = excluded.is_active, streaming = excluded.streaming,
+		   pcm_sample_rate = excluded.pcm_sample_rate, pcm_channels = excluded.pcm_channels`,
 		p.Name,
 		p.Endpoint,
 		p.Model,
@@ -158,6 +168,9 @@ func SaveTTSPreset(db *sql.DB, p TTSPreset) error {
 		p.DefaultVoice,
 		p.Description,
 		isActive,
+		p.Streaming,
+		p.PCMSampleRate,
+		p.PCMChannels,
 	)
 	if err != nil {
 		return fmt.Errorf("saving TTS preset %s: %w", p.Name, err)

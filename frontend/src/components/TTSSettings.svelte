@@ -29,6 +29,9 @@
   let ttsHasKey = $state(false)
   let ttsClearKey = $state(false)
   let ttsDesc = $state('')
+  let ttsStreaming = $state(false)
+  let ttsRate = $state(24000)
+  let ttsChannels = $state(1)
   let ttsStatus = $state('')
   let ttsTestBusy = $state(false)
   let ttsTestStatus = $state('')
@@ -57,6 +60,7 @@
     try {
       await apiClient.saveTTSPreset({
         name: ttsName, endpoint: ttsEndpoint, model: ttsModel,
+        streaming: ttsStreaming, pcm_sample_rate: Number(ttsRate), pcm_channels: Number(ttsChannels),
         default_voice: ttsVoice, api_key: ttsKey || undefined, clear_api_key: ttsClearKey, description: ttsDesc,
       })
       ttsStatus = '✓ Saved'
@@ -106,6 +110,7 @@
   }
 
   function openAddTTS() {
+    ttsStreaming = false; ttsRate = 24000; ttsChannels = 1
     ttsHasKey = false; ttsClearKey = false
     ttsName = ''; ttsEndpoint = ''; ttsModel = ''; ttsVoice = ''; ttsKey = ''; ttsDesc = ''
     ttsStatus = ''
@@ -113,6 +118,9 @@
   }
 
   function editTTS(p) {
+    ttsStreaming = p.streaming ?? false
+    ttsRate = p.pcm_sample_rate || 24000
+    ttsChannels = p.pcm_channels || 1
     ttsHasKey = p.has_api_key ?? false
     ttsClearKey = false
     ttsName = p.name
@@ -211,6 +219,13 @@
             Description
             <Input bind:value={ttsDesc} placeholder="Local Lemonade instance" />
           </label>
+          <label class="flex items-center gap-2 text-sm"><input type="checkbox" bind:checked={ttsStreaming} />Experimental streaming playback</label>
+          <p class="text-xs text-muted-foreground">Opt in for Hikvision Speak and Describe. Other camera types, Announce, broadcasts and saved files remain buffered. Test this endpoint first using the streaming comparison below. Failed streams are not automatically replayed.</p>
+          {#if ttsStreaming}
+            <label class="flex flex-col gap-1 text-xs">Incoming PCM sample rate (Hz)<Input type="number" min="8000" max="96000" bind:value={ttsRate} /></label>
+            <label class="flex flex-col gap-1 text-xs">Channels<select bind:value={ttsChannels}><option value={1}>Mono</option><option value={2}>Stereo</option></select></label>
+            <p class="text-xs text-warning">Match your server's raw signed 16-bit little-endian PCM output. This is not the camera rate; CamSpeak converts to 8 kHz μ-law. Streaming timings measure readiness of each stage; playback includes remaining generation.</p>
+          {/if}
         </div>
         <div class="mt-4 flex flex-wrap items-center gap-2 border-t pt-4">
           <Button onclick={saveTTS} disabled={saving || !ttsName || !ttsEndpoint}>{saving ? 'Saving…' : 'Save Preset'}</Button>

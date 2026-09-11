@@ -2,11 +2,13 @@
 package tts
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"time"
 
@@ -14,6 +16,60 @@ import (
 	"github.com/jeeftor/camspeak/internal/logging"
 	"github.com/jeeftor/camspeak/internal/util"
 )
+
+// OpenPCM starts opt-in streaming speech. The caller must close the response.
+func (c *Client) OpenPCM(ctx context.Context, text, voice string) (io.ReadCloser, error) {
+	if voice == "" {
+		voice = "af_sky"
+	}
+	body, err := json.Marshal(
+		map[string]any{
+			"model":           c.Model,
+			"input":           text,
+			"voice":           voice,
+			"response_format": "pcm",
+			"stream_format":   "audio",
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("encoding speech: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.URL, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("invalid speech endpoint")
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	}
+	client := *c.client
+	client.Timeout = 0 // The pipeline context bounds generation and playback together.
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("streaming TTS connection failed or canceled")
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, fmt.Errorf("streaming TTS returned HTTP %d", resp.StatusCode)
+	}
+	reader := bufio.NewReader(resp.Body)
+	first, err := reader.Peek(4)
+	mediaType, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+	pcmType := mediaType == "application/octet-stream" || mediaType == "audio/pcm" ||
+		mediaType == "audio/raw"
+	if err != nil || !pcmType || bytes.Equal(first, []byte("RIFF")) {
+		resp.Body.Close()
+		return nil, fmt.Errorf(
+			"streaming TTS did not return raw PCM; check server support and preset settings",
+		)
+	}
+	return &pcmResponse{Reader: reader, Closer: resp.Body}, nil
+}
+
+type pcmResponse struct {
+	io.Reader
+	io.Closer
+}
 
 var log = logging.New("tts", clog.InfoLevel)
 

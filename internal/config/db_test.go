@@ -33,6 +33,32 @@ func TestSetPreference(t *testing.T) {
 	}
 }
 
+func TestStreamingPresetRoundTrip(t *testing.T) {
+	d := newTestDB(t)
+	p := TTSPreset{
+		Name:          "stream",
+		Endpoint:      "http://test",
+		Streaming:     true,
+		PCMSampleRate: 24000,
+		PCMChannels:   1,
+	}
+	if err := SaveTTSPreset(d, p); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ListTTSPresets(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || !got[0].Streaming || got[0].PCMSampleRate != 24000 ||
+		got[0].PCMChannels != 1 {
+		t.Fatalf("incorrect preset: %+v", got)
+	}
+	p.PCMChannels = 3
+	if err := SaveTTSPreset(d, p); err == nil {
+		t.Fatal("invalid channels accepted")
+	}
+}
+
 func TestSetPreferenceUpsert(t *testing.T) {
 	d := newTestDB(t)
 	if err := SetPreference(d, "port", "8585"); err != nil {

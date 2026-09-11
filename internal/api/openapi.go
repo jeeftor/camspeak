@@ -1089,6 +1089,9 @@ const openAPISpec = `{
           "has_api_key": {"type": "boolean", "readOnly": true},
           "clear_api_key": {"type": "boolean", "writeOnly": true},
           "is_active": {"type": "boolean"},
+          "streaming": {"type": "boolean", "default": false, "description": "Opt-in Hikvision Speak/Describe PCM streaming"},
+          "pcm_sample_rate": {"type": "integer", "default": 24000, "minimum": 8000, "maximum": 96000},
+          "pcm_channels": {"type": "integer", "default": 1, "minimum": 1, "maximum": 2},
           "default_voice": {"type": "string"},
           "description": {"type": "string"}
         }
@@ -1108,6 +1111,9 @@ const openAPISpec = `{
       "TTSConfig": {
         "type": "object",
         "properties": {
+          "streaming": {"type": "boolean", "default": false},
+          "pcm_sample_rate": {"type": "integer"},
+          "pcm_channels": {"type": "integer"},
           "url": {"type": "string"},
           "model": {"type": "string"},
           "default_voice": {"type": "string"},

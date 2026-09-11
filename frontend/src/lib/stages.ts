@@ -2,10 +2,10 @@
 export const describeStages = [
   { stage: 'snapshot', label: 'Snapshot', active: 'Capturing snapshot', timing: 'snapshot_ms', description: 'Fetch the camera image used for vision analysis.' },
   { stage: 'vision', label: 'Vision', active: 'Describing image', timing: 'vision_ms', description: 'Send the image and prompt to the vision service and wait for its complete description.' },
-  { stage: 'tts', label: 'TTS', active: 'Generating speech', timing: 'tts_ms', description: 'Text to speech: generate and receive the spoken audio.' },
-  { stage: 'transcode', label: 'Convert (μ-law)', active: 'Converting audio', timing: 'transcode_ms', description: 'Convert audio to camera-compatible G.711 μ-law, including configured speaker warm-up silence.' },
+  { stage: 'tts', label: 'TTS', active: 'Generating speech', timing: 'tts_ms', description: 'Text to speech: receive the complete audio in buffered mode, or the first PCM audio in streaming mode.' },
+  { stage: 'transcode', label: 'Convert (μ-law)', active: 'Converting audio', timing: 'transcode_ms', description: 'Convert to camera-compatible G.711 μ-law. Streaming measures readiness of the first converted audio; remaining conversion overlaps playback.' },
   { stage: 'connecting', label: 'Connect', active: 'Connecting to speaker', timing: 'send_open_ms', description: 'Set up the camera speaker connection. This is not confirmation of audible sound.' },
-  { stage: 'playing', label: 'Playback', active: 'Sending camera audio', timing: 'send_ms', description: 'Send audio to the camera. Camera buffering and audible output are not measured.' },
+  { stage: 'playing', label: 'Playback', active: 'Sending camera audio', timing: 'send_ms', description: 'Send audio to the camera. Streaming includes remaining speech generation and conversion. Camera buffering and audible output are not measured.' },
 ] as const
 
 const extraStages = {

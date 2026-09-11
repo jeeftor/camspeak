@@ -119,6 +119,7 @@ func (h *Handlers) reloadTTS() error {
 	for _, p := range presets {
 		if p.IsActive {
 			h.cfg.TTS = config.TTSConfig{
+				Streaming: p.Streaming, PCMSampleRate: p.PCMSampleRate, PCMChannels: p.PCMChannels,
 				URL:          p.Endpoint,
 				Model:        p.Model,
 				DefaultVoice: p.DefaultVoice,

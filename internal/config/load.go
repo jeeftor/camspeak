@@ -141,12 +141,14 @@ func loadPreferences(db *sql.DB, cfg *Config) {
 func loadTTSPreset(db *sql.DB, cfg *Config) {
 	var preset TTSPreset
 	err := db.QueryRow(
-		`SELECT name, endpoint, model, api_key, default_voice, description, is_active
+		`SELECT name, endpoint, model, api_key, default_voice, description, is_active, streaming, pcm_sample_rate, pcm_channels
 		 FROM tts_presets WHERE is_active = 1 LIMIT 1`,
-	).Scan(&preset.Name, &preset.Endpoint, &preset.Model, &preset.APIKey,
-		&preset.DefaultVoice, &preset.Description, &preset.IsActive)
+	).
+		Scan(&preset.Name, &preset.Endpoint, &preset.Model, &preset.APIKey,
+			&preset.DefaultVoice, &preset.Description, &preset.IsActive, &preset.Streaming, &preset.PCMSampleRate, &preset.PCMChannels)
 	if err == nil {
 		cfg.TTS = TTSConfig{
+			Streaming: preset.Streaming, PCMSampleRate: preset.PCMSampleRate, PCMChannels: preset.PCMChannels,
 			URL:          preset.Endpoint,
 			Model:        preset.Model,
 			DefaultVoice: preset.DefaultVoice,
@@ -253,9 +255,16 @@ func ApplyEnvOverrides(cfg *Config) {
 		cfg.AdvertiseIP = v
 	}
 	if v := os.Getenv("CAMSPEAK_TTS_URL"); v != "" {
+		// A preset's PCM opt-in is valid only for its tested endpoint and model.
+		if v != cfg.TTS.URL {
+			cfg.TTS.Streaming = false
+		}
 		cfg.TTS.URL = v
 	}
 	if v := os.Getenv("CAMSPEAK_TTS_MODEL"); v != "" {
+		if v != cfg.TTS.Model {
+			cfg.TTS.Streaming = false
+		}
 		cfg.TTS.Model = v
 	}
 	if v := os.Getenv("CAMSPEAK_TTS_VOICE"); v != "" {

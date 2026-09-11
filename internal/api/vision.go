@@ -372,65 +372,87 @@ func (h *Handlers) runDescribe(
 
 	// 3. TTS
 	voice := cfg.TTS.DefaultVoice
-	ttsStart := time.Now()
-	wav, err := h.ttsClient().SpeakContext(op.ctx, description, voice)
-	if err != nil {
-		log.Error("describe: TTS failed", "camera", req.Camera, "err", err)
-		return result, echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("TTS: %s", err))
-	}
-	log.Debug(
-		"describe: TTS generated",
-		"camera",
-		req.Camera,
-		"wav_bytes",
-		len(wav),
-		"elapsed",
-		time.Since(ttsStart),
-	)
-	t.Add("tts_ms", ttsStart)
-	report("transcode")
-
-	// 4. Transcode + send to camera
-	// Gain is applied at send time via GainController (per-chunk).
-
-	transcodeStart := time.Now()
-	rawPath, err := wavBytesToRawWithPrimeContext(op.ctx, wav, h.tmpDir, 1.0, cfg.PrimeSilenceMs)
-	if err != nil {
-		return result, echo.NewHTTPError(
-			http.StatusInternalServerError,
-			fmt.Sprintf("transcoding: %s", err),
+	if canStreamSpeech(op, cfg) {
+		op.detail = description
+		err = h.streamSpeech(
+			op,
+			cfg,
+			description,
+			voice,
+			h.gainForCall(req.Camera, requestGain(req.Gain)),
+			t,
+			func(stage string) {
+				if stage == "playing" {
+					result["ttfs_ms"] = t.TTFS()
+				}
+				report(stage)
+			},
 		)
-	}
-	t.Add("transcode_ms", transcodeStart)
-	defer os.Remove(rawPath)
+		if err != nil {
+			log.Error("describe: streaming failed", "camera", req.Camera, "err", err)
+			return result, echo.NewHTTPError(http.StatusBadGateway, err.Error())
+		}
+	} else {
+		ttsStart := time.Now()
+		wav, err := h.ttsClient().SpeakContext(op.ctx, description, voice)
+		if err != nil {
+			log.Error("describe: TTS failed", "camera", req.Camera, "err", err)
+			return result, echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("TTS: %s", err))
+		}
+		log.Debug(
+			"describe: TTS generated",
+			"camera",
+			req.Camera,
+			"wav_bytes",
+			len(wav),
+			"elapsed",
+			time.Since(ttsStart),
+		)
+		t.Add("tts_ms", ttsStart)
+		report("transcode")
 
-	op.detail = description
-	report("connecting")
-	sendStart := time.Now()
-	op.onPlaying = func() {
-		t.Add("send_open_ms", sendStart)
-		result["ttfs_ms"] = t.TTFS()
-		report("playing")
-	}
-	sendTiming, err := op.send(rawPath, h.gainForCall(req.Camera, requestGain(req.Gain)))
-	if err != nil {
-		log.Error("describe: send failed", "camera", req.Camera, "err", err)
-		return result, echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	if _, reported := t.steps["send_open_ms"]; !reported {
-		t.steps["send_open_ms"] = time.Duration(sendTiming.OpenMs) * time.Millisecond
-	}
-	t.steps["send_playback_ms"] = time.Duration(sendTiming.PlaybackMs) * time.Millisecond
-	log.Debug(
-		"describe: camera send complete",
-		"camera",
-		req.Camera,
-		"open_ms",
-		sendTiming.OpenMs,
-		"playback_ms",
-		sendTiming.PlaybackMs,
-	)
+		// 4. Transcode + send to camera
+		// Gain is applied at send time via GainController (per-chunk).
 
+		transcodeStart := time.Now()
+		rawPath, err := wavBytesToRawWithPrimeContext(op.ctx, wav, h.tmpDir, 1.0, cfg.PrimeSilenceMs)
+		if err != nil {
+			return result, echo.NewHTTPError(
+				http.StatusInternalServerError,
+				fmt.Sprintf("transcoding: %s", err),
+			)
+		}
+		t.Add("transcode_ms", transcodeStart)
+		defer os.Remove(rawPath)
+
+		op.detail = description
+		report("connecting")
+		sendStart := time.Now()
+		op.onPlaying = func() {
+			t.Add("send_open_ms", sendStart)
+			result["ttfs_ms"] = t.TTFS()
+			report("playing")
+		}
+		sendTiming, err := op.send(rawPath, h.gainForCall(req.Camera, requestGain(req.Gain)))
+		if err != nil {
+			log.Error("describe: send failed", "camera", req.Camera, "err", err)
+			return result, echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		}
+		if _, reported := t.steps["send_open_ms"]; !reported {
+			t.steps["send_open_ms"] = time.Duration(sendTiming.OpenMs) * time.Millisecond
+		}
+		t.steps["send_playback_ms"] = time.Duration(sendTiming.PlaybackMs) * time.Millisecond
+		log.Debug(
+			"describe: camera send complete",
+			"camera",
+			req.Camera,
+			"open_ms",
+			sendTiming.OpenMs,
+			"playback_ms",
+			sendTiming.PlaybackMs,
+		)
+
+	}
 	log.Info(
 		"describe: done",
 		"camera",

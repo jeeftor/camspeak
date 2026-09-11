@@ -74,6 +74,9 @@ export interface AirPlayConfig {
 }
 
 export interface TTSPreset {
+  streaming?: boolean
+  pcm_sample_rate?: number
+  pcm_channels?: number
   name: string
   endpoint: string
   model: string

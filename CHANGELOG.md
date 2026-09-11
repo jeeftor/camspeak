@@ -5,6 +5,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.7.0] — 2026-09-11
+
+### Added
+- Opt-in experimental streaming playback in each TTS preset editor. Hikvision Speak and Describe now support incremental PCM conversion and camera delivery before speech generation completes.
+- Buffered playback remains the default. Other camera types, Announce, broadcasts and preset generation remain buffered; failed streams never automatically replay.
+- Streaming uses the preset's explicit incoming PCM rate/channels, live gain and VU reporting, cancellation, and first-audio timing. Endpoint/model environment overrides that differ from the preset disable its streaming opt-in.
+
+---
+
 ## [v4.6.0] — 2026-09-11
 
 ### Added

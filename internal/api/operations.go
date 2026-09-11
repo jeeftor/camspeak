@@ -124,6 +124,15 @@ func (op *playbackOperation) send(
 	path string,
 	gc *cameras.GainController,
 ) (cameras.SendTiming, error) {
+	return op.sendWith(gc, func(gain *cameras.GainController) (cameras.SendTiming, error) {
+		return cameras.SendRawContext(op.ctx, op.cam, path, gain)
+	})
+}
+
+func (op *playbackOperation) sendWith(
+	gc *cameras.GainController,
+	send func(*cameras.GainController) (cameras.SendTiming, error),
+) (cameras.SendTiming, error) {
 	operationsMu.Lock()
 	if operations[op.camera] != op || op.ctx.Err() != nil {
 		operationsMu.Unlock()
@@ -157,7 +166,7 @@ func (op *playbackOperation) send(
 			}
 		})
 	}
-	timing, err := cameras.SendRawContext(op.ctx, op.cam, path, gc)
+	timing, err := send(gc)
 	// Some transports report levels on a background goroutine. Join any active
 	// callback and retire the sink before the caller finalizes its result maps.
 	sinkMu.Lock()

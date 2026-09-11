@@ -194,6 +194,9 @@ func migrate(db *sql.DB) {
 	// Add 'voice' column to events if missing (added in v2.13.0).
 	addColumn("events", "voice", "TEXT DEFAULT ''")
 	addColumn("events", "replay", "TEXT DEFAULT ''")
+	addColumn("tts_presets", "streaming", "INTEGER NOT NULL DEFAULT 0")
+	addColumn("tts_presets", "pcm_sample_rate", "INTEGER NOT NULL DEFAULT 24000")
+	addColumn("tts_presets", "pcm_channels", "INTEGER NOT NULL DEFAULT 1")
 	// Add 'url' column to presets if missing (added in v2.14.0).
 	// Stream presets store a live stream/playlist URL here; audio presets
 	// leave it empty and use raw_path instead.

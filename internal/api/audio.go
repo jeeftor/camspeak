@@ -102,49 +102,55 @@ func (h *Handlers) speakTextContext(
 	// Gain is now applied at send time via GainController (per-chunk).
 	// Transcode at unity so the raw file is clean; volume is adjusted live.
 
-	ttsStart := time.Now()
-	wav, err := h.ttsClient().SpeakContext(op.ctx, text, voice)
-	if err != nil {
-		return t, fmt.Errorf("TTS: %w", err)
-	}
-	t.Add("tts_ms", ttsStart)
-	log.Debug(
-		"speak: TTS generated",
-		"camera",
-		cameraName,
-		"voice",
-		voice,
-		"wav_bytes",
-		len(wav),
-		"elapsed",
-		time.Since(ttsStart),
-	)
+	if canStreamSpeech(op, cfg) {
+		if err := h.streamSpeech(op, cfg, text, voice, h.gainForCall(cameraName, gain), t, nil); err != nil {
+			return t, err
+		}
+	} else {
+		ttsStart := time.Now()
+		wav, err := h.ttsClient().SpeakContext(op.ctx, text, voice)
+		if err != nil {
+			return t, fmt.Errorf("TTS: %w", err)
+		}
+		t.Add("tts_ms", ttsStart)
+		log.Debug(
+			"speak: TTS generated",
+			"camera",
+			cameraName,
+			"voice",
+			voice,
+			"wav_bytes",
+			len(wav),
+			"elapsed",
+			time.Since(ttsStart),
+		)
 
-	transcodeStart := time.Now()
-	rawPath, err := wavBytesToRawWithPrimeContext(op.ctx, wav, h.tmpDir, 1.0, cfg.PrimeSilenceMs)
-	if err != nil {
-		return t, fmt.Errorf("transcoding: %w", err)
-	}
-	t.Add("transcode_ms", transcodeStart)
-	defer os.Remove(rawPath)
+		transcodeStart := time.Now()
+		rawPath, err := wavBytesToRawWithPrimeContext(op.ctx, wav, h.tmpDir, 1.0, cfg.PrimeSilenceMs)
+		if err != nil {
+			return t, fmt.Errorf("transcoding: %w", err)
+		}
+		t.Add("transcode_ms", transcodeStart)
+		defer os.Remove(rawPath)
 
-	log.Debug("speak: sending to camera", "camera", cameraName)
-	sendTiming, err := op.send(rawPath, h.gainForCall(cameraName, gain))
-	if err != nil {
-		return t, fmt.Errorf("sending to camera: %w", err)
-	}
-	t.steps["send_open_ms"] = time.Duration(sendTiming.OpenMs) * time.Millisecond
-	t.steps["send_playback_ms"] = time.Duration(sendTiming.PlaybackMs) * time.Millisecond
-	log.Debug(
-		"speak: camera send complete",
-		"camera",
-		cameraName,
-		"open_ms",
-		sendTiming.OpenMs,
-		"playback_ms",
-		sendTiming.PlaybackMs,
-	)
+		log.Debug("speak: sending to camera", "camera", cameraName)
+		sendTiming, err := op.send(rawPath, h.gainForCall(cameraName, gain))
+		if err != nil {
+			return t, fmt.Errorf("sending to camera: %w", err)
+		}
+		t.steps["send_open_ms"] = time.Duration(sendTiming.OpenMs) * time.Millisecond
+		t.steps["send_playback_ms"] = time.Duration(sendTiming.PlaybackMs) * time.Millisecond
+		log.Debug(
+			"speak: camera send complete",
+			"camera",
+			cameraName,
+			"open_ms",
+			sendTiming.OpenMs,
+			"playback_ms",
+			sendTiming.PlaybackMs,
+		)
 
+	}
 	h.events.publish(
 		event{
 			Camera: cameraName, Action: "speak", Text: text, Voice: voice, At: time.Now(),
