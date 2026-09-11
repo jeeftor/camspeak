@@ -178,7 +178,7 @@ func versionBanner(value string, color bool) string {
 		// Docker captures stdout without a TTY; color only this startup marker.
 		renderer.SetColorProfile(termenv.ANSI)
 	}
-	badge := renderer.NewStyle().Bold(true).Foreground(lipgloss.Color("13"))
+	badge := renderer.NewStyle().Bold(true).Foreground(lipgloss.Color("11"))
 	return "  camspeak  " + badge.Render("[ VERSION "+value+" ]") + "\n"
 }
 

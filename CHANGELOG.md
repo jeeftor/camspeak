@@ -5,6 +5,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.4.2] — 2026-09-11
+
+### Changed
+- Use bright yellow for the bold startup version badge so it stands out in Docker logs.
+
+---
+
 ## [v4.4.1] — 2026-09-10
 
 ### Fixed
