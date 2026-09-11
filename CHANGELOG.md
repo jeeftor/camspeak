@@ -5,6 +5,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.9.3] — 2026-09-11
+
+### Fixed
+- Correct an automatic logger import that broke compilation of v4.9.2. Includes its streaming diagnostics and disabled-camera beep changes.
+
+---
+
 ## [v4.9.2] — 2026-09-11
 
 ### Fixed

@@ -112,6 +112,8 @@ type pcmResponse struct {
 
 var log = logging.New("tts", clog.InfoLevel)
 
+func benchmarkLogger() *clog.Logger { return log }
+
 // SetLogLevel updates the TTS client logger level.
 func SetLogLevel(level clog.Level) {
 	logging.SetLevel(log, level)

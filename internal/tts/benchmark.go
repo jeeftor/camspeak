@@ -11,8 +11,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/charmbracelet/log"
 )
 
 // BenchmarkResult measures response delivery, not camera or audible playback.
@@ -62,7 +60,7 @@ func (c *Client) Benchmark(
 		return result, fmt.Errorf("TTS benchmark request failed (connection, timeout, or cancellation)")
 	}
 	defer resp.Body.Close()
-	log.Info("benchmark response", "mode", mode, "model", c.Model,
+	benchmarkLogger().Info("benchmark response", "mode", mode, "model", c.Model,
 		"requested_format", body["response_format"], "status", resp.StatusCode,
 		"content_type", resp.Header.Get("Content-Type"), "content_length", resp.ContentLength,
 		"transfer_encoding", resp.TransferEncoding, "headers_ms", time.Since(start).Milliseconds(),
@@ -96,7 +94,7 @@ func (c *Client) Benchmark(
 		return result, fmt.Errorf("test audio exceeded 8 MiB; use shorter text")
 	}
 	result.Bytes = len(data)
-	log.Info("benchmark audio received", "mode", mode, "model", c.Model,
+	benchmarkLogger().Info("benchmark audio received", "mode", mode, "model", c.Model,
 		"bytes", result.Bytes, "first_byte_ms", result.FirstByteMs, "total_ms", result.TotalMs,
 		"wav_header", bytes.HasPrefix(data, []byte("RIFF")))
 	if mode == "streaming" {
