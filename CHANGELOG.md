@@ -5,6 +5,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.3.1] — 2026-09-10
+
+### Fixed
+- Redact stream URL credentials and query parameters when reading older event history, including saved replay requests.
+- Use event IDs to break timestamp ties so limited history consistently includes the newest playback events.
+
+---
+
 ## [v4.3.0] — 2026-09-10
 
 ### Added

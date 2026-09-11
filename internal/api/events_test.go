@@ -99,3 +99,62 @@ func TestPlaybackEventURLCredentialsNeverPersistOrStream(t *testing.T) {
 		}
 	}
 }
+
+func TestLegacyPlaybackHistoryRedactsURLs(t *testing.T) {
+	database, err := appdb.Open(filepath.Join(t.TempDir(), "events.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	raw := "https://alice:secret@example.com/radio?token=private#fragment"
+	replay, err := json.Marshal(eventReplay{
+		Method: "POST", Path: "/api/play-stream", Body: map[string]any{"url": raw},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = database.Exec(
+		"INSERT INTO events(camera,action,text,voice,created,replay) VALUES(?,?,?,?,?,?)",
+		"front", "play-stream", raw, "", time.Now(), string(replay),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bus := newEventBus(database)
+	for _, read := range []func() ([]event, error){
+		func() ([]event, error) { return bus.recentEvents(10) },
+		func() ([]event, error) { return bus.queryEvents(10, "front") },
+		func() ([]event, error) { return bus.queryEvents(10, "") },
+	} {
+		history, readErr := read()
+		if readErr != nil || len(history) != 1 {
+			t.Fatalf("history=%v err=%v", history, readErr)
+		}
+		ev := history[0]
+		if ev.Text != "https://example.com/radio" || ev.Replay.Body["url"] != ev.Text || !ev.Replay.Redacted {
+			t.Fatalf("legacy credentials were not redacted: %#v", ev)
+		}
+	}
+}
+
+func TestPlaybackHistoryTimestampTiesKeepNewestEvent(t *testing.T) {
+	database, err := appdb.Open(filepath.Join(t.TempDir(), "events.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	bus := newEventBus(database)
+	at := time.Now()
+	bus.publish(event{Camera: "front", Action: "play", Text: "first", At: at})
+	bus.publish(event{Camera: "front", Action: "play", Text: "second", At: at})
+	for _, read := range []func() ([]event, error){
+		func() ([]event, error) { return bus.recentEvents(1) },
+		func() ([]event, error) { return bus.queryEvents(1, "front") },
+		func() ([]event, error) { return bus.queryEvents(1, "") },
+	} {
+		history, readErr := read()
+		if readErr != nil || len(history) != 1 || history[0].Text != "second" {
+			t.Fatalf("latest event lost at history limit: %v, %v", history, readErr)
+		}
+	}
+}

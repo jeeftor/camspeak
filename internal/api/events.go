@@ -87,11 +87,7 @@ func (b *eventBus) publish(ev event) {
 			ev.Replay = playbackReplay("/api/stop", map[string]any{}, -1)
 		}
 	}
-	if ev.Action == "play-url" || ev.Action == "play-stream" || ev.Action == "pause" ||
-		ev.Action == "resume" {
-		clean := playbackReplay("", map[string]any{"url": ev.Text}, -1)
-		ev.Text, _ = clean.Body["url"].(string)
-	}
+	sanitizeEvent(&ev)
 	// Persist to SQLite (best-effort, don't block on DB errors)
 	if b.db != nil {
 		replay, _ := json.Marshal(ev.Replay)
@@ -121,6 +117,19 @@ func (b *eventBus) publish(ev event) {
 	}
 }
 
+// sanitizeEvent also protects history saved before URL redaction was introduced.
+func sanitizeEvent(ev *event) {
+	if ev.Action == "play-url" || ev.Action == "play-stream" || ev.Action == "pause" ||
+		ev.Action == "resume" {
+		clean := playbackReplay("", map[string]any{"url": ev.Text}, -1)
+		ev.Text, _ = clean.Body["url"].(string)
+	}
+	if ev.Replay != nil {
+		clean := playbackReplay(ev.Replay.Path, ev.Replay.Body, -1)
+		ev.Replay.Redacted = ev.Replay.Redacted || clean.Redacted
+	}
+}
+
 // recentEvents returns up to limit events from the SQLite log.
 func (b *eventBus) recentEvents(limit int) ([]event, error) {
 	if b.db == nil {
@@ -129,7 +138,7 @@ func (b *eventBus) recentEvents(limit int) ([]event, error) {
 
 	rows, err := b.db.Query(
 		`SELECT id, camera, action, text, voice, created, replay FROM events
-		 ORDER BY created DESC LIMIT ?`,
+		 ORDER BY created DESC, id DESC LIMIT ?`,
 		limit,
 	)
 	if err != nil {
@@ -149,6 +158,7 @@ func (b *eventBus) recentEvents(limit int) ([]event, error) {
 		}
 
 		_ = json.Unmarshal([]byte(replay), &ev.Replay)
+		sanitizeEvent(&ev)
 		events = append(events, ev)
 	}
 
@@ -172,13 +182,13 @@ func (b *eventBus) queryEvents(limit int, camera string) ([]event, error) {
 	if camera != "" {
 		rows, err = b.db.Query(
 			`SELECT id, camera, action, text, voice, created, replay FROM events
-			 WHERE camera = ? ORDER BY created DESC LIMIT ?`,
+			 WHERE camera = ? ORDER BY created DESC, id DESC LIMIT ?`,
 			camera, limit,
 		)
 	} else {
 		rows, err = b.db.Query(
 			`SELECT id, camera, action, text, voice, created, replay FROM events
-			 ORDER BY created DESC LIMIT ?`,
+			 ORDER BY created DESC, id DESC LIMIT ?`,
 			limit,
 		)
 	}
@@ -195,6 +205,7 @@ func (b *eventBus) queryEvents(limit int, camera string) ([]event, error) {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(replay), &ev.Replay)
+		sanitizeEvent(&ev)
 		events = append(events, ev)
 	}
 	return events, rows.Err()
