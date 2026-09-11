@@ -981,6 +981,10 @@ func (h *Handlers) VisionTestAllStream(c echo.Context) error {
 
 	// Run models sequentially — they share a GPU.
 	for _, model := range models {
+		if err := c.Request().Context().Err(); err != nil {
+			log.Info("vision-test-all-stream: canceled", "reason", err)
+			return nil
+		}
 		log.Info("vision-test-all-stream: testing model", "model", model)
 		desc, timing, err := visionClient.DescribeWithModelTimedContext(c.Request().Context(),
 			imageBytes,
@@ -988,6 +992,10 @@ func (h *Handlers) VisionTestAllStream(c echo.Context) error {
 			req.Prompt,
 			model,
 		)
+		if err := c.Request().Context().Err(); err != nil {
+			log.Info("vision-test-all-stream: canceled", "model", model, "reason", err)
+			return nil
+		}
 		r := map[string]any{
 			"type":     "result",
 			"model":    model,

@@ -1135,6 +1135,7 @@ const openAPISpec = `{
               }
             }
           },
+          "400": {"description": "Invalid Pause request; playback unchanged"},
           "404": {"description": "No active stream for the named camera"}
         }
       }
@@ -1173,6 +1174,7 @@ const openAPISpec = `{
               }
             }
           },
+          "400": {"description": "Invalid Resume request; playback unchanged"},
           "404": {"description": "No active stream for the named camera"}
         }
       }

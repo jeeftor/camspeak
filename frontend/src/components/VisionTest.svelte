@@ -7,6 +7,7 @@
   import { buildCurl } from '$lib/curl.svelte'
   import { apiClient } from '$lib/api'
   import { isVisionCapableModel } from '$lib/models'
+  import { streamVisionComparison } from '$lib/vision-comparison'
   import { Tooltip } from '$lib/components/ui/tooltip'
   import { formatTimings, timingTooltipContent, isMobile } from '$lib/utils'
   import CameraSelect from '$lib/components/CameraSelect.svelte'
@@ -34,7 +35,11 @@
   let statusType = $state('ok')
   let results = $state<Array<{ prompt: string; description: string; time: string; model: string }>>([])
   let statusTimeout: ReturnType<typeof setTimeout>
-  onDestroy(() => clearTimeout(statusTimeout))
+  let comparisonController: AbortController | undefined
+  onDestroy(() => {
+    clearTimeout(statusTimeout)
+    comparisonController?.abort()
+  })
   const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error)
 
   let configuredModel = $state('')
@@ -169,43 +174,35 @@
 
   async function runTestAll() {
     if (!selectedCamera && !image) { setStatus('Select a camera or capture an image first', 'err'); return }
+    comparisonController?.abort()
+    const controller = new AbortController()
+    comparisonController = controller
     allBusy = true; allResults = []; allStatus = ''; allDoneCount = 0; allModelCount = 0
     const body: any = { prompt }
     if (image) { body.image = image; body.camera = selectedCamera }
     else { body.camera = selectedCamera; if (selectedStream) body.stream = selectedStream }
     try {
-      const resp = await fetch('/api/vision/test-all/stream', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-      })
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-      if (!resp.body) throw new Error('The server returned no result stream')
-      const reader = resp.body.getReader()
-      const dec = new TextDecoder()
-      let buf = ''
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buf += dec.decode(value, { stream: true })
-        const lines = buf.split('\n')
-        buf = lines.pop() ?? ''
-        for (const line of lines) {
-          if (!line.startsWith('data:')) continue
-          let ev
-          try { ev = JSON.parse(line.slice(5).trim()) } catch { continue }
-          if (ev.type === 'image') { if (!image && ev.image) image = ev.image }
-          else if (ev.type === 'models') {
-            allModelCount = ev.models.length
-            allResults = ev.models.map((m: string) => ({ model: m, pending: true }))
-          } else if (ev.type === 'result') {
-            allDoneCount++
-            allResults = allResults.map(r => r.model === ev.model ? { ...ev, pending: false } : r)
-          } else if (ev.type === 'done') {
-            allStatus = `Done — ${ev.count} model${ev.count === 1 ? '' : 's'}`
-          }
+      await streamVisionComparison(body, controller.signal, (ev) => {
+        if (controller.signal.aborted || comparisonController !== controller) return
+        if (ev.type === 'image') { if (!image && ev.image) image = ev.image }
+        else if (ev.type === 'models') {
+          allModelCount = ev.models.length
+          allResults = ev.models.map((m: string) => ({ model: m, pending: true }))
+        } else if (ev.type === 'result') {
+          allDoneCount++
+          allResults = allResults.map(r => r.model === ev.model ? { ...ev, pending: false } : r)
+        } else if (ev.type === 'done') {
+          allStatus = `Done — ${ev.count} model${ev.count === 1 ? '' : 's'}`
         }
+      })
+    } catch (e) {
+      if (!controller.signal.aborted && comparisonController === controller) allStatus = errorMessage(e)
+    } finally {
+      if (!controller.signal.aborted && comparisonController === controller) {
+        allBusy = false
+        comparisonController = undefined
       }
-    } catch (e) { allStatus = errorMessage(e) }
-    finally { allBusy = false }
+    }
   }
 
 

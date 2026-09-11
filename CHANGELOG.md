@@ -5,6 +5,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.11.2] — 2026-09-11
+
+### Fixed
+- Release triggered-audio priority when a live-stream startup is canceled or superseded before its supervisor starts, allowing AirPlay to recover.
+- Reject malformed Pause/Resume requests without affecting other cameras; empty requests still target all streams.
+- Redact credentials, query parameters, and fragments from live-stream display URLs and diagnostics while preserving the original transport URL and existing redacted-replay protection.
+- Cancel model-comparison requests when leaving the view and stop advancing through models after cancellation.
+
+---
+
 ## [v4.11.1] — 2026-09-11
 
 ### Fixed

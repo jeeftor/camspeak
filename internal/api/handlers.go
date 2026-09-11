@@ -486,7 +486,10 @@ func (h *Handlers) Pause(c echo.Context) error {
 	var req struct {
 		Camera string `json:"camera"`
 	}
-	_ = c.Bind(&req)
+	if err := c.Bind(&req); err != nil {
+		log.Warn("pause: invalid request; playback unchanged")
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid pause request")
+	}
 
 	if req.Camera != "" {
 		url, alreadyPaused, ok := pauseStream(req.Camera)
@@ -527,7 +530,10 @@ func (h *Handlers) Resume(c echo.Context) error {
 	var req struct {
 		Camera string `json:"camera"`
 	}
-	_ = c.Bind(&req)
+	if err := c.Bind(&req); err != nil {
+		log.Warn("resume: invalid request; playback unchanged")
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid resume request")
+	}
 
 	if req.Camera != "" {
 		url, notPaused, ok := resumeStream(req.Camera)

@@ -139,7 +139,7 @@ func resolveStreamURL(rawURL string) (string, error) {
 func resolveStreamURLContext(ctx context.Context, rawURL string) (string, error) {
 	parsed, err := neturl.Parse(rawURL)
 	if err != nil {
-		return "", fmt.Errorf("invalid url: %w", err)
+		return "", fmt.Errorf("invalid url: %w", streamDiagnosticError{err})
 	}
 
 	path := strings.ToLower(parsed.Path)
@@ -165,16 +165,16 @@ func resolvePLS(rawURL string) (string, error) {
 func resolvePlaylist(ctx context.Context, rawURL string, pls bool) (string, error) {
 	base, err := neturl.Parse(rawURL)
 	if err != nil {
-		return "", fmt.Errorf("invalid url: %w", err)
+		return "", fmt.Errorf("invalid url: %w", streamDiagnosticError{err})
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return "", err
+		return "", streamDiagnosticError{err}
 	}
 	resp, err := playlistClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("fetching pls: %w", err)
+		return "", fmt.Errorf("fetching playlist: %w", streamDiagnosticError{err})
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -189,7 +189,7 @@ func resolvePlaylist(ctx context.Context, rawURL string, pls bool) (string, erro
 			}
 			u, err := base.Parse(line)
 			if err != nil {
-				return "", err
+				return "", streamDiagnosticError{err}
 			}
 			return u.String(), nil
 		}
@@ -277,7 +277,7 @@ func (h *Handlers) startURLStream(
 		camera,
 		cam,
 		"stream",
-		util.RedactURLString(rawURL),
+		streamDisplayURL(rawURL),
 	)
 	if err != nil {
 		return err
@@ -366,7 +366,14 @@ func (h *Handlers) startPreparedStream(
 	op *playbackOperation,
 	streamURL, originalURL string,
 	gain float64,
-) error {
+) (err error) {
+	// Until a supervisor owns the operation, a failed handoff must release it.
+	// Register before the mutex defer so finish runs after the lock is released.
+	defer func() {
+		if err != nil {
+			op.finish()
+		}
+	}()
 	operationsMu.Lock()
 	defer operationsMu.Unlock()
 	if operations[op.camera] != op || op.ctx.Err() != nil {
@@ -374,10 +381,11 @@ func (h *Handlers) startPreparedStream(
 	}
 	cameraName, cam := op.camera, op.cam
 	ctx, cancel := context.WithCancel(op.ctx)
+	displayURL := streamDisplayURL(originalURL)
 
 	session := &streamSession{
 		cancel:  cancel,
-		url:     originalURL,
+		url:     displayURL,
 		started: now(),
 		op:      op,
 	}
@@ -386,16 +394,16 @@ func (h *Handlers) startPreparedStream(
 	activeStreams[cameraName] = session
 	activeStreamsMu.Unlock()
 
-	setPlayback(cameraName, "stream", originalURL)
+	setPlayback(cameraName, "stream", displayURL)
 
 	// Start the stream supervisor — handles reconnection on stream drop.
 	go h.streamSupervisor(log, cam, cameraName, streamURL, gain, ctx, session)
 
-	log.Info("stream: started", "camera", cameraName, "url", originalURL)
+	log.Info("stream: started", "camera", cameraName, "url", displayURL)
 	if op.source != "play" {
 		h.events.publish(
 			event{
-				Camera: cameraName, Action: "play-stream", Text: originalURL, At: now(),
+				Camera: cameraName, Action: "play-stream", Text: displayURL, At: now(),
 				Replay: playbackReplay(
 					"/api/play-stream",
 					map[string]any{"camera": cameraName, "url": originalURL},
@@ -549,7 +557,7 @@ func logStreamStderr(
 	// StreamTitle, and icy-name doesn't overwrite an ongoing StreamTitle.
 	var bestKind icyKind
 	for scanner.Scan() {
-		line := scanner.Text()
+		line := redactStreamDiagnostic(scanner.Text())
 		// Parse ICY metadata from ffmpeg stderr (requires -loglevel info).
 		if title, kind := parseICYMetadata(line); kind != icyNone {
 			if kind >= bestKind {
