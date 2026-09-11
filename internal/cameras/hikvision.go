@@ -228,11 +228,13 @@ func (c *HikvisionClient) SendRawContext(
 
 	c.log.Info("send: streaming audio", "ip", c.ip, "session", sessionID, "bytes", size)
 
-	timing, err := c.sendAudioRaw(sessionID, data, gc)
+	channelOpenMs := time.Since(openStart).Milliseconds()
+	timing, err := c.sendAudioRaw(ctx, sessionID, data, gc)
 	if err != nil {
 		c.log.Debug("send: upload failed", "ip", c.ip, "err", err)
 		return SendTiming{}, fmt.Errorf("sending audio to %s: %w", c.ip, err)
 	}
+	timing.OpenMs += channelOpenMs
 
 	c.log.Info(
 		"send: complete",
@@ -287,12 +289,14 @@ func (c *HikvisionClient) StreamContext(ctx context.Context, r io.Reader) error 
 		c.channel, sessionID,
 	)
 
-	authHeader, err := c.getDigestAuth(path)
+	authHeader, err := c.getDigestAuth(ctx, path)
 	if err != nil {
 		return fmt.Errorf("digest auth: %w", err)
 	}
 
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort(c.ip, "80"), 5*time.Second)
+	conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(
+		ctx, "tcp", net.JoinHostPort(c.ip, "80"),
+	)
 	if err != nil {
 		return fmt.Errorf("dial: %w", err)
 	}
@@ -376,8 +380,23 @@ func (c *HikvisionClient) cancelOnDone(ctx context.Context) func() {
 
 // getDigestAuth performs the 401 challenge/response handshake for the given path
 // and returns the Authorization header value.
-func (c *HikvisionClient) getDigestAuth(path string) (string, error) {
-	return util.PerformDigestAuth(c.ip, path, c.user, c.pass)
+func (c *HikvisionClient) getDigestAuth(ctx context.Context, path string) (string, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	c.activeMu.Lock()
+	if c.stopped {
+		c.activeMu.Unlock()
+		cancel()
+		return "", context.Canceled
+	}
+	c.activeCancel = cancel
+	c.activeMu.Unlock()
+	defer func() {
+		cancel()
+		c.activeMu.Lock()
+		c.activeCancel = nil
+		c.activeMu.Unlock()
+	}()
+	return util.PerformDigestAuthContext(ctx, c.ip, path, c.user, c.pass)
 }
 
 // Stop immediately stops audio playback by closing the active TCP connection
@@ -420,10 +439,12 @@ func (c *HikvisionClient) Stop() error {
 // sendAudioRaw opens a raw TCP connection and sends the audio data
 // with digest auth, throttled to 8000 bytes/sec.
 func (c *HikvisionClient) sendAudioRaw(
+	ctx context.Context,
 	sessionID string,
 	data []byte,
 	gc *GainController,
 ) (SendTiming, error) {
+	start := time.Now()
 	path := fmt.Sprintf(
 		"/ISAPI/System/TwoWayAudio/channels/%d/audioData?sessionId=%s",
 		c.channel,
@@ -433,13 +454,15 @@ func (c *HikvisionClient) sendAudioRaw(
 	port := "80"
 
 	// Step 1: Get digest auth header via challenge/response handshake.
-	authHeader, err := util.PerformDigestAuth(c.ip, path, c.user, c.pass)
+	authHeader, err := c.getDigestAuth(ctx, path)
 	if err != nil {
 		return SendTiming{}, fmt.Errorf("digest auth: %w", err)
 	}
 
 	// Step 2: Open a NEW TCP connection for the authenticated request
-	conn2, err := net.DialTimeout("tcp", net.JoinHostPort(host, port), 5*time.Second)
+	conn2, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(
+		ctx, "tcp", net.JoinHostPort(host, port),
+	)
 	if err != nil {
 		return SendTiming{}, fmt.Errorf("dialing camera for audio: %w", err)
 	}
@@ -447,7 +470,7 @@ func (c *HikvisionClient) sendAudioRaw(
 
 	// Track active connection for Stop()
 	c.activeMu.Lock()
-	if c.stopped {
+	if c.stopped || ctx.Err() != nil {
 		c.activeMu.Unlock()
 		return SendTiming{}, context.Canceled
 	}
@@ -458,7 +481,10 @@ func (c *HikvisionClient) sendAudioRaw(
 	deadline := time.Now().Add(time.Duration(int64(len(data))/8000+5) * time.Second)
 	_ = conn2.SetDeadline(deadline)
 
-	return c.sendAudioWithAuth(conn2, path, host, authHeader, data, gc)
+	setupMs := time.Since(start).Milliseconds()
+	timing, err := c.sendAudioWithAuth(conn2, path, host, authHeader, data, gc)
+	timing.OpenMs += setupMs
+	return timing, err
 }
 
 // sendAudioWithAuth sends the PUT request with the audio body, throttled to 8000 bytes/sec.
@@ -506,8 +532,6 @@ func (c *HikvisionClient) sendAudioWithAuth(
 		// gain=1.0 is unity (no change), gain=0 is mute, gain=3.0 is 3x.
 		if gc != nil {
 			util.ApplyGainMulaw(chunkBuf[:end-totalWritten], gc.Get())
-			// Feed VU meter level for one-shot playback.
-			gc.RecordLevel(util.ComputeLevel(chunkBuf[:end-totalWritten]))
 		}
 		n, err := conn.Write(chunkBuf[:end-totalWritten])
 		if err != nil {
@@ -538,6 +562,10 @@ func (c *HikvisionClient) sendAudioWithAuth(
 				}, nil
 			}
 			return SendTiming{}, fmt.Errorf("writing audio data: %w", err)
+		}
+		if gc != nil && n > 0 {
+			// Report only audio actually written, not a pending or failed send.
+			gc.RecordLevel(util.ComputeLevel(chunkBuf[:n]))
 		}
 		totalWritten += n
 		if firstChunk {

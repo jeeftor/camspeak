@@ -147,6 +147,8 @@ func New(
 	api.POST("/vision/test-all", h.VisionTestAll)
 	api.POST("/vision/test-all/stream", h.VisionTestAllStream)
 	api.POST("/describe", h.Describe)
+	api.POST("/describe/jobs", h.StartDescribeJob)
+	api.GET("/describe/jobs/:id", h.GetDescribeJob)
 	api.POST("/announce", h.Announce)
 	api.POST("/broadcast", h.Broadcast)
 	api.GET("/cameras", h.Cameras)

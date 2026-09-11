@@ -5,6 +5,22 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.2.1] — 2026-09-10
+
+### Fixed
+- Made web Describe requests WAN-safe: start a background job, then read progress through short polling requests instead of holding a request open through inference and playback.
+- Show live snapshot, vision, speech, conversion, connection, and playback stages with completed timings and generated text in Camera Output, including on phones. Stop cancels the job; failures retain the partial result.
+- Replace raw gateway/authentication HTML with readable HTTP errors. Never automatically retry an uncertain Describe start, avoiding duplicate audio.
+- Bound Hikvision digest authentication to five seconds and honor cancellation during authentication and connection setup. Report audio levels after successful writes and include setup time in connection timing.
+- Avoid double-counting snapshot aliases in first-audio timing and retire late level callbacks before completing an operation.
+
+### Upgrade notes
+- Existing synchronous `POST /api/describe` clients remain supported. New job endpoints are documented in OpenAPI; the companion Home Assistant client adds optional support in v0.15.1.
+- Background jobs are limited to two concurrent operations and ten minutes each. Completed results are retained for ten minutes, up to 32 total jobs; server restarts clear them.
+- Browser verification uses mocked cameras. Camera acceptance and VU levels do not prove audible speaker output; verify Describe through your WAN address after upgrading.
+
+---
+
 ## [v4.2.0] — 2026-09-10
 
 ### Changed

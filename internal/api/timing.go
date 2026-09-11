@@ -6,7 +6,8 @@ import "time"
 // Use Add to record a step, then Ms to get a map of millisecond values
 // for JSON responses.
 type StepTimings struct {
-	steps map[string]time.Duration
+	steps  map[string]time.Duration
+	onStep func(string)
 }
 
 // NewStepTimings creates a StepTimings with the given capacity.
@@ -20,6 +21,9 @@ func (t *StepTimings) Add(name string, start time.Time) {
 		t.steps = make(map[string]time.Duration)
 	}
 	t.steps[name] = time.Since(start)
+	if t.onStep != nil {
+		t.onStep(name)
+	}
 }
 
 // Ms returns a map of step names to elapsed milliseconds.
@@ -41,8 +45,9 @@ func TotalMs(start time.Time) int64 {
 // This excludes send_playback_ms (the throttled streaming duration).
 func (t *StepTimings) TTFS() int64 {
 	var sum int64
+	_, hasSnapshot := t.steps["snapshot_ms"]
 	for k, v := range t.steps {
-		if k == "send_playback_ms" {
+		if k == "send_playback_ms" || (k == "snap_ms" && hasSnapshot) {
 			continue
 		}
 		sum += v.Milliseconds()

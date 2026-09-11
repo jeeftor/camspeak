@@ -182,7 +182,11 @@ func (w *uploadWorker) release() {
 
 // shutdownUploads stops active transcodes before their store is closed.
 func (h *Handlers) shutdownUploads() {
-	w := &h.uploads
+	h.describes.worker.shutdown()
+	h.uploads.shutdown()
+}
+
+func (w *uploadWorker) shutdown() {
 	w.mu.Lock()
 	w.closed = true
 	if w.cancel != nil {

@@ -35,7 +35,13 @@ func TestRetiredSpeakerCannotPublishPlayback(t *testing.T) {
 			h.configEditMu.Lock()
 			done := make(chan error, 1)
 			go func() {
-				op, err := h.beginPlaybackOperation(context.Background(), name, captured, "speak", "stale")
+				op, err := h.beginPlaybackOperation(
+					context.Background(),
+					name,
+					captured,
+					"speak",
+					"stale",
+				)
 				if op != nil {
 					op.finish()
 				}
@@ -189,5 +195,83 @@ func TestOldStreamCleanupPreservesReplacement(t *testing.T) {
 	activeStreamsMu.Unlock()
 	if got != next {
 		t.Fatal("replacement removed by old cleanup")
+	}
+}
+
+type asyncLevelSpeaker struct {
+	operationSpeaker
+	send func(*cameras.GainController)
+}
+
+func (s *asyncLevelSpeaker) SendRaw(
+	_ string,
+	gain *cameras.GainController,
+) (cameras.SendTiming, error) {
+	s.send(gain)
+	return cameras.SendTiming{}, nil
+}
+
+func TestOperationIgnoresAudioLevelsAfterSendReturns(t *testing.T) {
+	var captured *cameras.GainController
+	cam := &asyncLevelSpeaker{send: func(gain *cameras.GainController) { captured = gain }}
+	op := beginOperation(context.Background(), "late-level", cam, "describe", "test")
+	defer op.finish()
+	playing := false
+	op.onPlaying = func() { playing = true }
+	if _, err := op.send("unused", cameras.NewGainController(1)); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		captured.RecordLevel(0.8)
+		close(done)
+	}()
+	<-done
+	if playing {
+		t.Fatal("late background level published playback after send returned")
+	}
+}
+
+func TestOperationJoinsInFlightAudioLevelBeforeSendReturns(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	callbackDone := make(chan struct{})
+	cam := &asyncLevelSpeaker{send: func(gain *cameras.GainController) {
+		go func() {
+			gain.RecordLevel(0.8)
+			close(callbackDone)
+		}()
+		<-entered
+	}}
+	op := beginOperation(context.Background(), "in-flight-level", cam, "describe", "test")
+	defer op.finish()
+	op.onPlaying = func() {
+		close(entered)
+		<-release
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := op.send("unused", cameras.NewGainController(1))
+		done <- err
+	}()
+	<-entered
+	returnedEarly := false
+	select {
+	case <-done:
+		returnedEarly = true
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(release)
+	<-callbackDone
+	if returnedEarly {
+		t.Fatal("send returned while its progress callback could still mutate results")
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("send did not finish after its progress callback exited")
 	}
 }

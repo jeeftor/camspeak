@@ -220,7 +220,6 @@ func (c *OnvifClient) SendRawContext(
 		rawChunk := append([]byte(nil), rawData[sentSamples:sentSamples+n]...)
 		if gc != nil {
 			util.ApplyGainMulaw(rawChunk, gc.Get())
-			gc.RecordLevel(util.ComputeLevel(rawChunk))
 		}
 		chunk := decodeMulaw(rawChunk)
 
@@ -264,6 +263,9 @@ func (c *OnvifClient) SendRawContext(
 				}
 				return SendTiming{}, fmt.Errorf("writing RTP packet: %w", err)
 			}
+		}
+		if gc != nil && len(pkts) > 0 {
+			gc.RecordLevel(util.ComputeLevel(rawChunk))
 		}
 
 		if firstPacket {

@@ -1,4 +1,5 @@
 async (page) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
   const check = (condition, message) => { if (!condition) throw new Error(message); };
   const evidence = () => page.evaluate(() => window.workspaceEvidence());
   const card = page.getByRole('article', { name: 'Front Door', exact: true });
@@ -11,7 +12,8 @@ async (page) => {
   check(!(await page.getByRole('article', { name: 'Backyard', exact: true }).innerText()).includes('Last action'), 'Results must stay with the requesting camera');
   await cameraButton('Front Door').click();
   await card.getByText('Last action · Describe', { exact: true }).waitFor();
-  check((await evidence()).actions.filter(action => action.path === '/api/describe').length === 1, 'Describe should send once');
+  check((await evidence()).actions.filter(action => action.path === '/api/describe/jobs').length === 1, 'Describe should start once');
+  check((await evidence()).polls.length >= 6, 'Describe uses short status reads through all stages');
   check(await card.locator('dt').count() === 6, 'Retain all stages, including zero; deduplicate snapshot timing');
   await page.waitForTimeout(5100);
   check(await card.getByText('Last action · Describe', { exact: true }).isVisible(), 'Result should survive transient feedback');

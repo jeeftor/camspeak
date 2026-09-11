@@ -13,7 +13,7 @@
   import { buildCurl } from '$lib/curl.svelte'
   import { formatTimingSummary } from '$lib/utils'
   import type { CameraSummary, Preset, DescribeResponse } from '$lib/types'
-  import { isValidRepeat, type AudioDraft } from '$lib/audio-draft'
+  import { describeStageLabel, isValidRepeat, type AudioDraft } from '$lib/audio-draft'
   import type { PlaybackMonitor } from '$lib/playback.svelte'
 
   let { camera, voices = [], presets = [], draft = $bindable(), monitor, active = true, preview, tools }: {
@@ -33,6 +33,7 @@
   let editingPrompt = $state(false)
   let statusTimer: ReturnType<typeof setTimeout> | undefined
   let uploadController: AbortController | undefined
+  let describeController: AbortController | undefined
   const broadcast = $derived(!camera)
   const selected = $derived(presets.find(p => JSON.stringify([p.category, p.name]) === draft.preset))
   const savedStream = $derived(presets.find(p => p.url && JSON.stringify([p.category, p.name]) === draft.streamPreset))
@@ -107,6 +108,8 @@
     const label = draft.mode === 'describe' ? 'Describe' : draft.mode === 'speak' ? 'Speak'
       : draft.mode === 'preset' ? `Preset · ${selected?.name}` : draft.mode === 'stream' ? 'Stream' : 'Audio URL'
     draft.pendingAction = label
+    draft.describeJob = null
+    draft.describeError = ''
     draft.waveformPreset = draft.mode === 'preset' && selected && !selected.url ? selected : null
     try {
       let result
@@ -128,8 +131,23 @@
           ? await apiClient.play({ ...target, preset: savedStream.name, category: savedStream.category, loop: 0 })
           : await apiClient.playStream({ ...target, url: draft.url })
         if (draft.mode === 'describe') {
-          // This is the exact frame used for inference, not a second snapshot.
-          result = await apiClient.describe({ ...target, prompt: draft.prompt })
+          describeController = new AbortController()
+          draft.lastResult = { label }
+          draft.pendingAction = 'Starting Describe'
+          const job = await apiClient.describeAndWait({ ...target, prompt: draft.prompt }, progress => {
+            const stageChanged = draft.describeJob?.stage !== progress.stage
+            draft.describeJob = progress
+            draft.pendingAction = describeStageLabel(progress.stage)
+            // Retain the actual inference frame and completed timings as they arrive.
+            draft.lastResult = { ...progress.result, label }
+            if (stageChanged) void monitor.refresh()
+          }, describeController.signal)
+          if (job.status !== 'done') {
+            draft.describeError = job.error || describeStageLabel(job.stage)
+            feedback(draft.describeError, job.status === 'error')
+            return
+          }
+          result = job.result
         }
       }
       const response = result as DescribeResponse | undefined
@@ -137,6 +155,7 @@
       const timing = response ? formatTimingSummary(response.timings, response.total_ms, response.ttfs_ms) : ''
       feedback(`${broadcast ? 'Broadcast completed' : 'Audio sent'}${timing ? ` (${timing})` : ''}`)
     } catch (cause) {
+      if (label === 'Describe') draft.describeError = cause instanceof Error ? cause.message : String(cause)
       feedback(cause instanceof Error ? cause.message : String(cause), true)
     } finally {
       draft.busy = false
@@ -210,6 +229,7 @@
   onDestroy(() => {
     clearTimeout(statusTimer)
     uploadController?.abort()
+    describeController?.abort()
   })
 </script>
 
@@ -271,7 +291,7 @@
     {/if}
 
     <Button data-primary-action size="sm" type="submit" disabled={draft.busy || draft.gainSaving || !valid} class="w-full gap-2">
-      {#if draft.busy}<Loader2 class="h-4 w-4 animate-spin" /> Working…
+      {#if draft.busy}<Loader2 class="h-4 w-4 animate-spin" /> {draft.pendingAction || 'Working…'}
       {:else if broadcast}<Radio class="h-4 w-4" /> Broadcast to all cameras
       {:else if draft.mode === 'describe'}<Eye class="h-4 w-4" /> Describe and speak
       {:else if draft.mode === 'speak'}<Send class="h-4 w-4" /> Speak

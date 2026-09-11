@@ -283,6 +283,7 @@ const openAPISpec = `{
       "post": {
         "tags": ["vision"],
         "summary": "Snapshot to vision model to TTS to speak on camera",
+        "description": "Synchronous compatibility endpoint: waits for the full operation, including playback. Prefer POST /describe/jobs and polling GET /describe/jobs/{id} behind a reverse proxy or WAN gateway.",
         "requestBody": {
           "required": true,
           "content": {
@@ -294,6 +295,36 @@ const openAPISpec = `{
         "responses": {
           "200": {"description": "OK", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DescribeResponse"}}}},
           "503": {"description": "Vision or TTS not configured"}
+        }
+      }
+    },
+    "/describe/jobs": {
+      "post": {
+        "tags": ["vision"],
+        "summary": "Start a background Describe operation",
+        "description": "Returns immediately with a job to poll instead of holding a request open through vision, TTS, and playback. At most two Describe jobs run concurrently; each has a ten-minute deadline. POST /stop cancels the camera's current operation. Do not automatically retry this POST when its response is lost: the operation may already have started.",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DescribeRequest"}}}
+        },
+        "responses": {
+          "202": {"description": "Job accepted", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DescribeJob"}}}},
+          "400": {"description": "Invalid request or camera configuration"},
+          "404": {"description": "Camera not found"},
+          "409": {"description": "Camera configuration changed while starting the operation"},
+          "503": {"description": "Vision or TTS unavailable, worker limit reached, or server shutting down"}
+        }
+      }
+    },
+    "/describe/jobs/{id}": {
+      "get": {
+        "tags": ["vision"],
+        "summary": "Read Describe progress and completed timings",
+        "description": "Poll while status is running. Results accumulate as real stages finish; playing indicates audio has started being sent, not confirmation of physical speaker sound. Terminal jobs are kept in memory for up to ten minutes, with at most 32 retained results. Server restart or eviction makes a job unavailable; a missing result does not prove playback failed.",
+        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "responses": {
+          "200": {"description": "Current job snapshot", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DescribeJob"}}}},
+          "404": {"description": "Unknown, expired, or evicted job"}
         }
       }
     },
@@ -835,6 +866,7 @@ const openAPISpec = `{
         "required": ["camera"],
         "properties": {
           "camera": {"type": "string", "example": "backyard"},
+          "stream": {"type": "string", "description": "Optional snapshot stream override"},
           "prompt": {"type": "string", "example": "Describe what you see."},
           "gain": {"$ref": "#/components/schemas/PlaybackGain"}
         }
@@ -844,7 +876,23 @@ const openAPISpec = `{
         "properties": {
           "status": {"type": "string", "example": "ok"},
           "description": {"type": "string", "example": "A car is parked in the driveway."},
-          "image": {"type": "string", "description": "Base64 JPEG data URI"}
+          "image": {"type": "string", "description": "Base64 JPEG data URI"},
+          "timings": {"type": "object", "description": "Completed stage durations in milliseconds: snapshot_ms (snap_ms is a compatibility alias), vision_ms, tts_ms, transcode_ms, send_open_ms, and send_playback_ms", "additionalProperties": {"type": "integer", "format": "int64"}},
+          "ttfs_ms": {"type": "integer", "format": "int64", "description": "Time to first audio sent, in milliseconds; not an acoustic speaker measurement"},
+          "total_ms": {"type": "integer", "format": "int64", "description": "Total operation duration in milliseconds"}
+        }
+      },
+      "DescribeJob": {
+        "type": "object",
+        "required": ["id", "camera", "status", "stage", "elapsed_ms", "result"],
+        "properties": {
+          "id": {"type": "string"},
+          "camera": {"type": "string", "example": "backyard"},
+          "status": {"type": "string", "enum": ["running", "done", "error", "canceled"]},
+          "stage": {"type": "string", "enum": ["snapshot", "vision", "tts", "transcode", "connecting", "playing", "done", "error", "canceled"]},
+          "elapsed_ms": {"type": "integer", "format": "int64", "description": "Elapsed time since the job started, frozen at completion"},
+          "result": {"$ref": "#/components/schemas/DescribeResponse"},
+          "error": {"type": "string", "description": "Failure or cancellation detail; partial results and completed timings remain available"}
         }
       },
       "StatusResponse": {

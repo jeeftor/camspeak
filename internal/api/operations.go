@@ -11,12 +11,13 @@ import (
 
 // playbackOperation owns preparation, cancellation and completion for one camera.
 type playbackOperation struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	camera string
-	cam    cameras.Speaker
-	source string
-	detail string
+	ctx       context.Context
+	cancel    context.CancelFunc
+	camera    string
+	cam       cameras.Speaker
+	source    string
+	detail    string
+	onPlaying func()
 }
 
 var (
@@ -108,19 +109,40 @@ func (op *playbackOperation) send(
 		operationsMu.Unlock()
 		return cameras.SendTiming{}, context.Canceled
 	}
-	setPlayback(op.camera, op.source, op.detail)
+	// Describe remains preparing until the camera accepts an audio chunk.
+	if op.onPlaying == nil {
+		setPlayback(op.camera, op.source, op.detail)
+	}
 	operationsMu.Unlock()
+	var sinkMu sync.Mutex
+	sinkActive := true
 	if gc != nil {
+		started := false
 		// Use an operation-local sink so an old completion cannot detach a new one.
 		gc = gc.WithLevelSink(func(level float64) {
+			sinkMu.Lock()
+			defer sinkMu.Unlock()
+			if !sinkActive {
+				return
+			}
 			operationsMu.Lock()
 			defer operationsMu.Unlock()
 			if operations[op.camera] == op {
+				if !started && op.onPlaying != nil {
+					started = true
+					setPlayback(op.camera, op.source, op.detail)
+					op.onPlaying()
+				}
 				setOneShotLevel(op.camera, level)
 			}
 		})
 	}
 	timing, err := cameras.SendRawContext(op.ctx, op.cam, path, gc)
+	// Some transports report levels on a background goroutine. Join any active
+	// callback and retire the sink before the caller finalizes its result maps.
+	sinkMu.Lock()
+	sinkActive = false
+	sinkMu.Unlock()
 	if op.ctx.Err() != nil {
 		return timing, op.ctx.Err()
 	}

@@ -44,6 +44,7 @@ type Handlers struct {
 	tmpDir       string
 	log          *clog.Logger
 	uploads      uploadWorker
+	describes    describeJobs
 }
 
 // configSnapshot returns configuration values without exposing the mutable camera map.

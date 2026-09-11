@@ -78,6 +78,10 @@ and response data.
   it to a vision LLM (any OpenAI-compatible chat completions endpoint — OpenAI,
   Ollama, LiteLLM, etc.), gets a text description back, then TTS-speaks that
   description on the same camera's speaker.
+- **Background Describe** — the dashboard starts `POST /api/describe/jobs` and
+  polls `GET /api/describe/jobs/{id}` for actual progress and completed timings.
+  Short requests avoid keeping your WAN proxy connection open through the full
+  operation. The synchronous `/api/describe` endpoint remains compatible.
 - **Cross-camera announce** — `POST /api/announce` captures an image from one
   camera, describes it with the vision model, and speaks the description on a
   *different* target camera's speaker. Useful for doorbells or cameras without
@@ -146,7 +150,16 @@ switching cameras or modes during the dashboard session. Camera Output retains
 returned timing details, descriptions, playback controls, and volume. Its VU meter
 uses reported audio levels, which are not available for every playback path and
 do not confirm physical speaker sound. Presets show a reference waveform, not a
-live playhead. Timings describe the completed request, not simulated live stages.
+live playhead. Describe reports the current snapshot, vision, speech generation,
+transcoding, camera connection, or playback stage as it runs. Completed stage
+timings and any generated description remain in Camera Output, including after
+an error. Connecting to a camera is not shown as audio already playing.
+
+Describe jobs have a ten-minute deadline and a two-job concurrency limit. **Stop**
+cancels the selected camera's operation. Completed results are kept in memory for
+up to ten minutes (at most 32 results), not across server restarts. If a start
+request loses its response, check Camera Output before trying again: the camera
+may still be working. Do not automatically retry the start request.
 
 **More audio** exposes streams, audio URLs, uploads, and vision prompt editing.
 Voice options, local audio preview, and custom repeat counts stay beside the
@@ -397,6 +410,8 @@ when capacity is occupied). Retry after an active upload finishes.
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/api/describe` | Capture an image from a camera, send to the vision LLM, get a description, then TTS-speak it on the same camera |
+| `POST` | `/api/describe/jobs` | Start the same operation in the background; returns HTTP 202 with a job ID and initial progress |
+| `GET` | `/api/describe/jobs/{id}` | Poll real Describe stages, partial results, completed timings, and terminal status; HTTP 404 when unknown or expired |
 | `POST` | `/api/announce` | Capture an image from one camera, describe it, and speak the description on a target camera |
 | `GET` | `/api/config/vision` | Get vision endpoint config (URL, model, API key, default prompt) |
 | `PUT` | `/api/config/vision` | Update vision endpoint config |

@@ -11,6 +11,8 @@ import type {
   CameraInfo,
   AnnounceResponse,
   DescribeResponse,
+  DescribeJob,
+  DescribeRequest,
   DetectCameraResponse,
   DiscoverResponse,
   FrigateTestResult,
@@ -49,13 +51,24 @@ function truncateError(text: string): string {
   // Try to extract JSON { "message": "..." } first
   try {
     const parsed = JSON.parse(text)
-    if (parsed.message) return String(parsed.message)
-    if (parsed.error) return String(parsed.error)
+    if (parsed.message) text = String(parsed.message)
+    else if (parsed.error) text = String(parsed.error)
   } catch { /* not JSON — fall through */ }
-  // Truncate raw text (could be HTML from a camera or proxy error page)
+  if (/<(?:!doctype\s+html|html|head|body)\b/i.test(text)) {
+    return 'Your gateway returned a web page instead of an API response. Check your connection or sign in again.'
+  }
   const trimmed = text.trim()
   if (trimmed.length > 300) return trimmed.slice(0, 300) + '…'
   return trimmed
+}
+
+class HTTPError extends Error {
+  constructor(readonly status: number, body: string) {
+    const detail = [408, 504, 524].includes(status)
+      ? 'The gateway timed out. Audio may still be running; check Camera Output before trying again.'
+      : truncateError(body) || 'The request failed.'
+    super(`HTTP ${status}: ${detail}`)
+  }
 }
 
 async function api<T>(path: string, opts?: RequestInit): Promise<T> {
@@ -63,13 +76,16 @@ async function api<T>(path: string, opts?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...opts?.headers },
     ...opts,
   })
-  if (!res.ok) throw new Error(truncateError(await res.text()))
-  return res.status === 204 ? (undefined as T) : await res.json()
+  if (!res.ok) throw new HTTPError(res.status, await res.text())
+  if (res.status === 204) return undefined as T
+  const body = await res.text()
+  try { return JSON.parse(body) as T }
+  catch { throw new HTTPError(res.status, body) }
 }
 
 async function apiRaw(path: string, opts?: RequestInit): Promise<Response> {
   const res = await fetch(path, opts)
-  if (!res.ok) throw new Error(truncateError(await res.text()))
+  if (!res.ok) throw new HTTPError(res.status, await res.text())
   return res
 }
 
@@ -105,13 +121,77 @@ function uploadWithProgress<T>(
           reject(new Error('Invalid JSON response'))
         }
       } else {
-        reject(new Error(xhr.responseText || `HTTP ${xhr.status}`))
+        reject(new HTTPError(xhr.status, xhr.responseText))
       }
     }
 
     xhr.onerror = () => reject(new Error('Network error'))
     xhr.send(fd)
   })
+}
+
+/** Keep every Describe request shorter than the WAN proxy's request timeout. */
+async function describeRequest(path: string, opts: RequestInit, signal?: AbortSignal): Promise<DescribeJob> {
+  signal?.throwIfAborted()
+  const controller = new AbortController()
+  const abort = () => controller.abort(signal?.reason)
+  signal?.addEventListener('abort', abort, { once: true })
+  const timer = setTimeout(() => controller.abort(new DOMException('Status request timed out', 'TimeoutError')), 10_000)
+  try {
+    const job = await api<DescribeJob>(path, { ...opts, signal: controller.signal, cache: 'no-store' })
+    if (!job.id || !['running', 'done', 'error', 'canceled'].includes(job.status) || !job.result) {
+      throw new Error('The server returned an invalid Describe job')
+    }
+    if (job.error) job.error = truncateError(job.error)
+    return job
+  } finally {
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', abort)
+  }
+}
+
+function waitForDescribePoll(signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted()
+  return new Promise((resolve, reject) => {
+    const abort = () => { clearTimeout(timer); reject(signal?.reason) }
+    const timer = setTimeout(() => { signal?.removeEventListener('abort', abort); resolve() }, 500)
+    signal?.addEventListener('abort', abort, { once: true })
+  })
+}
+
+/** Start once; only status reads are retried, so a proxy error cannot replay audio. */
+async function describeAndWait(
+  req: DescribeRequest,
+  onProgress?: (job: DescribeJob) => void,
+  signal?: AbortSignal,
+): Promise<DescribeJob> {
+  let job: DescribeJob
+  try {
+    job = await describeRequest('/api/describe/jobs', { method: 'POST', body: JSON.stringify(req) }, signal)
+  } catch (cause) {
+    signal?.throwIfAborted()
+    throw new Error(`${cause instanceof Error ? cause.message : String(cause)} Describe was not retried. Check Camera Output before trying again.`)
+  }
+  const id = job.id
+  let failures = 0
+  const started = Date.now()
+  for (;;) {
+    onProgress?.(job)
+    signal?.throwIfAborted()
+    if (job.status !== 'running') return job
+    await waitForDescribePoll(signal)
+    try {
+      if (Date.now() - started > 15 * 60_000) throw new Error('Describe status monitoring expired')
+      job = await describeRequest(`/api/describe/jobs/${encodeURIComponent(id)}`, {}, signal)
+      if (job.id !== id) throw new Error('The server returned a different Describe job')
+      failures = 0
+    } catch (cause) {
+      signal?.throwIfAborted()
+      failures++
+      if (failures <= 3 && (!(cause instanceof HTTPError) || cause.status >= 500 || [408, 429].includes(cause.status))) continue
+      throw new Error(`Cannot read Describe progress. ${cause instanceof Error ? cause.message : String(cause)} Audio may still be running; use Stop or check Camera Output before trying again.`)
+    }
+  }
 }
 
 export interface UploadProgress {
@@ -307,8 +387,9 @@ export const apiClient = {
   },
   streams: () =>
     api<{ status: string; streams: StreamInfo[] }>('/api/streams'),
-  describe: (req: { camera: string; prompt?: string; gain?: number }) =>
+  describe: (req: DescribeRequest) =>
     api<DescribeResponse>('/api/describe', { method: 'POST', body: JSON.stringify(req) }),
+  describeAndWait,
   announce: (req: { source_camera: string; target_camera: string; prompt?: string; voice?: string; gain?: number }) =>
     api<AnnounceResponse>('/api/announce', { method: 'POST', body: JSON.stringify(req) }),
   visionTest: (fd: FormData) =>

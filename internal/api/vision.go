@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	clog "github.com/charmbracelet/log"
 	"github.com/labstack/echo/v4"
 
 	"github.com/jeeftor/camspeak/internal/config"
@@ -275,28 +276,26 @@ func (h *Handlers) VisionTest(c echo.Context) error {
 	})
 }
 
-// Describe handles POST /api/describe — Frigate snapshot → vision model → TTS → camera.
+type describeRequest struct {
+	Camera string   `json:"camera"`
+	Stream string   `json:"stream"`
+	Prompt string   `json:"prompt"`
+	Gain   *float64 `json:"gain"`
+}
+
+// Describe handles POST /api/describe — snapshot, vision model, TTS, then camera.
 func (h *Handlers) Describe(c echo.Context) error {
 	cfg := h.configSnapshot()
 	log := h.logger(c)
 
-	var req struct {
-		Camera string   `json:"camera"`
-		Stream string   `json:"stream"`
-		Prompt string   `json:"prompt"`
-		Gain   *float64 `json:"gain"`
-	}
+	var req describeRequest
 	if err := c.Bind(&req); err != nil || req.Camera == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "camera required")
 	}
 	if err := validateRequestGain(req.Gain); err != nil {
 		return err
 	}
-	frigateURL := cfg.FrigateURL
-	globalPrompt := cfg.Vision.Prompt
-	camCfg, camOk := cfg.Cameras[req.Camera]
 	visionClient := h.visionClient()
-	defaultVoice := cfg.TTS.DefaultVoice
 
 	if visionClient == nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "vision model not configured")
@@ -316,17 +315,47 @@ func (h *Handlers) Describe(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusConflict, err.Error())
 	}
 	defer op.finish()
+	result, err := h.runDescribe(op, req, cfg, visionClient, log, nil)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, result)
+}
 
+// runDescribe is shared by synchronous clients and the WAN-safe background job.
+func (h *Handlers) runDescribe(
+	op *playbackOperation, req describeRequest, cfg config.Config,
+	visionClient *vision.Client, log *clog.Logger,
+	progress func(string, map[string]any),
+) (map[string]any, error) {
 	start := time.Now()
 	t := NewStepTimings(4)
+	result := map[string]any{}
+	report := func(stage string) {
+		result["timings"] = t.Ms()
+		result["total_ms"] = TotalMs(start)
+		if progress != nil {
+			progress(stage, result)
+		}
+	}
+	t.onStep = func(name string) {
+		switch name {
+		case "snapshot_ms":
+			report("vision")
+		case "vision_ms":
+			report("tts")
+		}
+	}
+	report("snapshot")
 	log.Info("describe: request", "camera", req.Camera)
 
-	prompt := resolveVisionPrompt(req.Prompt, camOk, camCfg.VisionPrompt, globalPrompt)
+	camCfg, camOK := cfg.Cameras[req.Camera]
+	prompt := resolveVisionPrompt(req.Prompt, camOK, camCfg.VisionPrompt, cfg.Vision.Prompt)
 	imageBytes, description, err := h.describeImage(
 		op.ctx,
 		req.Camera,
 		camCfg,
-		frigateURL,
+		cfg.FrigateURL,
 		req.Stream,
 		prompt,
 		visionClient,
@@ -334,16 +363,18 @@ func (h *Handlers) Describe(c echo.Context) error {
 	)
 	if err != nil {
 		log.Error("describe: vision failed", "camera", req.Camera, "err", err)
-		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("vision: %s", err))
+		return result, echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("vision: %s", err))
 	}
+	result["description"] = description
+	report("tts")
 
 	// 3. TTS
-	voice := defaultVoice
+	voice := cfg.TTS.DefaultVoice
 	ttsStart := time.Now()
 	wav, err := h.ttsClient().SpeakContext(op.ctx, description, voice)
 	if err != nil {
 		log.Error("describe: TTS failed", "camera", req.Camera, "err", err)
-		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("TTS: %s", err))
+		return result, echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("TTS: %s", err))
 	}
 	log.Debug(
 		"describe: TTS generated",
@@ -355,6 +386,7 @@ func (h *Handlers) Describe(c echo.Context) error {
 		time.Since(ttsStart),
 	)
 	t.Add("tts_ms", ttsStart)
+	report("transcode")
 
 	// 4. Transcode + send to camera
 	// Gain is applied at send time via GainController (per-chunk).
@@ -362,7 +394,7 @@ func (h *Handlers) Describe(c echo.Context) error {
 	transcodeStart := time.Now()
 	rawPath, err := wavBytesToRawWithPrimeContext(op.ctx, wav, h.tmpDir, 1.0, cfg.PrimeSilenceMs)
 	if err != nil {
-		return echo.NewHTTPError(
+		return result, echo.NewHTTPError(
 			http.StatusInternalServerError,
 			fmt.Sprintf("transcoding: %s", err),
 		)
@@ -371,12 +403,21 @@ func (h *Handlers) Describe(c echo.Context) error {
 	defer os.Remove(rawPath)
 
 	op.detail = description
+	report("connecting")
+	sendStart := time.Now()
+	op.onPlaying = func() {
+		t.Add("send_open_ms", sendStart)
+		result["ttfs_ms"] = t.TTFS()
+		report("playing")
+	}
 	sendTiming, err := op.send(rawPath, h.gainForCall(req.Camera, requestGain(req.Gain)))
 	if err != nil {
 		log.Error("describe: send failed", "camera", req.Camera, "err", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		return result, echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	t.steps["send_open_ms"] = time.Duration(sendTiming.OpenMs) * time.Millisecond
+	if _, reported := t.steps["send_open_ms"]; !reported {
+		t.steps["send_open_ms"] = time.Duration(sendTiming.OpenMs) * time.Millisecond
+	}
 	t.steps["send_playback_ms"] = time.Duration(sendTiming.PlaybackMs) * time.Millisecond
 	log.Debug(
 		"describe: camera send complete",
@@ -402,14 +443,11 @@ func (h *Handlers) Describe(c echo.Context) error {
 	)
 
 	snapB64 := base64.StdEncoding.EncodeToString(imageBytes)
-	return c.JSON(http.StatusOK, map[string]any{
-		"status":      "ok",
-		"description": description,
-		"image":       "data:image/jpeg;base64," + snapB64,
-		"timings":     t.Ms(),
-		"ttfs_ms":     t.TTFS(),
-		"total_ms":    TotalMs(start),
-	})
+	result["status"] = "ok"
+	result["image"] = "data:image/jpeg;base64," + snapB64
+	result["ttfs_ms"] = t.TTFS()
+	report("done")
+	return result, nil
 }
 
 // Announce handles POST /api/announce — captures a snapshot from a source

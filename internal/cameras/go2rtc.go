@@ -97,37 +97,6 @@ func (c *Go2rtcClient) SendRawContext(
 		util.ApplyGainMulaw(audioData, gc.Get())
 	}
 
-	// go2rtc fetches the entire audio buffer via HTTP at once, so there's
-	// no per-chunk loop to tap. Instead, start a background ticker that
-	// advances through the buffer at the µ-law playback rate (8000 bytes/s
-	// = 800 bytes per 100ms) and feeds VU meter levels. This simulates the
-	// real-time playback the camera is doing.
-	levelCtx, levelCancel := context.WithCancel(context.Background())
-	if gc != nil {
-		go func() {
-			ticker := time.NewTicker(100 * time.Millisecond)
-			defer ticker.Stop()
-			offset := 0
-			for {
-				select {
-				case <-levelCtx.Done():
-					return
-				case <-ticker.C:
-					if offset >= len(audioData) {
-						return
-					}
-					end := offset + 800
-					if end > len(audioData) {
-						end = len(audioData)
-					}
-					gc.RecordLevel(util.ComputeLevel(audioData[offset:end]))
-					offset = end
-				}
-			}
-		}()
-	}
-	defer levelCancel()
-
 	// Start a temporary HTTP server to serve the gain-adjusted audio
 	listener, err := net.Listen("tcp", ":0")
 	if err != nil {
@@ -225,6 +194,29 @@ func (c *Go2rtcClient) SendRawContext(
 	}
 	defer resp.Body.Close()
 	openMs := time.Since(sendStart).Milliseconds()
+	if resp.StatusCode == http.StatusOK && gc != nil && len(audioData) > 0 {
+		// go2rtc buffers the file, so these levels estimate playback after its
+		// acknowledgment; they cannot confirm sound at the physical speaker.
+		// Never let a simulated tick announce playback before go2rtc accepts it.
+		firstEnd := min(800, len(audioData))
+		gc.RecordLevel(util.ComputeLevel(audioData[:firstEnd]))
+		levelCtx, levelCancel := context.WithCancel(ctx)
+		defer levelCancel()
+		go func() {
+			ticker := time.NewTicker(100 * time.Millisecond)
+			defer ticker.Stop()
+			for offset := firstEnd; offset < len(audioData); {
+				select {
+				case <-levelCtx.Done():
+					return
+				case <-ticker.C:
+					end := min(offset+800, len(audioData))
+					gc.RecordLevel(util.ComputeLevel(audioData[offset:end]))
+					offset = end
+				}
+			}
+		}()
+	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 512))
 	if err != nil {

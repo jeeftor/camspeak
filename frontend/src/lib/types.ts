@@ -311,6 +311,22 @@ export interface DescribeResponse {
   total_ms?: number
 }
 
+export interface DescribeRequest {
+  camera: string
+  prompt?: string
+  gain?: number
+}
+
+export interface DescribeJob {
+  id: string
+  camera: string
+  status: 'running' | 'done' | 'error' | 'canceled'
+  stage: 'snapshot' | 'vision' | 'tts' | 'transcode' | 'connecting' | 'playing' | 'done' | 'error' | 'canceled'
+  elapsed_ms: number
+  result: DescribeResponse
+  error?: string
+}
+
 export interface AnnounceResponse {
   status?: string
   description?: string
