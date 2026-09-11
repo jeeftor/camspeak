@@ -41,7 +41,7 @@
         <div class="mt-3 flex flex-wrap items-center gap-3">
           <code class="break-all text-xs text-muted-foreground">{request.method} {request.path}</code>
           <span class="flex items-center gap-1"><CopyButton text={curl} label="Copy cURL" preview previewType="curl" class="h-8 w-8" />cURL</span>
-          <span class="flex items-center gap-1"><CopyButton text={json} label="Copy JSON body" preview class="h-8 w-8" />JSON body</span>
+          <span class="flex items-center gap-1"><CopyButton text={json} label="Copy JSON body" preview previewType="json" class="h-8 w-8" />JSON body</span>
         </div>
         {#if request.redacted}<p class="mt-2 text-xs text-amber-500">URL credentials and query parameters were removed. Supply them privately before running this command.</p>{/if}
         <details class="mt-2 min-w-0">

@@ -5,6 +5,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.4.4] — 2026-09-11
+
+### Fixed
+- Syntax-highlight JSON body copy previews in playback activity using the shared JSON renderer.
+
+---
+
 ## [v4.4.3] — 2026-09-11
 
 ### Fixed

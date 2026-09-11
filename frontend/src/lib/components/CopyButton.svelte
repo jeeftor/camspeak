@@ -6,11 +6,12 @@
   //   size         — "sm" | "icon" (default "icon")
   //   class        — extra classes
   //   preview      — if true, show syntax-highlighted hover tooltip (desktop only)
-  //   previewType  — "curl" | "text" (default "text") — controls highlighting
+  //   previewType  — "curl" | "json" | "text" (default "text") — controls highlighting
   import { Copy, Check } from 'lucide-svelte'
   import { Button } from '$lib/components/ui/button'
   import { copyToClipboard } from '$lib/curl.svelte'
   import CurlCode from '$lib/components/CurlCode.svelte'
+  import JsonCode from '$lib/components/JsonCode.svelte'
 
   let {
     text,
@@ -70,6 +71,8 @@
     <div class="curl-tooltip" class:align-left={previewAlign === 'left'} class:show={showTooltip}>
       {#if previewType === 'curl'}
         <CurlCode code={text} />
+      {:else if previewType === 'json'}
+        <JsonCode code={text} />
       {:else}
         <pre class="text-xs whitespace-pre-wrap break-all">{text}</pre>
       {/if}
