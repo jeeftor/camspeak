@@ -5,6 +5,17 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.5.0] — 2026-09-11
+
+### Added
+- Cross-Camera Announce includes configured capture sources with playback disabled, while speaker targets remain enabled, speaker-capable cameras.
+- Add an explicit silent source-preview button and reuse the shared timing flow alongside the actual Announce capture and description.
+
+### Changed
+- Introduce theme-aware cyan information accents for cumulative timing and amber warnings for stale camera previews, retaining purple primary actions and neutral backgrounds.
+
+---
+
 ## [v4.4.4] — 2026-09-11
 
 ### Fixed

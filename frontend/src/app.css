@@ -21,6 +21,8 @@
   --color-border: hsl(var(--border));
   --color-input: hsl(var(--input));
   --color-ring: hsl(var(--ring));
+  --color-info: hsl(var(--info));
+  --color-warning: hsl(var(--warning));
   --radius-md: var(--radius);
   --radius-lg: var(--radius);
 }
@@ -44,6 +46,8 @@
   --input: 240 5.9% 90%;
   --ring: 262 83% 58%;
   --radius: 0.5rem;
+  --info: 192 91% 30%;
+  --warning: 32 95% 30%;
   /* Syntax highlighting (light) */
   --syntax-key: 262 83% 45%;
   --syntax-string: 142 55% 32%;
@@ -54,6 +58,8 @@
 }
 
 .dark {
+  --info: 188 86% 65%;
+  --warning: 43 96% 64%;
   --background: 240 10% 3.9%;
   --foreground: 0 0% 98%;
   --card: 240 10% 7%;

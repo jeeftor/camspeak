@@ -7,6 +7,7 @@
     disabled = false,
     placeholder = '— select —',
     enabledOnly = false,
+    showDisabledLabel = false,
     class: klass = '',
   } = $props()
 
@@ -27,6 +28,6 @@
   class="rounded-md border border-input bg-transparent px-3 py-2 text-sm disabled:opacity-50 {klass}">
   <option value="">{placeholder}</option>
   {#each names as name}
-    <option value={name}>{name}</option>
+    <option value={name}>{name}{showDisabledLabel && cameras.some(c => typeof c === 'object' && c.name === name && c.enabled === false) ? ' (Playback disabled)' : ''}</option>
   {/each}
 </select>

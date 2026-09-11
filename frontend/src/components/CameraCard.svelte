@@ -216,7 +216,7 @@
       {:else if preview}
         {#if previewSrc}<img src={previewSrc} alt={`${camera.name} preview`} draggable="false" class:opacity-60={!!previewError || previewSlow} class="camera-preview-image aspect-video w-full rounded-lg object-contain bg-muted transition-opacity" />
         {:else}<div class="camera-preview-image flex aspect-video items-center justify-center rounded-lg bg-muted text-sm text-muted-foreground">{previewLoading ? 'Loading preview…' : 'Preview unavailable'}</div>{/if}
-        <p class="break-words text-xs text-muted-foreground">{previewError ? previewSrc ? `Last frame ${previewTime} · Retrying preview: ${previewError}` : `Preview unavailable: ${previewError}` : previewSlow && previewSrc ? `Last frame ${previewTime} · Refreshing preview…` : `Updated ${previewTime || '…'}`}</p>
+        <p class="break-words text-xs {previewError || previewSlow ? 'text-warning' : 'text-muted-foreground'}">{previewError ? previewSrc ? `Last frame ${previewTime} · Retrying preview: ${previewError}` : `Preview unavailable: ${previewError}` : previewSlow && previewSrc ? `Last frame ${previewTime} · Refreshing preview…` : `Updated ${previewTime || '…'}`}</p>
       {/if}
     </div>
   {/snippet}

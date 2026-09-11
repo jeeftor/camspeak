@@ -34,15 +34,15 @@
           <dt><span class="text-muted-foreground">{index + 1}.</span> {step.label}</dt>
           <dd class="flex flex-wrap gap-x-2 tabular-nums">
             <span>{valid(step.duration) ? formatMs(step.duration) : running && activeStage === step.stage ? 'In progress…' : running ? 'Waiting' : '—'}</span>
-            {#if valid(accumulated[index])}<span class="text-primary" title="Accumulated stage time">Σ {formatMs(accumulated[index]!)}</span>{/if}
+            {#if valid(accumulated[index])}<span class="text-info" title="Accumulated stage time">Σ {formatMs(accumulated[index]!)}</span>{/if}
           </dd>
         </div>
       {/each}
     </dl>
-    <p class="text-xs text-muted-foreground">Stage duration · <span class="text-primary">Σ accumulated stage time</span> (excludes overhead)</p>
+    <p class="text-xs text-muted-foreground">Stage duration · <span class="text-info">Σ accumulated stage time</span> (excludes overhead)</p>
   {/if}
   {#if valid(firstAudioMs) || (!running && valid(totalMs))}
-    <p class="flex flex-wrap gap-x-3 text-xs tabular-nums text-primary">
+    <p class="flex flex-wrap gap-x-3 text-xs tabular-nums text-info">
       {#if valid(firstAudioMs)}<span>First audio sent: {formatMs(firstAudioMs)}</span>{/if}
       {#if !running && valid(totalMs)}<span>Total: {formatMs(totalMs)}</span>{/if}
     </p>
