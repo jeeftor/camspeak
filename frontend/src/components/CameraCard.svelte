@@ -24,6 +24,7 @@
   let previewSrc = $state('')
   let previewError = $state('')
   let previewLoading = $state(false)
+  let previewSlow = $state(false)
   let previewTime = $state('')
   let previewTimer: ReturnType<typeof setTimeout> | undefined
   let previewController: AbortController | undefined
@@ -43,8 +44,9 @@
   })
 
   // Only the visible camera fetches frames; drafts and in-flight audio stay mounted.
+  const previewEnabled = $derived(active && visible && draft.previewEnabled && camera.capabilities?.snapshot !== false)
   $effect(() => {
-    const enabled = active && visible && draft.previewEnabled && camera.capabilities?.snapshot !== false
+    const enabled = previewEnabled
     untrack(() => { if (enabled) { preview = true; void snapshot() } })
     return stopPreview
   })
@@ -86,19 +88,30 @@
     const controller = new AbortController()
     previewController = controller
     previewLoading = true
+    const slowTimer = setTimeout(() => { if (!controller.signal.aborted) previewSlow = true }, 750)
+    let nextSrc = ''
     try {
       const response = await apiClient.snapshot(camera.name, undefined, undefined, controller.signal)
       const blob = await response.blob()
       if (!preview || controller.signal.aborted) return
+      nextSrc = URL.createObjectURL(blob)
+      const frame = new Image()
+      frame.src = nextSrc
+      await frame.decode()
+      if (!preview || controller.signal.aborted) return
       if (previewSrc) URL.revokeObjectURL(previewSrc)
-      previewSrc = URL.createObjectURL(blob)
+      previewSrc = nextSrc
+      nextSrc = ''
       previewTime = new Date().toLocaleTimeString()
       previewError = ''
     } catch (cause) {
       if (!controller.signal.aborted) previewError = cause instanceof Error ? cause.message : String(cause)
     } finally {
+      clearTimeout(slowTimer)
+      if (nextSrc) URL.revokeObjectURL(nextSrc)
       if (!controller.signal.aborted) {
         previewLoading = false
+        previewSlow = false
         // Schedule after completion so slow cameras never overlap requests.
         if (preview) previewTimer = setTimeout(snapshot, 2000)
       }
@@ -109,10 +122,8 @@
     preview = false
     clearTimeout(previewTimer)
     previewController?.abort()
-    if (previewSrc) URL.revokeObjectURL(previewSrc)
-    previewSrc = ''
-    previewError = ''
     previewLoading = false
+    previewSlow = false
   }
 
   function togglePreview() {
@@ -174,6 +185,7 @@
 
   onDestroy(() => {
     stopPreview()
+    if (previewSrc) URL.revokeObjectURL(previewSrc)
     uploadController?.abort()
     clearTimeout(statusTimer)
   })
@@ -202,9 +214,9 @@
       </div>
       {#if camera.capabilities?.snapshot === false}<p class="text-xs text-muted-foreground">Preview is unavailable for this camera connection.</p>
       {:else if preview}
-        {#if previewSrc}<img src={previewSrc} alt={`${camera.name} preview`} draggable="false" class="camera-preview-image aspect-video w-full rounded-lg object-contain bg-muted" />
+        {#if previewSrc}<img src={previewSrc} alt={`${camera.name} preview`} draggable="false" class:opacity-60={!!previewError || previewSlow} class="camera-preview-image aspect-video w-full rounded-lg object-contain bg-muted transition-opacity" />
         {:else}<div class="camera-preview-image flex aspect-video items-center justify-center rounded-lg bg-muted text-sm text-muted-foreground">{previewLoading ? 'Loading preview…' : 'Preview unavailable'}</div>{/if}
-        <p class="break-words text-xs text-muted-foreground">{previewError ? `Preview unavailable: ${previewError}` : `Updated ${previewTime || '…'}`}</p>
+        <p class="break-words text-xs text-muted-foreground">{previewError ? previewSrc ? `Last frame ${previewTime} · Retrying preview: ${previewError}` : `Preview unavailable: ${previewError}` : previewSlow && previewSrc ? `Last frame ${previewTime} · Refreshing preview…` : `Updated ${previewTime || '…'}`}</p>
       {/if}
     </div>
   {/snippet}

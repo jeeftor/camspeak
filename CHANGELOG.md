@@ -5,6 +5,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.4.1] — 2026-09-10
+
+### Fixed
+- Keep the last good camera preview during brief refresh failures, camera switching, and tab visibility changes. Dim delayed or failed refreshes and show a retry status instead of flashing a loading screen.
+- Decode replacement frames before displaying them, retaining the previous frame if a response is not a valid image.
+
+---
+
 ## [v4.4.0] — 2026-09-10
 
 ### Changed
