@@ -102,6 +102,53 @@ func TestManagerSkipsUnsupportedReceiverButReportsExplicitEnable(t *testing.T) {
 	}
 }
 
+// gatedReceiver blocks inside Stop until released. With per-camera locks,
+// disabling one camera must not stall lifecycle changes for another.
+type gatedReceiver struct {
+	testReceiver
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (r *gatedReceiver) Stop() {
+	r.entered <- struct{}{}
+	<-r.release
+	r.testReceiver.Stop()
+}
+
+func TestManagerDisablesCamerasIndependently(t *testing.T) {
+	m := NewManager(&config.Config{
+		AirPlay: config.AirPlayConfig{BasePort: 5100},
+		Cameras: map[string]config.CameraConfig{"a": {}, "b": {}},
+	}, nil)
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	m.receivers["a"] = &gatedReceiver{entered: entered, release: release}
+	m.receivers["b"] = &testReceiver{running: true}
+
+	blocked := make(chan struct{})
+	go func() { m.Disable("a"); close(blocked) }()
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Disable(a) did not reach its receiver")
+	}
+
+	done := make(chan struct{})
+	go func() { m.Disable("b"); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Disable(b) serialized behind Disable(a)")
+	}
+	close(release)
+	select {
+	case <-blocked:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Disable(a) did not finish after release")
+	}
+}
+
 type blockingPCMWriter struct {
 	entered chan struct{}
 	closed  chan struct{}

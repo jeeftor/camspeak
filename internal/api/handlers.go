@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -425,6 +426,35 @@ func (h *Handlers) PlayURL(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// optionalCameraScope parses the {"camera": "name"} body shared by the
+// stop/pause/resume control endpoints. An empty or absent body selects all
+// cameras; malformed JSON is rejected so a bad request can never widen scope.
+//
+// The body is read directly instead of using Echo's binder, which skips
+// binding only when ContentLength == 0: an empty body forwarded chunked or
+// over HTTP/2 (e.g. through a reverse proxy) arrives with ContentLength -1,
+// decodes as EOF, and would otherwise be rejected as malformed.
+func optionalCameraScope(c echo.Context) (string, error) {
+	req := c.Request()
+	if req.Body == nil {
+		return "", nil
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(c.Response(), req.Body, 4096))
+	if err != nil {
+		return "", err
+	}
+	if len(bytes.TrimSpace(body)) == 0 {
+		return "", nil
+	}
+	var parsed struct {
+		Camera string `json:"camera"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return "", err
+	}
+	return parsed.Camera, nil
+}
+
 // Stop handles POST /api/stop — stops audio on a specific camera or all cameras.
 // If the request body contains a "camera" field, only that camera is stopped.
 // Otherwise (empty body or no camera field), all cameras are stopped.
@@ -433,39 +463,39 @@ func (h *Handlers) PlayURL(c echo.Context) error {
 func (h *Handlers) Stop(c echo.Context) error {
 	log := h.logger(c)
 
-	var req struct {
-		Camera string `json:"camera"`
-	}
-	// An empty body means stop all; malformed input must never broaden scope.
-	if err := c.Bind(&req); err != nil {
+	camera, err := optionalCameraScope(c)
+	if err != nil {
 		log.Warn("stop: invalid request; playback unchanged")
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid stop request")
 	}
 	started := time.Now()
-	log.Info("stop: requested", "camera", req.Camera, "all", req.Camera == "")
+	log.Info("stop: requested", "camera", camera, "all", camera == "")
 	// Serialize the entire teardown with publication of replacement playback.
 	// Otherwise an old Stop can tear down or clear the new operation's state.
 	h.configEditMu.Lock()
 	defer h.configEditMu.Unlock()
 
-	if req.Camera != "" {
-		stopOperation(req.Camera)
-		stopStream(req.Camera)
-		if err := h.reg.Stop(req.Camera); err != nil {
-			log.Warn("stop: camera not found", "camera", req.Camera, "err", err)
-			return echo.NewHTTPError(http.StatusNotFound, err.Error())
+	if camera != "" {
+		stopOperation(camera)
+		stopStream(camera)
+		stopErr := h.reg.Stop(camera)
+		// Clear tracked state even when the camera is gone from the registry:
+		// otherwise a removed or disabled camera leaves a phantom "playing".
+		clearPlayback(camera)
+		h.resetAirPlay(camera, log)
+		if stopErr != nil {
+			log.Warn("stop: camera not found", "camera", camera, "err", stopErr)
+			return echo.NewHTTPError(http.StatusNotFound, stopErr.Error())
 		}
-		clearPlayback(req.Camera)
-		h.resetAirPlay(req.Camera, log)
 		log.Info(
 			"stop: camera stop completed",
 			"camera",
-			req.Camera,
+			camera,
 			"duration_ms",
 			time.Since(started).Milliseconds(),
 		)
-		h.events.publish(event{Camera: req.Camera, Action: "stop", At: time.Now()})
-		return c.JSON(http.StatusOK, map[string]string{"status": "stopped", "camera": req.Camera})
+		h.events.publish(event{Camera: camera, Action: "stop", At: time.Now()})
+		return c.JSON(http.StatusOK, map[string]string{"status": "stopped", "camera": camera})
 	}
 
 	// Stop all cameras, live streams, and reset AirPlay receivers.
@@ -487,31 +517,29 @@ func (h *Handlers) Stop(c echo.Context) error {
 func (h *Handlers) Pause(c echo.Context) error {
 	log := h.logger(c)
 
-	var req struct {
-		Camera string `json:"camera"`
-	}
-	if err := c.Bind(&req); err != nil {
+	camera, err := optionalCameraScope(c)
+	if err != nil {
 		log.Warn("pause: invalid request; playback unchanged")
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid pause request")
 	}
 
-	if req.Camera != "" {
-		url, alreadyPaused, ok := pauseStream(req.Camera)
+	if camera != "" {
+		url, alreadyPaused, ok := pauseStream(camera)
 		if !ok {
-			log.Warn("pause: no active stream", "camera", req.Camera)
+			log.Warn("pause: no active stream", "camera", camera)
 			return echo.NewHTTPError(
 				http.StatusNotFound,
-				fmt.Sprintf("no active stream for camera %s", req.Camera),
+				fmt.Sprintf("no active stream for camera %s", camera),
 			)
 		}
 		status := "paused"
 		if alreadyPaused {
 			status = "already-paused"
 		}
-		setPlaybackPaused(req.Camera, true)
-		log.Info("pause: stream", "camera", req.Camera, "status", status, "url", url)
-		h.events.publish(event{Camera: req.Camera, Action: "pause", Text: url, At: time.Now()})
-		return c.JSON(http.StatusOK, map[string]string{"status": status, "camera": req.Camera})
+		setPlaybackPaused(camera, true)
+		log.Info("pause: stream", "camera", camera, "status", status, "url", url)
+		h.events.publish(event{Camera: camera, Action: "pause", Text: url, At: time.Now()})
+		return c.JSON(http.StatusOK, map[string]string{"status": status, "camera": camera})
 	}
 
 	paused := pauseAllStreams()
@@ -531,31 +559,29 @@ func (h *Handlers) Pause(c echo.Context) error {
 func (h *Handlers) Resume(c echo.Context) error {
 	log := h.logger(c)
 
-	var req struct {
-		Camera string `json:"camera"`
-	}
-	if err := c.Bind(&req); err != nil {
+	camera, err := optionalCameraScope(c)
+	if err != nil {
 		log.Warn("resume: invalid request; playback unchanged")
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid resume request")
 	}
 
-	if req.Camera != "" {
-		url, notPaused, ok := resumeStream(req.Camera)
+	if camera != "" {
+		url, notPaused, ok := resumeStream(camera)
 		if !ok {
-			log.Warn("resume: no active stream", "camera", req.Camera)
+			log.Warn("resume: no active stream", "camera", camera)
 			return echo.NewHTTPError(
 				http.StatusNotFound,
-				fmt.Sprintf("no active stream for camera %s", req.Camera),
+				fmt.Sprintf("no active stream for camera %s", camera),
 			)
 		}
 		status := "resumed"
 		if notPaused {
 			status = "not-paused"
 		}
-		setPlaybackPaused(req.Camera, false)
-		log.Info("resume: stream", "camera", req.Camera, "status", status, "url", url)
-		h.events.publish(event{Camera: req.Camera, Action: "resume", Text: url, At: time.Now()})
-		return c.JSON(http.StatusOK, map[string]string{"status": status, "camera": req.Camera})
+		setPlaybackPaused(camera, false)
+		log.Info("resume: stream", "camera", camera, "status", status, "url", url)
+		h.events.publish(event{Camera: camera, Action: "resume", Text: url, At: time.Now()})
+		return c.JSON(http.StatusOK, map[string]string{"status": status, "camera": camera})
 	}
 
 	resumed := resumeAllStreams()
@@ -594,17 +620,21 @@ func (h *Handlers) resetAirPlay(name string, log *clog.Logger) {
 	)
 }
 
-// resetAllAirPlay restarts every running AirPlay receiver.
+// resetAllAirPlay restarts every running AirPlay receiver. Restarts involve
+// process teardown and listener readiness waits, so they run in parallel —
+// the manager serializes each camera with its own lock.
 func (h *Handlers) resetAllAirPlay(log *clog.Logger) {
 	if h.airplayMgr == nil {
 		return
 	}
+	var wg sync.WaitGroup
 	for name, running := range h.airplayMgr.Status() {
 		if !running {
 			continue
 		}
-		h.resetAirPlay(name, log)
+		wg.Go(func() { h.resetAirPlay(name, log) })
 	}
+	wg.Wait()
 }
 
 // Beep handles POST /api/beep — 800Hz test tone → camera.

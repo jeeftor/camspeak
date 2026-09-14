@@ -128,19 +128,43 @@ func (c *HikvisionClient) openChannel() (string, error) {
 	return result.SessionID, nil
 }
 
-// closeChannel closes the two-way audio session.
+// closeChannel closes the two-way audio session. This is what silences audio
+// already buffered on the camera, so failures are surfaced rather than
+// swallowed — a missed close leaves the camera playing its remaining buffer.
 func (c *HikvisionClient) closeChannel(sessionID string) {
 	url := fmt.Sprintf("%s/close?sessionId=%s", c.baseURL(), sessionID)
 
-	req, err := http.NewRequest(http.MethodPut, url, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, nil)
 	if err != nil {
+		c.log.Warn("stop: building channel close failed", "session", sessionID, "err", err)
 		return
 	}
 
-	if resp, err := c.client.Do(req); err == nil {
-		c.log.Debug("send: channel closed", "session", sessionID, "status", resp.StatusCode)
-		resp.Body.Close()
+	resp, err := c.client.Do(req)
+	if err != nil {
+		c.log.Warn(
+			"stop: channel close failed — camera may play out buffered audio",
+			"session",
+			sessionID,
+			"err",
+			err,
+		)
+		return
 	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= http.StatusBadRequest {
+		c.log.Warn(
+			"stop: channel close rejected",
+			"session",
+			sessionID,
+			"status",
+			resp.StatusCode,
+		)
+		return
+	}
+	c.log.Debug("send: channel closed", "session", sessionID, "status", resp.StatusCode)
 }
 
 // SendRaw streams a raw G.711ulaw file to the camera speaker.
@@ -457,14 +481,21 @@ func (c *HikvisionClient) Stop() error {
 
 	c.log.Info("stop: stopping audio", "ip", c.ip, "session", sessionID)
 
-	// Close the TCP connection — this interrupts the streaming loop
+	// Reset (RST) the TCP connection instead of a graceful close — a FIN would
+	// let the kernel keep delivering µ-law audio already queued in the send
+	// buffer, so the camera keeps playing after the user asked for silence.
 	if conn != nil {
+		if tcp, ok := conn.(*net.TCPConn); ok {
+			_ = tcp.SetLinger(0)
+		}
 		_ = conn.Close()
 	}
 
-	// Close the ISAPI two-way audio channel
+	// Close the ISAPI two-way audio channel. This runs in the background: it
+	// is session-scoped (cannot disturb a later session) and the digest-auth
+	// round-trip would otherwise stall the Stop response.
 	if sessionID != "" {
-		c.closeChannel(sessionID)
+		go c.closeChannel(sessionID)
 	}
 
 	c.activeMu.Lock()

@@ -498,14 +498,24 @@ func (r *Registry) Stop(name string) error {
 	return cam.Stop()
 }
 
-// StopAll stops audio playback on all cameras.
+// StopAll stops audio playback on all cameras. Stops run in parallel: each
+// can block on camera round-trips (digest auth, channel close, RTP teardown),
+// so serializing them would multiply stop-all latency by camera count.
 func (r *Registry) StopAll() {
 	r.mu.RLock()
 	speakers := maps.Clone(r.cameras)
 	r.mu.RUnlock()
-	for _, cam := range speakers {
-		_ = cam.Stop()
+	var wg sync.WaitGroup
+	for name, cam := range speakers {
+		wg.Go(func() {
+			if err := cam.Stop(); err != nil {
+				newLogger("registry").Warn(
+					"stop-all: camera stop failed", "camera", name, "err", err,
+				)
+			}
+		})
 	}
+	wg.Wait()
 }
 
 // FFmpegAvailable checks that ffmpeg is on PATH (required for transcoding).

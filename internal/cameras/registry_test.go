@@ -1,7 +1,9 @@
 package cameras
 
 import (
+	"io"
 	"testing"
+	"time"
 
 	"github.com/jeeftor/camspeak/internal/config"
 )
@@ -186,6 +188,48 @@ func TestRegistryNames(t *testing.T) {
 	}
 	if !found["cam_b"] {
 		t.Error("cam_b not in Names()")
+	}
+}
+
+// parallelStopSpeaker blocks in Stop until released, proving whether stops
+// run concurrently: a serial StopAll would never reach the second camera.
+type parallelStopSpeaker struct {
+	entered chan<- struct{}
+	release <-chan struct{}
+}
+
+func (s *parallelStopSpeaker) SendRaw(string, *GainController) (SendTiming, error) {
+	return SendTiming{}, nil
+}
+func (s *parallelStopSpeaker) Stream(io.Reader) error { return nil }
+func (s *parallelStopSpeaker) Ping() bool             { return true }
+func (s *parallelStopSpeaker) Stop() error {
+	s.entered <- struct{}{}
+	<-s.release
+	return nil
+}
+
+func TestStopAllRunsCamerasInParallel(t *testing.T) {
+	entered := make(chan struct{}, 2)
+	release := make(chan struct{})
+	speaker := &parallelStopSpeaker{entered: entered, release: release}
+	r := &Registry{
+		cameras: map[string]Speaker{"a": speaker, "b": speaker},
+	}
+	done := make(chan struct{})
+	go func() { r.StopAll(); close(done) }()
+	for i := 0; i < 2; i++ {
+		select {
+		case <-entered:
+		case <-time.After(2 * time.Second):
+			t.Fatal("StopAll serialized camera stops")
+		}
+	}
+	close(release)
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("StopAll did not return after cameras released")
 	}
 }
 

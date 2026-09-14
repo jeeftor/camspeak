@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -104,11 +105,77 @@ func TestEmptyStopStillCancelsAllPreparation(t *testing.T) {
 	h, e, _ := setupTestHandlers(t)
 	e.POST("/api/stop", h.Stop)
 	for _, body := range []string{"", `{}`} {
-		op := beginOperation(context.Background(), "empty-stop", &operationSpeaker{}, "speak", "test")
+		op := beginOperation(
+			context.Background(),
+			"empty-stop",
+			&operationSpeaker{},
+			"speak",
+			"test",
+		)
 		res := doJSON(e, http.MethodPost, "/api/stop", body)
 		if res.Code != http.StatusOK || op.ctx.Err() == nil {
 			t.Errorf("empty Stop: status=%d operation_error=%v", res.Code, op.ctx.Err())
 		}
 		op.finish()
+	}
+}
+
+// A reverse proxy or HTTP/2 hop can deliver a bodyless POST with
+// ContentLength == -1 (no Content-Length header, or chunked). Echo's binder
+// only skips JSON decoding for ContentLength == 0, so the empty body used to
+// decode as EOF and reject the stop-all.
+func TestStopWithoutContentLengthStillStopsAll(t *testing.T) {
+	h, e, _ := setupTestHandlers(t)
+	e.POST("/api/stop", h.Stop)
+	op := beginOperation(
+		context.Background(), "proxied-stop", &operationSpeaker{}, "speak", "test",
+	)
+	defer op.finish()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/stop", strings.NewReader(""))
+	req.ContentLength = -1
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || op.ctx.Err() == nil {
+		t.Fatalf("proxied empty stop: status=%d operation_error=%v", rec.Code, op.ctx.Err())
+	}
+}
+
+// Pausing all streams must also tolerate a bodyless proxied request.
+func TestPauseWithoutContentLengthAppliesToAll(t *testing.T) {
+	_, e, _ := setupTestHandlers(t)
+	resetStreams(t)
+	t.Cleanup(func() { resetStreams(t) })
+	addFakeStream(t, "front", "http://example/live")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/pause", strings.NewReader(""))
+	req.ContentLength = -1
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	activeStreamsMu.Lock()
+	paused := activeStreams["front"].paused
+	activeStreamsMu.Unlock()
+	if rec.Code != http.StatusOK || !paused {
+		t.Fatalf("proxied empty pause: status=%d paused=%v", rec.Code, paused)
+	}
+}
+
+// A camera deleted or disabled mid-playback is gone from the registry, but its
+// tracked playback state must still be cleared so the UI stops showing it.
+func TestStopUnknownCameraStillClearsPlayback(t *testing.T) {
+	h, e, _ := setupTestHandlers(t)
+	e.POST("/api/stop", h.Stop)
+	setPlayback("gone", "speak", "text")
+	t.Cleanup(func() { clearPlayback("gone") })
+
+	res := doJSON(e, http.MethodPost, "/api/stop", `{"camera":"gone"}`)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", res.Code)
+	}
+	if state := getAllPlayback([]string{"gone"})["gone"].State; state != "idle" {
+		t.Fatalf("playback state = %q, want idle", state)
 	}
 }

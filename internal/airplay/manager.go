@@ -19,8 +19,17 @@ import (
 
 // Manager tracks per-camera shairport-sync instances and supports live enable/disable
 // without requiring a server restart.
+//
+// Locking: opMu is an RWMutex — global operations (UpdateConfig, UpdateRouting,
+// RestartRunning, Stop) take it exclusively, while per-camera operations take
+// RLock plus that camera's own lock from opLocks. Receiver restarts for
+// different cameras can therefore run in parallel (e.g. Stop All), while a
+// global reconfigure still excludes every in-flight enable/disable. m.mu
+// guards the receivers/ports maps and m.cfg.Cameras, which per-camera
+// operations may touch concurrently.
 type Manager struct {
-	opMu      sync.Mutex // serialize lifecycle changes without blocking status reads
+	opMu      sync.RWMutex
+	opLocks   sync.Map // camera name → *sync.Mutex
 	mu        sync.Mutex
 	receivers map[string]Receiver // camera name → running receiver
 	ports     map[string]int      // camera name → assigned port (stable across toggles)
@@ -81,19 +90,31 @@ func (m *Manager) SetLogLevel(level clog.Level) {
 	}
 }
 
+// camLock returns the mutex serializing lifecycle changes for one camera.
+func (m *Manager) camLock(name string) *sync.Mutex {
+	lock, _ := m.opLocks.LoadOrStore(name, &sync.Mutex{})
+	return lock.(*sync.Mutex)
+}
+
 // Enable starts a shairport-sync receiver for the named camera.
 // No-op if already running.
 func (m *Manager) Enable(name string) error {
-	m.opMu.Lock()
-	defer m.opMu.Unlock()
+	m.opMu.RLock()
+	defer m.opMu.RUnlock()
+	lock := m.camLock(name)
+	lock.Lock()
+	defer lock.Unlock()
 	return m.startLocked(name)
 }
 
 // Disable stops the shairport-sync receiver for the named camera.
 // No-op if not running.
 func (m *Manager) Disable(name string) {
-	m.opMu.Lock()
-	defer m.opMu.Unlock()
+	m.opMu.RLock()
+	defer m.opMu.RUnlock()
+	lock := m.camLock(name)
+	lock.Lock()
+	defer lock.Unlock()
 	m.stopLocked(name)
 }
 
@@ -145,10 +166,15 @@ func (m *Manager) RestartRunning() {
 
 // UpdateCamera retires the previous receiver and binds the current speaker and settings.
 func (m *Manager) UpdateCamera(name string, cam config.CameraConfig) error {
-	m.opMu.Lock()
-	defer m.opMu.Unlock()
+	m.opMu.RLock()
+	defer m.opMu.RUnlock()
+	lock := m.camLock(name)
+	lock.Lock()
+	defer lock.Unlock()
 	m.stopLocked(name)
+	m.mu.Lock()
 	m.cfg.Cameras[name] = cam
+	m.mu.Unlock()
 	if !m.cfg.AirPlay.Enabled || !cam.Enabled || !cam.AirPlayEnabled {
 		return nil
 	}
@@ -157,11 +183,14 @@ func (m *Manager) UpdateCamera(name string, cam config.CameraConfig) error {
 
 // RemoveCamera stops its receiver and releases its port reservation.
 func (m *Manager) RemoveCamera(name string) {
-	m.opMu.Lock()
-	defer m.opMu.Unlock()
+	m.opMu.RLock()
+	defer m.opMu.RUnlock()
+	lock := m.camLock(name)
+	lock.Lock()
+	defer lock.Unlock()
 	m.stopLocked(name)
-	delete(m.cfg.Cameras, name)
 	m.mu.Lock()
+	delete(m.cfg.Cameras, name)
 	delete(m.ports, name)
 	m.mu.Unlock()
 }
@@ -253,12 +282,16 @@ func (m *Manager) assignPort(name string) (int, error) {
 	return 0, fmt.Errorf("no AirPlay port available for camera %q", name)
 }
 
-// startLocked starts a receiver; lifecycle callers hold m.opMu.
+// startLocked starts a receiver; lifecycle callers hold m.opMu (shared or
+// exclusive) and the camera's own lock.
 func (m *Manager) startLocked(name string) error {
+	m.mu.Lock()
 	if _, ok := m.receivers[name]; ok {
+		m.mu.Unlock()
 		return nil // already running
 	}
 	cam, ok := m.cfg.Cameras[name]
+	m.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("unknown camera %q", name)
 	}
