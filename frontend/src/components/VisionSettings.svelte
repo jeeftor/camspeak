@@ -21,6 +21,7 @@
   let visionHasKey = $state(false)
   let visionClearKey = $state(false)
   let visionPrompt = $state('')
+  let visionDisableThinking = $state(false)
   let visionStatus = $state('')
   let visionTestStatus = $state('')
   let visionTestBusy = $state(false)
@@ -38,6 +39,7 @@
       visionHasKey = config.has_api_key ?? false
       visionClearKey = false
       visionPrompt = config.prompt ?? ''
+      visionDisableThinking = config.disable_thinking ?? false
     } catch (cause) {
       error = 'Your vision settings could not be loaded: ' + cause.message
     } finally { loading = false }
@@ -59,6 +61,7 @@
         api_key: visionAPIKey || undefined,
         clear_api_key: visionClearKey,
         prompt: visionPrompt,
+        disable_thinking: visionDisableThinking,
       })
       visionStatus = '✓ Saved'
       toast.success('Vision config saved')
@@ -158,6 +161,10 @@
           {#if visionHasKey}
             <label class="flex items-center gap-2 text-xs sm:col-span-2"><input type="checkbox" bind:checked={visionClearKey} />Remove the stored API key on save</label>
           {/if}
+          <label class="flex items-center gap-2 text-xs sm:col-span-2" title="Sends enable_thinking=false + reasoning_effort=none — skips chain-of-thought on reasoning models (llama.cpp, Qwen3-VL, gpt-oss)">
+            <input type="checkbox" bind:checked={visionDisableThinking} />
+            Disable model thinking / reasoning <span class="text-muted-foreground/60">(faster descriptions on reasoning models)</span>
+          </label>
         </div>
         <label class="flex flex-col gap-1 text-xs text-muted-foreground mt-3">
           Default Vision Prompt

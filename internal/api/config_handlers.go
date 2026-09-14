@@ -49,11 +49,16 @@ func (h *Handlers) UpdateVisionConfig(c echo.Context) error {
 		}
 	}
 
+	disableThinking := "0"
+	if req.DisableThinking {
+		disableThinking = "1"
+	}
 	prefs := map[string]string{
-		"vision_url":     req.URL,
-		"vision_model":   req.Model,
-		"vision_api_key": req.APIKey,
-		"vision_prompt":  req.Prompt,
+		"vision_url":              req.URL,
+		"vision_model":            req.Model,
+		"vision_api_key":          req.APIKey,
+		"vision_prompt":           req.Prompt,
+		"vision_disable_thinking": disableThinking,
 	}
 	if err := config.SetPreferences(h.db, prefs); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -62,7 +67,12 @@ func (h *Handlers) UpdateVisionConfig(c echo.Context) error {
 	h.cfgMu.Lock()
 	h.cfg.Vision = req.VisionConfig
 	config.ApplyEnvOverrides(h.cfg)
-	h.vision = vision.NewClient(h.cfg.Vision.URL, h.cfg.Vision.Model, h.cfg.Vision.APIKey)
+	h.vision = vision.NewClient(
+		h.cfg.Vision.URL,
+		h.cfg.Vision.Model,
+		h.cfg.Vision.APIKey,
+		h.cfg.Vision.DisableThinking,
+	)
 	effective := h.cfg.Vision.Sanitized()
 	h.cfgMu.Unlock()
 

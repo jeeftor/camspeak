@@ -2061,7 +2061,8 @@ const openAPISpec = `{
           "api_key": {"type": "string", "writeOnly": true, "description": "Omitted or empty preserves the saved key"},
           "has_api_key": {"type": "boolean", "readOnly": true},
           "clear_api_key": {"type": "boolean", "writeOnly": true, "description": "With an empty api_key, explicitly removes the saved key"},
-          "prompt": {"type": "string", "description": "Global default vision prompt"}
+          "prompt": {"type": "string", "description": "Global default vision prompt"},
+          "disable_thinking": {"type": "boolean", "description": "Send enable_thinking=false and reasoning_effort=none to skip chain-of-thought on reasoning models"}
         }
       },
       "VisionPromptPreset": {

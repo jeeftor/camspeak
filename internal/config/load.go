@@ -89,6 +89,9 @@ func loadPreferences(db *sql.DB, cfg *Config) {
 	if v, ok := prefs["vision_prompt"]; ok {
 		cfg.Vision.Prompt = v
 	}
+	if v, ok := prefs["vision_disable_thinking"]; ok {
+		cfg.Vision.DisableThinking = v == "1" || v == "true"
+	}
 	if v, ok := prefs["airplay_enabled"]; ok {
 		cfg.AirPlay.Enabled = v == "1" || v == "true"
 	}
@@ -284,6 +287,9 @@ func ApplyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("CAMSPEAK_VISION_PROMPT"); v != "" {
 		cfg.Vision.Prompt = v
+	}
+	if v := os.Getenv("CAMSPEAK_VISION_DISABLE_THINKING"); v != "" {
+		cfg.Vision.DisableThinking = v == "1" || v == "true" || v == "yes"
 	}
 	if v := os.Getenv("CAMSPEAK_AIRPLAY_ENABLED"); v != "" {
 		cfg.AirPlay.Enabled = v == "1" || v == "true" || v == "yes"

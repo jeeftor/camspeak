@@ -107,3 +107,45 @@ func TestDescribeReturnsAnswerAlongsideReasoning(t *testing.T) {
 		t.Fatalf("max_tokens = %v, want room for reasoning + answer", maxTokens)
 	}
 }
+
+// disableThinking sends llama.cpp's request-level reasoning controls:
+// chat_template_kwargs enable_thinking=false plus reasoning_effort=none.
+// Without it, neither field leaves the client (strict OpenAI-compatible
+// endpoints reject unknown request fields).
+func TestDescribeSendsThinkingDisableOnlyWhenConfigured(t *testing.T) {
+	bodies := make(chan map[string]any, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Error(err)
+		}
+		bodies <- req
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"A dog."}}]}`))
+	}))
+	defer server.Close()
+
+	if _, err := NewClient(server.URL, "m", "", true).
+		Describe([]byte{0xFF, 0xD8}, "image/jpeg", "test"); err != nil {
+		t.Fatal(err)
+	}
+	on := <-bodies
+	kwargs, _ := on["chat_template_kwargs"].(map[string]any)
+	if kwargs["enable_thinking"] != false {
+		t.Fatal("disable_thinking request missing enable_thinking=false")
+	}
+	if on["reasoning_effort"] != "none" {
+		t.Fatal("disable_thinking request missing reasoning_effort=none")
+	}
+	if _, err := NewClient(server.URL, "m", "").
+		Describe([]byte{0xFF, 0xD8}, "image/jpeg", "test"); err != nil {
+		t.Fatal(err)
+	}
+	body := <-bodies
+	if _, ok := body["chat_template_kwargs"]; ok {
+		t.Fatal("default request leaks chat_template_kwargs")
+	}
+	if _, ok := body["reasoning_effort"]; ok {
+		t.Fatal("default request leaks reasoning_effort")
+	}
+}

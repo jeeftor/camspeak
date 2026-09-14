@@ -7,6 +7,9 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [v4.13.1] — 2026-09-13
 
+### Added
+- `disable_thinking` vision option (`CAMSPEAK_VISION_DISABLE_THINKING`, Vision settings checkbox, PUT /api/config/vision) sends `enable_thinking=false` and `reasoning_effort=none` so reasoning models on llama.cpp-style servers skip chain-of-thought for faster spoken descriptions.
+
 ### Fixed
 - Stop-all, pause-all, and resume-all now work when the request arrives without a Content-Length (chunked or HTTP/2 through a reverse proxy): the {"camera"} body is parsed directly so an empty body still means "all cameras" instead of failing as malformed.
 - Stopping a camera that left the registry mid-playback still clears its tracked playback state and resets its AirPlay receiver instead of leaving a phantom "playing" entry.

@@ -73,11 +73,16 @@ func New(
 	}
 
 	h := &Handlers{
-		cfg:    cfg,
-		reg:    reg,
-		store:  store,
-		tts:    ttsClient,
-		vision: vision.NewClient(cfg.Vision.URL, cfg.Vision.Model, cfg.Vision.APIKey),
+		cfg:   cfg,
+		reg:   reg,
+		store: store,
+		tts:   ttsClient,
+		vision: vision.NewClient(
+			cfg.Vision.URL,
+			cfg.Vision.Model,
+			cfg.Vision.APIKey,
+			cfg.Vision.DisableThinking,
+		),
 		events: newEventBus(store.DB()),
 		db:     database,
 		tmpDir: tmpDir,

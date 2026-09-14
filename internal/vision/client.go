@@ -32,10 +32,11 @@ const maxVisionTokens = 1024
 
 // Client calls an OpenAI-compatible /v1/chat/completions endpoint with image input.
 type Client struct {
-	url    string
-	model  string
-	apiKey string
-	client *http.Client
+	url             string
+	model           string
+	apiKey          string
+	disableThinking bool
+	client          *http.Client
 }
 
 // URL returns the base endpoint URL of the client.
@@ -63,13 +64,48 @@ func normalizeURL(u string) string {
 // NewClient creates a vision client.
 // url may be a bare base URL ("http://host:port"), end in "/v1", or be the
 // full "/v1/chat/completions" path — all are accepted and normalized.
-func NewClient(url, model, apiKey string) *Client {
-	return &Client{
+// Pass disableThinking to ask reasoning-capable servers to skip
+// chain-of-thought generation (llama.cpp chat_template_kwargs +
+// reasoning_effort=none); off by default since strict endpoints reject
+// unknown request fields.
+func NewClient(url, model, apiKey string, disableThinking ...bool) *Client {
+	c := &Client{
 		url:    normalizeURL(url),
 		model:  model,
 		apiKey: apiKey,
 		client: &http.Client{Timeout: 60 * time.Second},
 	}
+	if len(disableThinking) > 0 {
+		c.disableThinking = disableThinking[0]
+	}
+	return c
+}
+
+// requestBody builds the chat-completions payload for one describe call.
+func (c *Client) requestBody(model, prompt, dataURL string, stream bool) []byte {
+	streamJSON := "false"
+	if stream {
+		streamJSON = "true"
+	}
+	thinking := ""
+	if c.disableThinking {
+		thinking = `,
+		"chat_template_kwargs": {"enable_thinking": false},
+		"reasoning_effort": "none"`
+	}
+	return []byte(fmt.Sprintf(`{
+		"model": %q,
+		"stream": %s,
+		"messages": [{
+			"role": "user",
+			"content": [
+				{"type": "text", "text": %q},
+				{"type": "image_url", "image_url": {"url": %q}}
+			]
+		}],
+		"max_tokens": %d,
+		"temperature": 0.3%s
+	}`, model, streamJSON, prompt, dataURL, maxVisionTokens, thinking))
 }
 
 // Describe sends an image to the vision model and returns a text description.
@@ -133,20 +169,9 @@ func (c *Client) DescribeWithModelContext(
 		"prompt_len", len(prompt),
 	)
 
-	body := fmt.Sprintf(`{
-		"model": %q,
-		"messages": [{
-			"role": "user",
-			"content": [
-				{"type": "text", "text": %q},
-				{"type": "image_url", "image_url": {"url": %q}}
-			]
-		}],
-		"max_tokens": %d,
-		"temperature": 0.3
-	}`, model, prompt, dataURL, maxVisionTokens)
+	body := c.requestBody(model, prompt, dataURL, false)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, bytes.NewBufferString(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, bytes.NewBuffer(body))
 	if err != nil {
 		return "", fmt.Errorf("building request: %w", err)
 	}
@@ -269,21 +294,9 @@ func (c *Client) DescribeWithModelTimedContext(
 		prompt = "Describe what you see in one or two sentences. Be concise and factual."
 	}
 
-	body := fmt.Sprintf(`{
-		"model": %q,
-		"stream": true,
-		"messages": [{
-			"role": "user",
-			"content": [
-				{"type": "text", "text": %q},
-				{"type": "image_url", "image_url": {"url": %q}}
-			]
-		}],
-		"max_tokens": %d,
-		"temperature": 0.3
-	}`, model, prompt, dataURL, maxVisionTokens)
+	body := c.requestBody(model, prompt, dataURL, true)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, bytes.NewBufferString(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, bytes.NewBuffer(body))
 	if err != nil {
 		return "", DescribeTiming{}, fmt.Errorf("building request: %w", err)
 	}

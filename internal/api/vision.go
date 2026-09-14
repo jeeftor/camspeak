@@ -156,7 +156,9 @@ func (h *Handlers) VisionTest(c echo.Context) error {
 			url := cfg.Vision.URL
 			apiKey := cfg.Vision.APIKey
 			if url != "" {
-				visionClient = vision.NewClient(url, modelOverride, apiKey)
+				visionClient = vision.NewClient(
+					url, modelOverride, apiKey, cfg.Vision.DisableThinking,
+				)
 			}
 		}
 		file, err := c.FormFile("image")
@@ -198,7 +200,7 @@ func (h *Handlers) VisionTest(c echo.Context) error {
 			url := cfg.Vision.URL
 			apiKey := cfg.Vision.APIKey
 			if url != "" {
-				visionClient = vision.NewClient(url, req.Model, apiKey)
+				visionClient = vision.NewClient(url, req.Model, apiKey, cfg.Vision.DisableThinking)
 			}
 		}
 	}

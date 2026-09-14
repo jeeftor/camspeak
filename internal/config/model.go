@@ -38,6 +38,10 @@ type VisionConfig struct {
 	APIKey    string `json:"api_key,omitempty"`
 	HasAPIKey bool   `json:"has_api_key"`
 	Prompt    string `json:"prompt"` // global default prompt; empty = hardcoded fallback
+	// DisableThinking asks the server to skip chain-of-thought reasoning
+	// (llama.cpp chat_template_kwargs enable_thinking + reasoning_effort=none).
+	// Spoken one-sentence descriptions gain nothing from reasoning but latency.
+	DisableThinking bool `json:"disable_thinking"`
 }
 
 // Sanitized returns a copy of c with the API key removed and URL credentials stripped.

@@ -65,6 +65,7 @@ export interface VisionConfig {
   api_key: string
   has_api_key?: boolean
   prompt: string
+  disable_thinking?: boolean
 }
 
 export interface AirPlayConfig {
@@ -220,6 +221,7 @@ export interface SaveVisionReq {
   api_key?: string
   clear_api_key?: boolean
   prompt: string
+  disable_thinking?: boolean
 }
 
 export interface SaveVisionPromptReq {

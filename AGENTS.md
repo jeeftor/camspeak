@@ -88,6 +88,7 @@ Multiple TTS endpoints can be configured (klipbord-style presets). The active pr
 | `CAMSPEAK_VISION_MODEL` | Vision model name | (none) |
 | `CAMSPEAK_VISION_API_KEY` | Vision API key | (none) |
 | `CAMSPEAK_VISION_PROMPT` | Global default vision prompt | (hardcoded default) |
+| `CAMSPEAK_VISION_DISABLE_THINKING` | Send `enable_thinking=false` + `reasoning_effort=none` to skip chain-of-thought on reasoning models | `false` |
 | `CAMSPEAK_AIRPLAY_ENABLED` | Enable AirPlay v1 (RAOP) receivers for all cameras | `false` |
 | `CAMSPEAK_AIRPLAY_BASE_PORT` | Starting port for per-camera RAOP listeners | `5100` |
 | `CAMSPEAK_AIRPLAY_GAIN` | Default AirPlay digital gain when per-camera gain is unset | `1.0` |
