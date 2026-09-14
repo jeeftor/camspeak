@@ -195,7 +195,7 @@ prek install
 ```
 
 ## Tech stack
-- Go 1.26, Cobra, Echo, mcp-go
+- Go 1.27, Cobra, Echo, mcp-go
 - SQLite via modernc.org/sqlite (pure Go, no CGO)
 - Svelte 5 + Vite + Bun
 - ffmpeg for audio transcoding (G.711ulaw 8kHz)

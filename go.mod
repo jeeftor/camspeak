@@ -1,6 +1,8 @@
 module github.com/jeeftor/camspeak
 
-go 1.26.3
+go 1.27.0
+
+toolchain go1.27.1
 
 require (
 	github.com/alicebob/alac v0.0.0-20251224094718-0cfeed25bc2f
