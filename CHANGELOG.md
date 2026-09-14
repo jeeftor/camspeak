@@ -5,6 +5,23 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.13.1] — 2026-09-13
+
+### Fixed
+- Stop-all, pause-all, and resume-all now work when the request arrives without a Content-Length (chunked or HTTP/2 through a reverse proxy): the {"camera"} body is parsed directly so an empty body still means "all cameras" instead of failing as malformed.
+- Stopping a camera that left the registry mid-playback still clears its tracked playback state and resets its AirPlay receiver instead of leaving a phantom "playing" entry.
+- Stop resets the camera's audio connection (TCP RST via SetLinger(0)) so µ-law audio queued in the kernel send buffer is dropped instead of draining to the speaker after the user asked for silence.
+- The ISAPI channel close on Stop runs off the response path with a bounded timeout, and failures are warn-logged — a missed close previously failed silently and left the camera playing buffered audio.
+- Stop All and AirPlay receiver resets now run per-camera in parallel instead of serializing every camera's teardown, so a slow or wedged camera no longer stalls the whole request.
+
+### Changed
+- Vision describe now sends a 1024-token budget (was 150) so reasoning models (MiniCPM-V, Qwen3-VL, gpt-oss) have room for chain-of-thought plus the spoken answer — the 150 cap was consumed by `reasoning_content` alone and failed as "empty response".
+- Vision responses now log `reasoning_len` and `completion_tokens`, and a reasoning-only response reports "produced reasoning but no answer" instead of a generic empty-response error.
+- Go toolchain updated to 1.27.1; Docker image and CI build with Go 1.27.
+- `make fmt` now passes golines the same tab width (-t 2) as the pre-commit hook, so both format identically.
+
+---
+
 ## [v4.13.0] — 2026-09-11
 
 ### Added
