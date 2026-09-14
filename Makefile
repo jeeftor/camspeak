@@ -29,9 +29,9 @@ check-frontend: ## Check frontend types and run frontend regression tests
 lint: ## Run golangci-lint
 	golangci-lint run ./...
 
-fmt: ## Format Go code (gofumpt + golines)
+fmt: ## Format Go code (gofumpt + golines, matching .pre-commit-config.yaml)
 	gofumpt -w .
-	golines -w --max-len=100 .
+	golines -w -m 100 -t 2 .
 
 vet: ## Run go vet
 	go vet ./...

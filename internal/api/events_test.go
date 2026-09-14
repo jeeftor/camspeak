@@ -131,7 +131,8 @@ func TestLegacyPlaybackHistoryRedactsURLs(t *testing.T) {
 			t.Fatalf("history=%v err=%v", history, readErr)
 		}
 		ev := history[0]
-		if ev.Text != "https://example.com/radio" || ev.Replay.Body["url"] != ev.Text || !ev.Replay.Redacted {
+		if ev.Text != "https://example.com/radio" || ev.Replay.Body["url"] != ev.Text ||
+			!ev.Replay.Redacted {
 			t.Fatalf("legacy credentials were not redacted: %#v", ev)
 		}
 	}

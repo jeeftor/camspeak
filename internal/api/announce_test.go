@@ -38,7 +38,11 @@ func TestAnnounceValidation(t *testing.T) {
 		// h.vision is nil in setupTestHandlers, so this should return 503.
 		rec := doJSON(e, "POST", "/api/announce", `{"source_camera":"front","target_camera":"back"}`)
 		if rec.Code != http.StatusServiceUnavailable {
-			t.Errorf("status = %d, want %d (vision not configured)", rec.Code, http.StatusServiceUnavailable)
+			t.Errorf(
+				"status = %d, want %d (vision not configured)",
+				rec.Code,
+				http.StatusServiceUnavailable,
+			)
 		}
 	})
 }

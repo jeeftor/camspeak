@@ -17,7 +17,9 @@ func TestBenchmarkStreamingMeasuresDeliveryAndWrapsPCM(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Error(err)
 		}
-		if body["stream_format"] != "audio" || body["response_format"] != "pcm" || body["input"] != "test" || r.Header.Get("Authorization") != "Bearer secret" {
+		if body["stream_format"] != "audio" || body["response_format"] != "pcm" ||
+			body["input"] != "test" ||
+			r.Header.Get("Authorization") != "Bearer secret" {
 			t.Error("wrong streaming request")
 		}
 		w.Header().Set("Content-Type", "audio/pcm")
@@ -27,14 +29,20 @@ func TestBenchmarkStreamingMeasuresDeliveryAndWrapsPCM(t *testing.T) {
 		_, _ = w.Write([]byte{1, 0})
 	}))
 	defer server.Close()
-	result, err := NewClient(server.URL, "kokoro", "secret").Benchmark(context.Background(), "test", "af_sky", "streaming", 24000, 1)
+	result, err := NewClient(
+		server.URL,
+		"kokoro",
+		"secret",
+	).Benchmark(context.Background(), "test", "af_sky", "streaming", 24000, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.TotalMs-result.FirstByteMs < 30 || result.Bytes != 4 {
 		t.Fatalf("incorrect timing/size: %+v", result)
 	}
-	wav, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(result.Audio, "data:audio/wav;base64,"))
+	wav, err := base64.StdEncoding.DecodeString(
+		strings.TrimPrefix(result.Audio, "data:audio/wav;base64,"),
+	)
 	if err != nil || len(wav) != 48 || string(wav[:4]) != "RIFF" {
 		t.Fatal("invalid PCM preview wrapper")
 	}
@@ -58,7 +66,10 @@ func TestBenchmarkBufferedAndErrors(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			_, err := NewClient(server.URL, "kokoro").Benchmark(context.Background(), "test", "voice", mode, 24000, 1)
+			_, err := NewClient(
+				server.URL,
+				"kokoro",
+			).Benchmark(context.Background(), "test", "voice", mode, 24000, 1)
 			if (err != nil) != (mode == "streaming") {
 				t.Fatalf("unexpected error: %v", err)
 			}
