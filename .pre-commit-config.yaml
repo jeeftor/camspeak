@@ -23,7 +23,7 @@ repos:
 
   # Go linter — runs on all files (use golangci-lint for changed-only in local)
   - repo: https://github.com/golangci/golangci-lint
-    rev: v2.12.2
+    rev: v2.13.2
     hooks:
       - id: golangci-lint-full
       - id: golangci-lint-fmt
