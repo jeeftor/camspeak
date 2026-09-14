@@ -24,6 +24,12 @@ func SetLogLevel(level clog.Level) {
 	logging.SetLevel(log, level)
 }
 
+// maxVisionTokens bounds one describe call. Reasoning models (MiniCPM-V,
+// Qwen3-VL, gpt-oss) emit reasoning_content that shares this budget with the
+// answer — the old 150-token cap was routinely consumed entirely by
+// chain-of-thought, returning empty content and a confusing "empty response".
+const maxVisionTokens = 1024
+
 // Client calls an OpenAI-compatible /v1/chat/completions endpoint with image input.
 type Client struct {
 	url    string
@@ -136,9 +142,9 @@ func (c *Client) DescribeWithModelContext(
 				{"type": "image_url", "image_url": {"url": %q}}
 			]
 		}],
-		"max_tokens": 150,
+		"max_tokens": %d,
 		"temperature": 0.3
-	}`, model, prompt, dataURL)
+	}`, model, prompt, dataURL, maxVisionTokens)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, bytes.NewBufferString(body))
 	if err != nil {
@@ -169,30 +175,51 @@ func (c *Client) DescribeWithModelContext(
 		Choices []struct {
 			FinishReason string `json:"finish_reason"`
 			Message      struct {
-				Content string `json:"content"`
+				Content          string `json:"content"`
+				ReasoningContent string `json:"reasoning_content"`
+				Reasoning        string `json:"reasoning"`
 			} `json:"message"`
 		} `json:"choices"`
+		Usage struct {
+			CompletionTokens int `json:"completion_tokens"`
+		} `json:"usage"`
 	}
 	if err := json.Unmarshal(respBody, &result); err != nil {
 		return "", fmt.Errorf("parsing vision response: %w", err)
 	}
 
-	if len(result.Choices) == 0 || result.Choices[0].Message.Content == "" {
+	if len(result.Choices) == 0 {
+		return "", fmt.Errorf("vision API returned no choices: %s", string(respBody))
+	}
+	choice := result.Choices[0]
+	reasoning := choice.Message.ReasoningContent
+	if reasoning == "" {
+		reasoning = choice.Message.Reasoning
+	}
+	content := choice.Message.Content
+	if content == "" {
+		if reasoning != "" {
+			return "", fmt.Errorf(
+				"vision model produced reasoning but no answer (finish_reason=%s, %d completion tokens)",
+				choice.FinishReason,
+				result.Usage.CompletionTokens,
+			)
+		}
 		return "", fmt.Errorf("vision API returned empty response: %s", string(respBody))
 	}
 
 	log.Info(
 		"vision response",
 		"model", model,
-		"finish_reason", result.Choices[0].FinishReason,
-		"truncated", result.Choices[0].FinishReason == "length",
-		"text_len",
-		len(result.Choices[0].Message.Content),
-		"elapsed",
-		time.Since(start),
+		"finish_reason", choice.FinishReason,
+		"truncated", choice.FinishReason == "length",
+		"text_len", len(content),
+		"reasoning_len", len(reasoning),
+		"completion_tokens", result.Usage.CompletionTokens,
+		"elapsed", time.Since(start),
 	)
 
-	return result.Choices[0].Message.Content, nil
+	return content, nil
 }
 
 // DescribeTiming holds per-phase latency from a streaming vision request.
@@ -252,9 +279,9 @@ func (c *Client) DescribeWithModelTimedContext(
 				{"type": "image_url", "image_url": {"url": %q}}
 			]
 		}],
-		"max_tokens": 150,
+		"max_tokens": %d,
 		"temperature": 0.3
-	}`, model, prompt, dataURL)
+	}`, model, prompt, dataURL, maxVisionTokens)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, bytes.NewBufferString(body))
 	if err != nil {
@@ -282,10 +309,13 @@ func (c *Client) DescribeWithModelTimedContext(
 		)
 	}
 
-	// Read SSE stream; record time to first content token.
+	// Read SSE stream; record time to first generated token (reasoning counts —
+	// it is generation even though it is never spoken).
 	var sb strings.Builder
 	var ttfs time.Duration
 	gotFirst := false
+	reasoningLen := 0
+	finishReason := ""
 
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
@@ -300,7 +330,9 @@ func (c *Client) DescribeWithModelTimedContext(
 		var chunk struct {
 			Choices []struct {
 				Delta struct {
-					Content string `json:"content"`
+					Content          string `json:"content"`
+					ReasoningContent string `json:"reasoning_content"`
+					Reasoning        string `json:"reasoning"`
 				} `json:"delta"`
 				FinishReason *string `json:"finish_reason"`
 			} `json:"choices"`
@@ -309,12 +341,15 @@ func (c *Client) DescribeWithModelTimedContext(
 			continue
 		}
 		for _, ch := range chunk.Choices {
-			if ch.Delta.Content != "" {
-				if !gotFirst {
-					ttfs = time.Since(start)
-					gotFirst = true
-				}
-				sb.WriteString(ch.Delta.Content)
+			if ch.Delta.Content+ch.Delta.ReasoningContent+ch.Delta.Reasoning != "" &&
+				!gotFirst {
+				ttfs = time.Since(start)
+				gotFirst = true
+			}
+			sb.WriteString(ch.Delta.Content)
+			reasoningLen += len(ch.Delta.ReasoningContent) + len(ch.Delta.Reasoning)
+			if ch.FinishReason != nil {
+				finishReason = *ch.FinishReason
 			}
 		}
 	}
@@ -334,6 +369,12 @@ func (c *Client) DescribeWithModelTimedContext(
 
 	text := strings.TrimSpace(sb.String())
 	if text == "" {
+		if reasoningLen > 0 {
+			return "", timing, fmt.Errorf(
+				"vision model produced reasoning but no answer (finish_reason=%s)",
+				finishReason,
+			)
+		}
 		return "", timing, fmt.Errorf("vision API returned empty response")
 	}
 
@@ -342,6 +383,7 @@ func (c *Client) DescribeWithModelTimedContext(
 		"ttfs_ms", timing.TtfsMs,
 		"gen_ms", timing.GenMs,
 		"total_ms", timing.TotalMs,
+		"reasoning_len", reasoningLen,
 	)
 	return text, timing, nil
 }
