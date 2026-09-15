@@ -5,6 +5,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v4.13.2] — 2026-09-15
+
+### Fixed
+- Vision descriptions no longer show the same plain-text response twice. Responses that use Markdown retain an optional raw-Markdown disclosure for diagnostics.
+- go2rtc stream pickers now list named streams in case-insensitive alphabetical order, while keeping the built-in capture choices first.
+
+---
+
 ## [v4.13.1] — 2026-09-13
 
 ### Added
