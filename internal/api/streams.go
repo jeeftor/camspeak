@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -80,6 +81,9 @@ func (h *Handlers) Streams(c echo.Context) error {
 		}
 		streams = append(streams, si)
 	}
+	sort.Slice(streams, func(i, j int) bool {
+		return strings.ToLower(streams[i].Name) < strings.ToLower(streams[j].Name)
+	})
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"status":  "ok",

@@ -3,6 +3,7 @@
   import { Button } from '$lib/components/ui/button'
   import GainSlider from '$lib/components/GainSlider.svelte'
   import Markdown from '$lib/components/Markdown.svelte'
+  import { hasRichMarkdown } from '$lib/markdown'
   import CopyButton from '$lib/components/CopyButton.svelte'
   import AudioPlayer from './AudioPlayer.svelte'
   import VuMeter from './VuMeter.svelte'
@@ -81,15 +82,18 @@
         <p class="text-xs text-muted-foreground">Stages track audio sent to the camera, not confirmation of audible sound.</p>
       {/if}
       {#if result.description}
+        {@const showRawDescription = hasRichMarkdown(result.description)}
         <div class="flex items-center justify-between gap-2">
           <span class="text-xs text-muted-foreground">Description</span>
           <CopyButton text={result.description} label="Copy full description" />
         </div>
         <Markdown content={result.description} />
-        <details class="min-w-0">
-          <summary class="cursor-pointer text-xs text-muted-foreground">Full response · plain text</summary>
-          <pre class="mt-2 whitespace-pre-wrap break-words text-sm [overflow-wrap:anywhere]">{result.description}</pre>
-        </details>
+        {#if showRawDescription}
+          <details class="min-w-0">
+            <summary class="cursor-pointer text-xs text-muted-foreground">Raw Markdown response</summary>
+            <pre class="mt-2 whitespace-pre-wrap break-words text-sm [overflow-wrap:anywhere]">{result.description}</pre>
+          </details>
+        {/if}
       {/if}
       {#if result.capture_source}<p class="text-xs text-muted-foreground">Captured using {result.capture_source}</p>{/if}
       {#if !steps.length && !job && result.total_ms == null && !draft.busy}<p class="text-xs text-muted-foreground">This action did not return timing details.</p>{/if}

@@ -4,7 +4,7 @@ import { JSDOM } from 'jsdom'
 const dom = new JSDOM('<!doctype html>')
 const originalWindow = globalThis.window
 Object.defineProperty(globalThis, 'window', { value: dom.window, configurable: true })
-const { renderMarkdown } = await import('../src/lib/markdown')
+const { hasRichMarkdown, renderMarkdown } = await import('../src/lib/markdown')
 
 afterAll(() => {
   dom.window.close()
@@ -23,4 +23,15 @@ test('ordinary Markdown formatting and safe links remain usable', () => {
   const html = renderMarkdown('**Camera ready**\n\n[Help](https://example.com/help)')
   expect(html).toContain('<strong>Camera ready</strong>')
   expect(html).toContain('href="https://example.com/help"')
+})
+
+test('plain responses do not need a duplicate raw Markdown disclosure', () => {
+  expect(hasRichMarkdown('A silver car is parked beside a green hammock.')).toBeFalse()
+  expect(hasRichMarkdown('Line one.\nLine two.')).toBeFalse()
+})
+
+test('formatted responses retain a raw Markdown disclosure', () => {
+  expect(hasRichMarkdown('**Camera ready**')).toBeTrue()
+  expect(hasRichMarkdown('- Person at the door\n- Parcel on the mat')).toBeTrue()
+  expect(hasRichMarkdown('[View event](https://example.com/event)')).toBeTrue()
 })

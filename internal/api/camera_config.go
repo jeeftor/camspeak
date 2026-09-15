@@ -495,6 +495,9 @@ func (h *Handlers) ListGo2rtcStreams(c echo.Context) error {
 			HasBackchannel: strings.Contains(src, "backchannel"),
 		})
 	}
+	sort.Slice(result, func(i, j int) bool {
+		return strings.ToLower(result[i].Name) < strings.ToLower(result[j].Name)
+	})
 	h.logger(c).Debug("listed go2rtc streams", "url", go2rtcURL, "count", len(result))
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"go2rtc_url": go2rtcURL,
