@@ -7,3 +7,13 @@ export function renderMarkdown(content: string): string {
     USE_PROFILES: { html: true },
   })
 }
+
+/** Report whether Markdown syntax changes how a response is presented. */
+export function hasRichMarkdown(content: string): boolean {
+  let rich = false
+  marked.walkTokens(marked.lexer(content), token => {
+    if (!['paragraph', 'text', 'br', 'space'].includes(token.type)) rich = true
+  })
+
+  return rich
+}
